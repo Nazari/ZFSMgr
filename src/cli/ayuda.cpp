@@ -1265,7 +1265,13 @@ const std::vector<Orden> kOrdenes = {
       "de dejar el anterior."},
       {"t_rsync_det5", "Cualquiera de los dos extremos puede ser una ruta suelta de la máquina, "
       "`zfsm://maq#path/var/datos`, fuera de cualquier dataset. Como destino tiene que existir y "
-      "ser un directorio."}},
+      "ser un directorio."},
+      {"t_rsync_det6", "No usa el `rsync` del sistema: es la copia propia del agente, dentro de una "
+      "máquina y entre máquinas. Conserva dueño (por nombre), modo, fechas al nanosegundo, enlaces "
+      "simbólicos y duros, ficheros especiales, huecos, ACL y atributos extendidos, y da por igual lo "
+      "que coincide en tamaño y fecha. Si el destino es de otro sistema, avisa de lo que allí no cabe "
+      "(una ACL de Linux en FreeBSD, cualquier ACL en Windows). `--check` lista un cambio por línea: "
+      "`+` nuevo, `!` cambia de tipo, `>` contenido, `.` solo metadatos, `-` se borra."}},
      Objetivo::Cualquiera,
      {{"destino", Ranura::Tipo::Url, Ranura::Cuantas::Una, Objetivo::Dataset}}},
     {"breakdown", {"t_acciones_79bd0e", "Acciones"},

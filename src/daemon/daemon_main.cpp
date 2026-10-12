@@ -644,7 +644,6 @@ std::string agentCapabilityList() {
 #ifndef _WIN32
     caps.push_back("--repair-alt-mountpoints");
     caps.push_back("--mutate-advanced-todir");
-    caps.push_back("--mutate-rsync-local");
     caps.push_back("--mutate-copy-local");
 #endif
     // Desglosar y Ensamblar, en las dos plataformas. El comentario que había aquí decía
@@ -738,32 +737,6 @@ std::string makeTempDir(const char* patternPrefix) {
     }
     return dir;
 #endif
-}
-
-// Banderas de preservación de rsync, sondeadas UNA vez: son propiedad del binario
-// local, no de cada operación.
-//
-// El shell antiguo hacía este sondeo antes de cada copia. Al pasar a nativo se
-// perdió aquí y runCopyTreeCapture se quedó con "-aHWS" a secas, de modo que
-// todir, assemble y breakdown dejaron de preservar ACLs y atributos extendidos sin
-// avisar de nada. Send de menos en silencio es la peor forma de perder datos: el
-// usuario cree que tiene lo mismo que antes.
-const std::vector<std::string>& rsyncPreservationFlags() {
-    static const std::vector<std::string> flags = [] {
-        std::vector<std::string> out;
-        const ExecResult help = runExecCapture("rsync", {"--help"});
-        const std::string helpText = help.out + help.err;
-        if (runExecCapture("rsync", {"-A", "--version"}).rc == 0) {
-            out.push_back("-A");
-        }
-        if (runExecCapture("rsync", {"-X", "--version"}).rc == 0) {
-            out.push_back("-X");
-        } else if (helpText.find("--extended-attributes") != std::string::npos) {
-            out.push_back("--extended-attributes");  // el rsync de Apple lo llama así
-        }
-        return out;
-    }();
-    return flags;
 }
 
 // Bytes que ocupa un dataset, para poder medir cuánto lleva copiado sin recorrer el
@@ -2966,8 +2939,8 @@ int runGenericMutation(const std::string& tool, const std::string& payloadB64) {
 // vivo: tras «cambiarla», la vieja cargaba la clave y la nueva daba «Incorrect key
 // provided».
 //
-// Afectaba por igual a la interfaz, al intérprete y al servidor web, porque los tres llaman
-// aquí con las banderas vacías.
+// Afectaba por igual a la interfaz y al intérprete, porque los dos llaman aquí con las
+// banderas vacías.
 //
 // No se fuerza `-o keylocation=prompt` a espaldas de nadie: un dataset que toma su clave de
 // un fichero está así a propósito —se abre solo al arrancar— y cambiárselo de tapadillo
@@ -3076,12 +3049,11 @@ static ExecResult runPrepareDirCapture(const std::vector<std::string>& params) {
 //
 // Partido en dos, la otra mitad la puede hacer el transporte de árbol entre daemons
 // —`--tree-recv-listen` en el destino, `--tree-send-to-peer` en el origen—, que es el mismo
-// que usan `zfs send` y el servidor web. Con eso los datos van de máquina a máquina en vez
-// de pasar por el equipo de quien manda.
+// que usa `zfs send`. Con eso los datos van de máquina a máquina en vez de pasar por el
+// equipo de quien manda.
 //
 // `--tree-recv-listen` EXIGE que el directorio ya exista —comprueba `is_directory` y si no
-// devuelve 2—, y ese es justamente el motivo de que el servidor web no ofrezca
-// subdirectorio: sin este verbo, el árbol solo sabe volcar en la raíz del dataset.
+// devuelve 2—: sin este verbo, el árbol solo sabe volcar en la raíz del dataset.
 //
 // Va fuera del `#ifndef _WIN32` a propósito: no usa tar ni nada de Unix, y
 // `getDatasetMountpointCapture` ya consulta los montajes REALES —en Windows la propiedad
@@ -4100,129 +4072,6 @@ bool isAbsolutePathForPlatform(const std::string& p) {
 #endif
 }
 
-// --mutate-rsync-local: typed rsync sync. Replaces the shell command that used to
-// probe rsync capabilities inline (`rsync --help | grep ...`) and interpolate the
-// resulting $RSYNC_OPTS into a shell line. The capability probe now runs here, the
-// daemon assembles the argv, and rsync is exec'd directly — no shell involved.
-//
-// Payload is base64(JSON array) of strings:
-//   [delete("0"|"1"), dryRun("0"|"1"), rsh, dstHost, src1, dst1, src2, dst2, ...]
-// There must be at least one src/dst pair and the trailing path list must be even.
-// Multiple pairs cover the subdataset case, which previously chained N rsync calls
-// with `set -e; ... && ...`: the probe runs once and the pairs execute in order,
-// stopping at the first failure (same semantics).
-// rsh/dstHost are empty for a same-host sync. When dstHost is set the destination
-// becomes "<dstHost>:<dst>/" and rsh (if non-empty) is passed as -e; rsync applies
-// its own quote-aware tokenization to that string, matching the previous behavior.
-bool buildRsyncLocalPlan(const std::string& payloadB64,
-                         std::vector<std::vector<std::string>>& argvsOut,
-                         std::string& errMsg) {
-    argvsOut.clear();
-    std::string decoded;
-    if (!decodeBase64(payloadB64, decoded)) {
-        errMsg = "invalid rsync payload\n";
-        return false;
-    }
-    std::vector<std::string> f;
-    if (!parseJsonStringArray(decoded, f) || f.size() < 6 || ((f.size() - 4) % 2) != 0) {
-        errMsg = "invalid rsync payload\n";
-        return false;
-    }
-    const std::string delFlag = trim(f[0]);
-    const std::string dryFlag = trim(f[1]);
-    const std::string rsh = f[2];
-    const std::string dstHost = trim(f[3]);
-    if ((delFlag != "0" && delFlag != "1") || (dryFlag != "0" && dryFlag != "1")) {
-        errMsg = "invalid rsync flag\n";
-        return false;
-    }
-
-    std::vector<std::pair<std::string, std::string>> pairs;
-    for (std::size_t i = 4; i + 1 < f.size(); i += 2) {
-        const std::string src = trim(f[i]);
-        const std::string dst = trim(f[i + 1]);
-        if (!isAbsolutePathForPlatform(src) || !isAbsolutePathForPlatform(dst)) {
-            errMsg = "rsync paths must be absolute\n";
-            return false;
-        }
-        pairs.emplace_back(src, dst);
-    }
-    if (pairs.empty()) {
-        errMsg = "invalid rsync payload\n";
-        return false;
-    }
-
-    // Capability probe (previously done inline in shell), run once for all pairs.
-    const ExecResult help = runExecCapture("rsync", {"--help"});
-    const std::string helpText = help.out + help.err;
-    const bool hasInfo = helpText.find("--info") != std::string::npos;
-
-    std::vector<std::string> base;
-    base.push_back("-aHWS");
-    if (delFlag == "1") {
-        base.push_back("--delete");
-    }
-    const bool simulacion = (dryFlag == "1");
-    if (simulacion) {
-        base.push_back("--dry-run");
-    }
-    // Mismo sondeo que runCopyTreeCapture, compartido para que no puedan
-    // divergir otra vez.
-    for (const std::string& f : rsyncPreservationFlags()) {
-        base.push_back(f);
-    }
-    // En una SIMULACIÓN se pide la lista de cambios; en una ejecución real, el progreso.
-    //
-    // Antes se pedía progreso en las dos, y eso dejaba el «Check» sin su única razón de
-    // ser: la respuesta era una línea de porcentaje sobre ficheros que no se han copiado,
-    // en vez de QUÉ ficheros cambiarían. Con `-i` cada línea dice el cambio y el fichero,
-    // que es lo que uno mira antes de dejar que `--delete` borre algo.
-    if (simulacion) {
-        base.push_back("-i");
-    } else {
-        base.push_back(hasInfo ? "--info=progress2" : "--progress");
-    }
-    if (!dstHost.empty() && !rsh.empty()) {
-        base.push_back("-e");
-        base.push_back(rsh);
-    }
-
-    for (const auto& p : pairs) {
-        std::vector<std::string> argv = base;
-        // La barra final es lo que hace que rsync copie el CONTENIDO de un directorio y no
-        // el directorio dentro de otro. Es lo correcto para un árbol y es un error para un
-        // fichero: `rsync /ruta/f.txt/ dst/` falla con «change_dir … Not a directory».
-        //
-        // Se decide AQUÍ y no en la carga a propósito. La carga es un array plano
-        // —`[delete, dryRun, rsh, host, origen1, destino1, …]`— y meterle una marca por par
-        // cambiaría su forma, o sea el contrato con los clientes: un daemon anterior la
-        // leería mal. Y además esto es lo único que puede SABERLO: el sistema de ficheros
-        // está aquí, no en quien compuso la carga, que puede estar en otra máquina.
-        std::error_code ecTipo;
-        const bool origenEsFichero =
-            std::filesystem::is_regular_file(p.first, ecTipo) && !ecTipo;
-        // Y un fichero NO se mete dentro de un directorio que se llame igual.
-        //
-        // `rsync f dst` con `dst` ya existente y siendo directorio deja `dst/f`, en
-        // silencio: se pidió copiar un fichero y aparece un directorio con el fichero
-        // dentro. Visto en vivo —`destino/fichero.txt/fichero.txt`— y es exactamente lo que
-        // `cp` de toda la vida se niega a hacer («cannot overwrite directory»). Mejor
-        // negarse que dejar un árbol que no se pidió.
-        std::error_code ecDst;
-        if (origenEsFichero && std::filesystem::is_directory(p.second, ecDst) && !ecDst) {
-            errMsg = "cannot copy the file «" + p.first + "»: the target already has "
-                       "a DIRECTORY with the same name («" + p.second + "»)\n";
-            return false;
-        }
-        const std::string barra = origenEsFichero ? "" : "/";
-        argv.push_back(p.first + barra);
-        argv.push_back(dstHost.empty() ? (p.second + barra)
-                                       : (dstHost + ":" + p.second + barra));
-        argvsOut.push_back(std::move(argv));
-    }
-    return true;
-}
-
 // --mutate-copy-local: copiar dentro de esta máquina con el motor del proyecto.
 //
 // El mismo `copytree` que ya usan `todir`, `breakdown` y `assemble` —ficheros dispersos,
@@ -4308,59 +4157,43 @@ ExecResult runCopyLocalCapture(const std::string& payloadB64) {
             ponCodigo(r, "paths_not_absolute", {});
             return r;
         }
+        // En SECO, la lista de lo que cambiaría, una línea por entrada: es para lo que se
+        // pide una pasada en seco —ver qué va a borrar `--delete` antes de dejarle—, y la
+        // cuenta sola no lo dice. Un carácter de clase y la ruta relativa:
+        //   + nuevo   ! cambia de tipo   > contenido   . solo metadatos   - se borra
+        if (opt.dryRun) {
+            opt.itemize = [&r](zfsmgr::copytree::Change c, const std::string& rel) {
+                using C = zfsmgr::copytree::Change;
+                const char* marca = c == C::Created    ? "+ "
+                                    : c == C::Replaced ? "! "
+                                    : c == C::Content  ? "> "
+                                    : c == C::Metadata ? ". "
+                                                       : "- ";
+                r.out += marca + rel + "\n";
+            };
+        }
         const zfsmgr::copytree::Result cr =
             zfsmgr::copytree::copyTree(origen, destino, opt);
-        if (!cr.ok) {
-            r.rc = 1;
-            r.err += cr.error + "\n";
-            return r;
-        }
         r.out += "FILES=" + std::to_string(cr.filesCopied)
                  + " DIRS=" + std::to_string(cr.dirsCreated)
                  + " SYMLINKS=" + std::to_string(cr.symlinksCopied)
+                 + " SPECIALS=" + std::to_string(cr.specialsCreated)
                  + " HARDLINKS=" + std::to_string(cr.hardLinksRecreated)
                  + " BYTES=" + std::to_string(cr.bytesWritten)
-                 + " IGUALES=" + std::to_string(cr.filesSkipped) + "\n";
-    }
-    return r;
-}
-
-ExecResult runRsyncLocalCapture(const std::string& payloadB64) {
-    ExecResult r;
-    std::vector<std::vector<std::string>> argvs;
-    std::string errMsg;
-    if (!buildRsyncLocalPlan(payloadB64, argvs, errMsg)) {
-        r.rc = 2;
-        r.err = errMsg;
-        return r;
-    }
-    r.rc = 0;
-    for (const std::vector<std::string>& argv : argvs) {
-        const ExecResult sub = runExecCapture("rsync", argv);
-        r.out += sub.out;
-        r.err += sub.err;
-        if (sub.rc != 0) {
-            r.rc = sub.rc;  // stop at first failure, like the previous `set -e`
-            break;
+                 + " UNCHANGED=" + std::to_string(cr.filesSkipped)
+                 + " DELETED=" + std::to_string(cr.entriesDeleted) + "\n";
+        // Un fallo no corta la copia —se sigue con lo demás, como rsync—, pero sí el resto
+        // de pares, y se dicen TODOS los motivos: con solo el primero, arreglarlo destapaba
+        // el siguiente en otra pasada.
+        if (!cr.ok) {
+            r.rc = 1;
+            for (const std::string& e : cr.errors) {
+                r.err += e + "\n";
+            }
+            return r;
         }
     }
     return r;
-}
-
-int runRsyncLocal(const std::string& payloadB64) {
-    std::vector<std::vector<std::string>> argvs;
-    std::string errMsg;
-    if (!buildRsyncLocalPlan(payloadB64, argvs, errMsg)) {
-        std::cerr << errMsg;
-        return 2;
-    }
-    for (const std::vector<std::string>& argv : argvs) {
-        const int sub = runExecStreaming("rsync", argv);
-        if (sub != 0) {
-            return sub;  // stop at first failure, like the previous `set -e`
-        }
-    }
-    return 0;
 }
 
 #ifndef _WIN32
@@ -4666,8 +4499,8 @@ bool writeSelfSignedPair(const std::string& certPath,
                          const std::string& commonName,
                          bool serverAuth,
                          std::string& errMsg) {
-    // La emisión vive en `base/tlsserver.cpp` desde que hay un segundo artefacto que la
-    // necesita —el servidor web—. Aquí queda el nombre y los alt-names del agente.
+    // La emisión vive en `base/tlsserver.cpp`. Aquí queda el nombre y los alt-names del
+    // agente.
     std::string err;
     const bool ok = zfsmgr::base::tlsserver::writeSelfSignedPair(
         certPath, keyPath, commonName, serverAuth,
@@ -5162,8 +4995,7 @@ bool rutaDentroDeUnMountpoint(const std::string& ruta) {
     // —una ruta que allí no existe— y el montaje real es «Z:/sa/». Comprobado contra OldLau.
     // O sea que `--dump-dir-list` y `--dump-file` estaban muertos en Windows: contestaban
     // «la ruta no está dentro de ningún punto de montaje» a cualquier ruta, incluida la
-    // buena. Afectaba al navegador de ficheros del servidor web y al `ls #content` del
-    // intérprete.
+    // buena. Afectaba al `ls #content` del intérprete.
     //
     // La propiedad se conserva de reserva: si `zfs mount` no contesta —o el dataset no
     // aparece en su lista— es mejor eso que nada.
@@ -8228,7 +8060,12 @@ static bool leeManifiesto(TransferSocket s, std::vector<AR::Entry>& salida,
     return AR::parseManifest(acumulado, salida, error);
 }
 
-// El receptor: manda lo que tiene y aplica lo que le digan.
+// El receptor: dice qué sistema es, manda lo que tiene y aplica lo que le digan.
+//
+// Todo lo que se escribe pasa por un TEMPORAL y un rename, como en copytree: escribir encima
+// arrastraba a los enlaces duros del destino y un corte a mitad dejaba el fichero bueno
+// destruido. Y los metadatos de los directorios se ponen al final, de dentro afuera: crear o
+// renombrar dentro cambia su fecha, y un modo 000 puesto antes impediría llenarlo.
 static void runTreeReceiveSession(TransferSocket listenFd, const std::string& token,
                                   const std::string& raiz) {
     struct timeval tv{};
@@ -8256,6 +8093,51 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
         return;
     }
 
+    // Los nombres de dueño y grupo que usa el origen: se contesta qué número tiene aquí cada
+    // uno, para que el emisor compare lo que de verdad va a quedar (ver OwnerMap).
+    std::vector<std::string> susUsuarios;
+    std::vector<std::string> susGrupos;
+    for (;;) {
+        std::string linea;
+        if (!leeLinea(cliente, linea)) {
+            closeTransferSocket(cliente);
+            return;
+        }
+        if (linea == "E") {
+            break;
+        }
+        std::istringstream iss(linea);
+        char cual = 0;
+        std::size_t largo = 0;
+        if (!(iss >> cual >> largo) || (cual != 'u' && cual != 'g') || largo > 1024) {
+            closeTransferSocket(cliente);
+            return;
+        }
+        std::string nombre(largo, '\0');
+        if (largo > 0 && !leeExacto(cliente, nombre.data(), largo)) {
+            closeTransferSocket(cliente);
+            return;
+        }
+        (cual == 'u' ? susUsuarios : susGrupos).push_back(nombre);
+    }
+    // Qué sistema es este —el emisor solo manda los atributos y las ACL que aquí caben, y
+    // cuenta los demás para avisar— y los números de esos nombres aquí.
+    std::string saludo =
+        std::string("R ") + zfsmgr::fsmeta::nameOf(zfsmgr::fsmeta::localFamily()) + "\n";
+    const AR::OwnerMap aqui = AR::resolveHere(susUsuarios, susGrupos);
+    for (const auto& kv : aqui.users) {
+        saludo += "u " + std::to_string(kv.second) + " " + std::to_string(kv.first.size()) + "\n"
+                  + kv.first;
+    }
+    for (const auto& kv : aqui.groups) {
+        saludo += "g " + std::to_string(kv.second) + " " + std::to_string(kv.first.size()) + "\n"
+                  + kv.first;
+    }
+    saludo += "E\n";
+    if (!mandaTodo(cliente, saludo)) {
+        closeTransferSocket(cliente);
+        return;
+    }
     std::vector<AR::Entry> mias;
     std::string err;
     if (!AR::walk(raiz, mias, err)) {
@@ -8263,6 +8145,13 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
         (void)mandaTodo(cliente, "E\n");
         closeTransferSocket(cliente);
         return;
+    }
+    {
+        AR::Entry propia;
+        if (AR::describePath(raiz, propia, err)) {
+            propia.path = ".";
+            mias.insert(mias.begin(), propia);
+        }
     }
     if (!mandaTodo(cliente, AR::serializeManifest(mias))) {
         closeTransferSocket(cliente);
@@ -8324,33 +8213,105 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
     }
 
     std::uint64_t hechas = 0;
-    // Las fechas de los DIRECTORIOS, para ponerlas al final.
-    //
-    // No se pueden poner al crearlos: escribir cada fichero dentro vuelve a cambiar la
-    // fecha del padre, así que la que quedaba era la del momento de la copia. Se apuntan
-    // aquí y se aplican cuando ya no se toca nada, que es lo que hace `rsync`.
-    std::vector<std::pair<std::string, std::int64_t>> fechasDeDirectorios;
+    // Los directorios cuyos metadatos se ponen al final.
+    std::vector<std::pair<std::string, AR::Entry>> directorios;
     // Las que NO se pudieron aplicar. Se cuentan y se dicen, pero no cortan el resto: un
-    // enlace que no se puede crear no es motivo para dejar diez mil ficheros sin copiar.
-    //
-    // Existe porque estaba mal: los códigos de error de crear directorio, enlazar y borrar
-    // se ignoraban, así que una sincronización contra Windows —donde crear un enlace
-    // simbólico exige un privilegio— decía «hecho» y dejaba el enlace sin crear para
-    // siempre. Decir que algo se hizo cuando no se hizo es el peor fallo posible aquí.
+    // enlace que no se puede crear no es motivo para dejar diez mil ficheros sin copiar. Lo
+    // que sí corta es que se rompa la conexión, porque entonces ya no hay nada que leer.
     std::uint64_t fallidas = 0;
     std::string primerMotivo;
     std::string fallo;
     const std::filesystem::path base(raiz);
-    const auto anota = [&](const std::error_code& ec, const std::string& que,
-                           const std::string& ruta) {
-        if (!ec) {
-            return true;
-        }
+    const std::string bTxt = base.lexically_normal().generic_string();
+    const auto anota = [&](const std::string& motivo) {
         ++fallidas;
         if (primerMotivo.empty()) {
-            primerMotivo = que + " «" + ruta + "»: " + ec.message();
+            primerMotivo = motivo;
         }
-        return false;
+    };
+    const auto dentro = [&](const std::string& rel, std::filesystem::path& out) {
+        // La ruta viene del OTRO extremo, así que se comprueba antes de tocar el disco: sin
+        // esto, un «../..» escribiría fuera del árbol que se sincroniza.
+        out = (base / std::filesystem::path(rel)).lexically_normal();
+        return out.generic_string().rfind(bTxt, 0) == 0;
+    };
+    // Lo que haya en el sitio y sea de OTRO tipo, fuera. El emisor ya ha decidido que se
+    // puede (un directorio con contenido, solo con borrado). Un fichero donde va un fichero
+    // se queda: el rename del temporal lo sustituye sin dejar el sitio vacío.
+    const auto despeja = [&](const std::filesystem::path& p, AR::EntryKind va) {
+        std::error_code ec;
+        const auto st = std::filesystem::symlink_status(p, ec);
+        if (ec || !std::filesystem::exists(st)) {
+            return true;
+        }
+        const bool esDir = std::filesystem::is_directory(st) && !std::filesystem::is_symlink(st);
+        const bool esFich = std::filesystem::is_regular_file(st);
+        if ((va == AR::EntryKind::Directory && esDir) || (va == AR::EntryKind::File && esFich)) {
+            return true;
+        }
+        std::filesystem::remove_all(p, ec);
+        if (ec) {
+            anota("could not remove «" + p.string() + "»: " + ec.message());
+            return false;
+        }
+        return true;
+    };
+    const auto metadatos = [&](const std::string& ruta, const AR::Entry& e) {
+        if (AR::applyMetadata(ruta, e) > 0) {
+            anota("could not apply all the metadata of «" + e.path + "»");
+            return false;
+        }
+        return true;
+    };
+    // El temporal escrito, a su sitio: metadatos ANTES del rename, para que el fichero no
+    // aparezca nunca en su sitio con dueño o modo equivocados.
+    const auto ponEnSuSitio = [&](const std::string& temporal, const std::filesystem::path& p,
+                                  const AR::Entry& e) {
+        (void)metadatos(temporal, e);
+        std::error_code ec;
+        std::filesystem::rename(temporal, p, ec);
+        if (ec) {
+            std::filesystem::remove(temporal, ec);
+            anota("could not put «" + e.path + "» in place: " + ec.message());
+            return false;
+        }
+        return true;
+    };
+
+    // Lee y tira el contenido de una operación que no se va a aplicar: los tramos de un
+    // fichero, o las instrucciones de un parche.
+    const auto descarta = [&](bool parche) {
+        std::vector<char> tira(65536);
+        for (;;) {
+            std::string li;
+            if (!leeLinea(cliente, li)) {
+                fallo = "the connection dropped";
+                return false;
+            }
+            if ((parche && li == "Z") || (!parche && li == "e")) {
+                return true;
+            }
+            std::istringstream is(li);
+            char q = 0;
+            std::uint64_t n = 0;
+            if (!(is >> q)) {
+                fallo = "unreadable data";
+                return false;
+            }
+            const bool conBytes = parche ? (q == 'L') : (q == 'd');
+            if (!conBytes) {
+                continue;  // un hueco, o «copia el bloque N»: no lleva bytes detrás
+            }
+            is >> n;
+            while (n > 0) {
+                const std::size_t c = static_cast<std::size_t>(std::min<std::uint64_t>(n, tira.size()));
+                if (!leeExacto(cliente, tira.data(), c)) {
+                    fallo = "the connection dropped";
+                    return false;
+                }
+                n -= c;
+            }
+        }
     };
     for (;;) {
         std::string linea;
@@ -8361,60 +8322,71 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
         if (linea == "E") {
             break;
         }
-        if (!linea.empty() && linea[0] == 'P') {
-            // Un PARCHE: se reconstruye sobre un fichero nuevo leyendo trozos del viejo, y
-            // solo se pone en su sitio si el hash del resultado ENTERO coincide con el que
-            // manda el origen. Sin esa comprobación, un fallo en el delta corrompería el
-            // fichero en silencio, que es justo lo que no puede pasar aquí.
-            std::istringstream iss(linea);
-            char letra = 0;
-            std::uint32_t modo = 0;
-            std::int64_t fecha = 0;
-            std::uint64_t tamFinal = 0;
-            std::size_t lrp = 0;
-            std::size_t lhash = 0;
-            std::uint32_t uidP = 0;
-            std::uint32_t gidP = 0;
-            std::size_t ldueno = 0;
-            std::size_t lgrupo = 0;
-            if (!(iss >> letra >> modo >> fecha >> tamFinal >> lrp >> lhash)) {
-                fallo = "unreadable patch header";
+        // Un PARCHE lleva la misma cabecera que un fichero, con «P» y el hash del resultado
+        // en el sitio del destino del enlace.
+        const bool esParche = !linea.empty() && linea[0] == 'P';
+        if (esParche) {
+            linea[0] = 'F';
+        }
+        AR::Operation op;
+        AR::HeaderLengths largos;
+        if (!AR::parseHeader(linea, op, largos, fallo)) {
+            break;
+        }
+        std::string nombres(largos.total(), '\0');
+        if (largos.total() > 0 && !leeExacto(cliente, nombres.data(), largos.total())) {
+            fallo = "the connection dropped while reading a name";
+            break;
+        }
+        if (!AR::takeNames(nombres, largos, op, fallo)) {
+            break;
+        }
+        // Un nombre que este sistema no puede representar —bytes que no son UTF-8, en Windows—
+        // hace que construir la ruta LANCE. Sin cogerlo, la excepción salía del hilo y se
+        // llevaba el daemon entero. Es un fallo de esa entrada: se cuenta y se leen igual sus
+        // bytes, para que el flujo no se descoloque.
+        std::filesystem::path destino;
+        bool nombreIlegible = false;
+        try {
+            if (!dentro(op.entry.path, destino)) {
+                fallo = "path outside the tree: " + op.entry.path;
                 break;
             }
-            // Opcionales: si la cabecera venía de un emisor anterior a esto, el `iss` no
-            // los lee y quedan a cero, que es «no se sabe el dueño» y se traduce en no
-            // tocarlo. Se leen DESPUÉS del hash, en el mismo orden en que se mandan.
-            (void)(iss >> uidP >> gidP >> ldueno >> lgrupo);
-            std::string rutaP(lrp, '\0');
-            std::string hashEsperado(lhash, '\0');
-            std::string duenoP(ldueno, '\0');
-            std::string grupoP(lgrupo, '\0');
-            if ((lrp > 0 && !leeExacto(cliente, rutaP.data(), lrp))
-                || (lhash > 0 && !leeExacto(cliente, hashEsperado.data(), lhash))
-                || (ldueno > 0 && !leeExacto(cliente, duenoP.data(), ldueno))
-                || (lgrupo > 0 && !leeExacto(cliente, grupoP.data(), lgrupo))) {
-                fallo = "dropped while reading the patch header";
-                break;
+            (void)destino.string();
+        } catch (const std::exception&) {
+            nombreIlegible = true;
+        }
+        if (nombreIlegible) {
+            anota("«" + op.entry.path + "» is not a valid name on this system");
+            if (esParche || op.action == AR::Action::Send) {
+                if (!descarta(esParche)) {
+                    break;
+                }
             }
-            const std::filesystem::path vieja =
-                (base / std::filesystem::path(rutaP)).lexically_normal();
-            const std::string viejaTxt = vieja.generic_string();
-            if (viejaTxt.rfind(base.lexically_normal().generic_string(), 0) != 0) {
-                fallo = "path outside the tree: " + rutaP;
-                break;
-            }
-            const std::size_t tamBloque =
-                bloqueDe.count(rutaP) ? bloqueDe[rutaP] : AR::blockSize(tamFinal);
-            const std::filesystem::path temporal = vieja.string() + ".zfsmgr-parche";
-            std::FILE* fv = std::fopen(vieja.string().c_str(), "rb");
-            std::FILE* fn = std::fopen(temporal.string().c_str(), "wb");
-            bool bienP = (fv != nullptr && fn != nullptr);
+            continue;
+        }
+        const std::string dTxt = destino.string();
+        std::error_code ec;
+        bool bienOp = true;
+        try {
+
+        if (esParche) {
+            // Se reconstruye sobre un fichero nuevo leyendo trozos del viejo, y solo se pone
+            // en su sitio si el hash del resultado ENTERO coincide con el que manda el origen.
+            const std::size_t tamBloque = bloqueDe.count(op.entry.path)
+                                              ? bloqueDe[op.entry.path]
+                                              : AR::blockSize(op.entry.size);
+            const std::string temporal = AR::tempPathNextTo(dTxt);
+            AR::SparseWriter w;
+            std::string errW;
+            bool escribe = w.open(temporal, errW);
+            std::FILE* fv = std::fopen(dTxt.c_str(), "rb");
+            escribe = escribe && fv != nullptr;
             std::vector<char> tro(65536);
-            while (bienP) {
+            for (;;) {
                 std::string li;
                 if (!leeLinea(cliente, li)) {
                     fallo = "dropped while reading the patch";
-                    bienP = false;
                     break;
                 }
                 if (li == "Z") {
@@ -8426,10 +8398,9 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
                     std::uint64_t blo = 0;
                     std::uint64_t cuantos = 0;
                     is2 >> q >> blo >> cuantos;
-                    for (std::uint64_t k = 0; k < cuantos && bienP; ++k) {
-                        if (std::fseek(fv, static_cast<long>((blo + k) * tamBloque), SEEK_SET)
-                            != 0) {
-                            bienP = false;
+                    for (std::uint64_t k = 0; k < cuantos && escribe; ++k) {
+                        if (std::fseek(fv, static_cast<long>((blo + k) * tamBloque), SEEK_SET) != 0) {
+                            escribe = false;
                             break;
                         }
                         std::size_t quedanB = tamBloque;
@@ -8439,8 +8410,8 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
                             if (n == 0) {
                                 break;  // el último bloque puede ser corto
                             }
-                            if (std::fwrite(tro.data(), 1, n, fn) != n) {
-                                bienP = false;
+                            if (!w.write(tro.data(), n)) {
+                                escribe = false;
                                 break;
                             }
                             quedanB -= n;
@@ -8453,187 +8424,198 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
                         const std::size_t t = std::min(cuantos, tro.size());
                         if (!leeExacto(cliente, tro.data(), t)) {
                             fallo = "dropped while reading patch data";
-                            bienP = false;
                             break;
                         }
-                        if (std::fwrite(tro.data(), 1, t, fn) != t) {
-                            bienP = false;
-                            break;
+                        if (escribe && !w.write(tro.data(), t)) {
+                            escribe = false;
                         }
                         cuantos -= t;
                     }
-                } else {
-                    fallo = "unknown patch instruction";
-                    bienP = false;
-                }
-            }
-            if (fv != nullptr) { std::fclose(fv); }
-            if (fn != nullptr) { std::fclose(fn); }
-            if (!fallo.empty()) {
-                std::error_code ecB;
-                std::filesystem::remove(temporal, ecB);
-                break;
-            }
-            std::string hashSalido;
-            std::string errH;
-            std::error_code ecR;
-            if (bienP && AR::fileHash(temporal.string(), hashSalido, errH)
-                && hashSalido == hashEsperado) {
-                std::filesystem::rename(temporal, vieja, ecR);
-                if (ecR) {
-                    ++fallidas;
-                    if (primerMotivo.empty()) {
-                        primerMotivo = "could not put in place «" + rutaP + "»: " + ecR.message();
+                    if (!fallo.empty()) {
+                        break;
                     }
                 } else {
-                    AR::setMode(vieja.string(), modo);
-                    AR::setOwner(vieja.string(), uidP, gidP, duenoP, grupoP);
-                    AR::setMtime(vieja.string(), fecha);
+                    fallo = "unknown patch instruction";
+                    break;
+                }
+            }
+            if (fv != nullptr) {
+                std::fclose(fv);
+            }
+            escribe = escribe && w.finish(errW);
+            std::string hashSalido;
+            std::string errH;
+            if (fallo.empty() && escribe && AR::fileHash(temporal, hashSalido, errH)
+                && hashSalido == op.entry.target) {
+                if (ponEnSuSitio(temporal, destino, op.entry)) {
                     ++hechas;
                 }
             } else {
                 // El original NO se toca: vale más un fichero viejo que uno a medias.
-                std::filesystem::remove(temporal, ecR);
-                ++fallidas;
-                if (primerMotivo.empty()) {
-                    primerMotivo = "the patch for «" + rutaP
-                                   + "» did not rebuild the expected file";
+                std::filesystem::remove(temporal, ec);
+                if (fallo.empty()) {
+                    anota("the patch for «" + op.entry.path + "» did not rebuild the expected file");
                 }
+            }
+            if (!fallo.empty()) {
+                break;
             }
             continue;
         }
-        AR::Operation op;
-        std::size_t lr = 0;
-        std::size_t ld = 0;
-        std::size_t ldu = 0;
-        std::size_t lgr = 0;
-        if (!AR::parseHeader(linea, op, lr, ld, ldu, lgr, fallo)) {
-            break;
-        }
-        // Los cuatro nombres en una sola lectura, en el mismo orden en que se mandan: ruta,
-        // destino del enlace, dueño y grupo. Los dos últimos pueden venir a cero, que es lo
-        // que manda un emisor anterior a esto.
-        std::string nombres(lr + ld + ldu + lgr, '\0');
-        if (lr + ld + ldu + lgr > 0
-            && !leeExacto(cliente, nombres.data(), lr + ld + ldu + lgr)) {
-            fallo = "the connection dropped while reading a name";
-            break;
-        }
-        op.entry.path = nombres.substr(0, lr);
-        op.entry.target = nombres.substr(lr, ld);
-        op.entry.owner = nombres.substr(lr + ld, ldu);
-        op.entry.group = nombres.substr(lr + ld + ldu, lgr);
 
-        // La ruta viene del OTRO extremo, así que se comprueba antes de tocar el disco: sin
-        // esto, un «../..» en el manifiesto escribiría fuera del árbol que se sincroniza.
-        const std::filesystem::path destino =
-            (base / std::filesystem::path(op.entry.path)).lexically_normal();
-        const std::string dTxt = destino.generic_string();
-        const std::string bTxt = base.lexically_normal().generic_string();
-        if (dTxt.rfind(bTxt, 0) != 0) {
-            fallo = "path outside the tree: " + op.entry.path;
-            break;
-        }
-
-        std::error_code ec;
-        bool bienOp = true;
         switch (op.action) {
             case AR::Action::MakeDirectory:
-                std::filesystem::create_directories(destino, ec);
-                // `create_directories` sobre uno que ya está no es un error, pero devuelve
-                // falso sin código: solo se mira el código.
-                bienOp = anota(ec, "create the directory", op.entry.path);
-                AR::setMode(destino.string(), op.entry.mode);
-                AR::setOwner(destino.string(), op.entry.uid, op.entry.gid, op.entry.owner,
-                             op.entry.group);
-                // La FECHA de un directorio no se pone aquí: escribir ficheros dentro la
-                // vuelve a cambiar. Se apunta y se aplica al final, cuando ya no se toca.
-                fechasDeDirectorios.emplace_back(destino.string(), op.entry.mtime);
-                break;
-            case AR::Action::Send: {
-                std::filesystem::create_directories(destino.parent_path(), ec);
-                std::FILE* f = std::fopen(destino.string().c_str(), "wb");
-                // Si no se puede escribir, los bytes SE LEEN IGUAL y se tiran.
-                //
-                // No es por limpieza: el emisor ya los ha puesto en el cable detrás de la
-                // cabecera. Saltarse el fichero sin consumirlos dejaría el flujo
-                // descolocado, y la siguiente cabecera se leería a media altura de estos
-                // datos. Por eso un fichero que no se puede escribir se cuenta como fallo
-                // pero NO corta la sincronización; lo que sí la corta es que se rompa la
-                // conexión, porque entonces ya no hay nada que leer.
-                if (f == nullptr) {
-                    ++fallidas;
-                    if (primerMotivo.empty()) {
-                        primerMotivo = "could not write «" + op.entry.path + "»";
-                    }
-                }
-                std::vector<char> buf(65536);
-                std::uint64_t quedan = op.entry.size;
-                bool bien = true;
-                while (quedan > 0) {
-                    const std::size_t trozo =
-                        static_cast<std::size_t>(std::min<std::uint64_t>(quedan, buf.size()));
-                    if (!leeExacto(cliente, buf.data(), trozo)) {
-                        bien = false;
-                        break;
-                    }
-                    if (f != nullptr && std::fwrite(buf.data(), 1, trozo, f) != trozo) {
-                        std::fclose(f);
-                        f = nullptr;
-                        ++fallidas;
-                        if (primerMotivo.empty()) {
-                            primerMotivo = "could not write all of «" + op.entry.path + "»";
-                        }
-                    }
-                    quedan -= trozo;
-                }
-                if (f != nullptr) {
-                    std::fclose(f);
-                } else {
+                if (!despeja(destino, AR::EntryKind::Directory)) {
                     bienOp = false;
-                }
-                if (!bien) {
-                    fallo = "the connection dropped while writing " + op.entry.path;
                     break;
                 }
-                if (!bienOp) {
-                    break;  // sale del `case`, no del bucle: la cuenta ya está hecha
+                std::filesystem::create_directory(destino, ec);
+                if (ec) {
+                    anota("could not create the directory «" + op.entry.path + "»: " + ec.message());
+                    bienOp = false;
+                    break;
                 }
-                AR::setMode(destino.string(), op.entry.mode);
-                AR::setOwner(destino.string(), op.entry.uid, op.entry.gid, op.entry.owner,
-                             op.entry.group);
-                // La fecha, SIEMPRE. Sin ella la próxima pasada lo traería otra vez entero.
-                AR::setMtime(destino.string(), op.entry.mtime);
+                directorios.emplace_back(dTxt, op.entry);
+                break;
+            case AR::Action::Metadata_: {
+                std::error_code e2;
+                const auto st = std::filesystem::symlink_status(destino, e2);
+                if (!e2 && std::filesystem::is_directory(st) && !std::filesystem::is_symlink(st)) {
+                    directorios.emplace_back(dTxt, op.entry);
+                } else {
+                    bienOp = metadatos(dTxt, op.entry);
+                }
                 break;
             }
-            case AR::Action::Symlink_: {
-                std::error_code borrado;
-                std::filesystem::remove(destino, borrado);
-                std::filesystem::create_symlink(op.entry.target, destino, ec);
+            case AR::Action::Send: {
+                // El contenido llega por TRAMOS: de datos, con sus bytes detrás, y de hueco,
+                // que es solo una longitud. Si no se puede escribir, los bytes SE LEEN IGUAL y
+                // se tiran: el emisor ya los ha puesto en el cable, y saltárselos dejaría el
+                // flujo descolocado para la cabecera siguiente.
+                const bool sitio = despeja(destino, AR::EntryKind::File);
+                const std::string temporal = AR::tempPathNextTo(dTxt);
+                AR::SparseWriter w;
+                std::string errW;
+                bool escribe = sitio && w.open(temporal, errW);
+                if (sitio && !escribe) {
+                    anota("could not write «" + op.entry.path + "»: " + errW);
+                }
+                std::vector<char> buf(65536);
+                for (;;) {
+                    std::string tramo;
+                    if (!leeLinea(cliente, tramo)) {
+                        fallo = "the connection dropped while writing " + op.entry.path;
+                        break;
+                    }
+                    if (tramo == "e") {
+                        break;
+                    }
+                    std::istringstream is3(tramo);
+                    char q = 0;
+                    std::uint64_t n = 0;
+                    if (!(is3 >> q >> n) || (q != 'd' && q != 'h')) {
+                        fallo = "unreadable stretch of " + op.entry.path;
+                        break;
+                    }
+                    if (q == 'h') {
+                        w.skip(n);
+                        continue;
+                    }
+                    while (n > 0) {
+                        const std::size_t t =
+                            static_cast<std::size_t>(std::min<std::uint64_t>(n, buf.size()));
+                        if (!leeExacto(cliente, buf.data(), t)) {
+                            fallo = "the connection dropped while writing " + op.entry.path;
+                            break;
+                        }
+                        if (escribe && !w.write(buf.data(), t)) {
+                            escribe = false;
+                            anota("could not write all of «" + op.entry.path + "»");
+                        }
+                        n -= t;
+                    }
+                    if (!fallo.empty()) {
+                        break;
+                    }
+                }
+                if (!fallo.empty()) {
+                    std::filesystem::remove(temporal, ec);
+                    break;
+                }
+                if (escribe && w.position() != op.entry.size) {
+                    escribe = false;
+                    anota("«" + op.entry.path + "» arrived with a different size");
+                }
+                if (escribe && !w.finish(errW)) {
+                    escribe = false;
+                    anota(errW);
+                }
+                if (!escribe) {
+                    std::filesystem::remove(temporal, ec);
+                    bienOp = false;
+                    break;
+                }
+                bienOp = ponEnSuSitio(temporal, destino, op.entry);
+                break;
+            }
+            case AR::Action::Symlink_:
+                if (!despeja(destino, AR::EntryKind::Symlink)) {
+                    bienOp = false;
+                    break;
+                }
                 // En Windows crear un enlace simbólico necesita SeCreateSymbolicLinkPrivilege
-                // o el modo de desarrollador. Cuando no lo hay, esto falla y hay que DECIRLO:
-                // callarlo dejaba el enlace pendiente en todas las pasadas siguientes
-                // mientras el trabajo se apuntaba como terminado.
-                bienOp = anota(ec, "create the symbolic link", op.entry.path);
-                // Un enlace tiene su propio dueño, distinto del de su destino. `setOwner`
-                // usa `lchown`, así que cambia el enlace y no aquello a lo que apunta.
-                AR::setOwner(destino.string(), op.entry.uid, op.entry.gid, op.entry.owner,
-                             op.entry.group);
+                // o el modo de desarrollador. Cuando no lo hay, esto falla y hay que DECIRLO.
+                std::filesystem::create_symlink(op.entry.target, destino, ec);
+                if (ec) {
+                    anota("could not create the symbolic link «" + op.entry.path + "»: "
+                          + ec.message());
+                    bienOp = false;
+                    break;
+                }
+                bienOp = metadatos(dTxt, op.entry);
+                break;
+            case AR::Action::HardLink_: {
+                std::filesystem::path orig;
+                if (!dentro(op.entry.target, orig)) {
+                    fallo = "path outside the tree: " + op.entry.target;
+                    break;
+                }
+                std::string errL;
+                if (!despeja(destino, AR::EntryKind::HardLink)
+                    || !AR::makeHardLink(orig.string(), dTxt, errL)) {
+                    if (!errL.empty()) {
+                        anota(errL);
+                    }
+                    bienOp = false;
+                }
                 break;
             }
-            case AR::Action::HardLink_: {
-                const std::filesystem::path orig =
-                    (base / std::filesystem::path(op.entry.target)).lexically_normal();
-                std::error_code borrado;
-                std::filesystem::remove(destino, borrado);
-                std::filesystem::create_hard_link(orig, destino, ec);
-                bienOp = anota(ec, "create the hard link", op.entry.path);
+            case AR::Action::Special_: {
+                std::string errS;
+                if (!despeja(destino, AR::EntryKind::Special)) {
+                    bienOp = false;
+                    break;
+                }
+                if (!AR::makeSpecial(dTxt, op.entry, errS)) {
+                    anota(errS);
+                    bienOp = false;
+                    break;
+                }
+                bienOp = metadatos(dTxt, op.entry);
                 break;
             }
             case AR::Action::Delete:
+                // Lo que ya no está (se fue con un directorio sustituido) no es un fallo.
                 std::filesystem::remove_all(destino, ec);
-                bienOp = anota(ec, "borrar", op.entry.path);
+                if (ec) {
+                    anota("could not delete «" + op.entry.path + "»: " + ec.message());
+                    bienOp = false;
+                }
                 break;
+        }
+        } catch (const std::exception& ex) {
+            // Cualquier otra excepción corta la copia con su motivo, pero no el daemon.
+            fallo = "«" + op.entry.path + "»: " + ex.what();
         }
         if (!fallo.empty()) {
             break;
@@ -8643,13 +8625,14 @@ static void runTreeReceiveSession(TransferSocket listenFd, const std::string& to
         }
     }
 
-    // Y ahora sí, las fechas de los directorios. De la MÁS PROFUNDA a la menos: poner la de
-    // una hija cambia la de su madre, así que hacerlo al revés dejaría a las madres con la
-    // fecha del momento de la copia, que es el defecto que esto viene a arreglar.
-    std::sort(fechasDeDirectorios.begin(), fechasDeDirectorios.end(),
-              [](const auto& a, const auto& b) { return a.first.size() > b.first.size(); });
-    for (const auto& fd : fechasDeDirectorios) {
-        AR::setMtime(fd.first, fd.second);
+    // Y ahora sí, los metadatos de los directorios. De la MÁS PROFUNDA a la menos: poner la
+    // fecha de una hija cambia la de su madre.
+    std::stable_sort(directorios.begin(), directorios.end(), [](const auto& a, const auto& b) {
+        const auto hon = [](const std::string& s) { return std::count(s.begin(), s.end(), '/'); };
+        return hon(a.second.path) > hon(b.second.path);
+    });
+    for (const auto& d : directorios) {
+        (void)metadatos(d.first, d.second);
     }
 
     if (fallo.empty() && fallidas > 0) {
@@ -8714,7 +8697,7 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
     if (params.size() < 4) {
         r.rc = 2;
         r.err = "usage: --tree-send-to-peer <dir> <host> <port> <token> [--delete] [--dry-run] "
-                "[--as <name>] [--root-metadata]\n";
+                "[--as <name>]\n";
         return r;
     }
     std::string raiz = params[0];
@@ -8726,15 +8709,8 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
     // `--as`: con qué nombre aterriza un fichero suelto. Es el `cp a.txt otra:/dir/b.txt` de
     // toda la vida; sin él llegaba siempre como «a.txt».
     std::string comoLlega;
-    // `--root-metadata`: manda también la RAÍZ (ruta «.») con su dueño, modo y fecha. Lo pide
-    // `cp` cuando el directorio de llegada lo acaba de crear el agente —root:root 0755—; si
-    // no, se quedaba así aunque todo lo de dentro conservara lo suyo. No va por omisión:
-    // en `rsync` la raíz aparecería como cambio en cada pasada. Un receptor anterior la
-    // acepta tal cual: «.» cae dentro del árbol y crear un directorio que existe no falla.
-    bool conRaiz = false;
     for (std::size_t i = 4; i < params.size(); ++i) {
         if (params[i] == "--delete") { borra = true; }
-        else if (params[i] == "--root-metadata") { conRaiz = true; }
         else if (params[i] == "--dry-run") { enSeco = true; }
         else if (params[i] == "--as" && i + 1 < params.size()) { comoLlega = params[++i]; }
     }
@@ -8750,12 +8726,10 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
     std::string ficheroSuelto;
 
     std::vector<AR::Entry> mias;
+    std::vector<std::string> ilegibles;
     std::string err;
     // Un FICHERO suelto viaja como un árbol de una sola entrada que cuelga de su directorio:
     // el receptor, que está en el directorio donde aterriza, no nota la diferencia.
-    //
-    // Antes se respondía «no es un directorio» y `cp f.txt otra-maquina` no podía funcionar:
-    // peor, quien llamaba ya había creado en el destino un directorio llamado «f.txt».
     // `--delete` no tiene sentido aquí —borraría todo lo demás del directorio de destino,
     // que no forma parte de lo que se manda— y se rechaza.
     std::error_code ecTipo;
@@ -8782,11 +8756,15 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
         r.rc = 2;
         ponCodigo(r, "as_single_file", {raiz});
         return r;
-    } else if (!AR::walk(raiz, mias, err)) {
+    } else if (!AR::walk(raiz, mias, err, false, &ilegibles)) {
         r.rc = 2;
         r.err = err + "\n";
         return r;
-    } else if (conRaiz) {
+    } else {
+        // La RAÍZ también viaja (ruta «.»), con su dueño, modo, fecha y atributos, como en la
+        // copia dentro de una máquina: si no, el directorio de llegada se quedaba como lo creó
+        // el agente —root:root 0755— aunque todo lo de dentro conservara lo suyo. El receptor
+        // la pone en su manifiesto, así que solo se toca cuando difiere.
         AR::Entry propia;
         if (AR::describePath(raiz, propia, err) && propia.kind == AR::EntryKind::Directory) {
             propia.path = ".";
@@ -8799,12 +8777,72 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
         ponFallo(r, 1, "peer_cannot_connect", {peerHost + ":" + portStr});
         return r;
     }
-
-    if (!mandaTodo(sock, token + "\n")) {
+    const auto cortado = [&]() {
+        closeTransferSocket(sock);
+        r.rc = 1;
+        ponCodigo(r, "tree_dropped", {});
+        return r;
+    };
+    std::string nombres;
+    {
+        std::vector<std::string> usuarios;
+        std::vector<std::string> grupos;
+        AR::namesUsed(mias, usuarios, grupos);
+        for (const std::string& n : usuarios) {
+            nombres += "u " + std::to_string(n.size()) + "\n" + n;
+        }
+        for (const std::string& n : grupos) {
+            nombres += "g " + std::to_string(n.size()) + "\n" + n;
+        }
+        nombres += "E\n";
+    }
+    if (!mandaTodo(sock, token + "\n") || !mandaTodo(sock, nombres)) {
         closeTransferSocket(sock);
         r.rc = 1;
         ponCodigo(r, "tree_greet_failed", {});
         return r;
+    }
+
+    // Qué sistema es el otro, y de ahí qué atributos y ACL puede guardar; y qué número tiene
+    // allí cada nombre de dueño y de grupo.
+    std::string saludo;
+    if (!leeLinea(sock, saludo) || saludo.rfind("R ", 0) != 0) {
+        return cortado();
+    }
+    AR::OwnerMap alli;
+    for (;;) {
+        std::string linea;
+        if (!leeLinea(sock, linea)) {
+            return cortado();
+        }
+        if (linea == "E") {
+            break;
+        }
+        std::istringstream iss(linea);
+        char cual = 0;
+        std::uint32_t id = 0;
+        std::size_t largo = 0;
+        if (!(iss >> cual >> id >> largo) || largo > 1024) {
+            return cortado();
+        }
+        std::string nombre(largo, '\0');
+        if (largo > 0 && !leeExacto(sock, nombre.data(), largo)) {
+            return cortado();
+        }
+        (cual == 'u' ? alli.users : alli.groups)[nombre] = id;
+    }
+    AR::expectAtReceiver(mias, alli);
+    const zfsmgr::fsmeta::Family suFamilia = zfsmgr::fsmeta::familyFromName(trim(saludo.substr(2)));
+    // Lo que no cabe allí no viaja: se cuenta y se avisa, en vez de perderlo en silencio o de
+    // intentar ponerlo y fallar en cada pasada.
+    std::size_t sinMetadatos = 0;
+    for (AR::Entry& e : mias) {
+        bool perdido = false;
+        e.meta = zfsmgr::fsmeta::fitFor(e.meta, suFamilia, &perdido);
+        e.metaDigest = zfsmgr::fsmeta::digestOf(e.meta);
+        if (perdido && e.kind != AR::EntryKind::HardLink) {
+            ++sinMetadatos;
+        }
     }
 
     std::vector<AR::Entry> suyas;
@@ -8815,11 +8853,9 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
         return r;
     }
 
-    AR::Plan plan = AR::makePlan(mias, suyas, borra);
+    AR::Plan plan = AR::makePlan(mias, suyas, borra, ilegibles);
 
     // ¿De qué ficheros compensa pedir firmas? Los que el destino YA TIENE y son grandes.
-    // De los que no tiene no hay nada contra qué comparar, y de los pequeños las firmas y
-    // la vuelta de red cuestan más que mandarlos enteros.
     std::map<std::string, const AR::Entry*> suyasPorRuta;
     for (const AR::Entry& e : suyas) {
         suyasPorRuta.emplace(e.path, &e);
@@ -8838,19 +8874,12 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
         }
     }
     for (const std::string& cual : pidoFirmas) {
-        if (!mandaTodo(sock, "S " + std::to_string(cual.size()) + "\n")
-            || !mandaTodo(sock, cual)) {
-            closeTransferSocket(sock);
-            r.rc = 1;
-            ponCodigo(r, "tree_dropped", {});
-            return r;
+        if (!mandaTodo(sock, "S " + std::to_string(cual.size()) + "\n") || !mandaTodo(sock, cual)) {
+            return cortado();
         }
     }
     if (!mandaTodo(sock, "E\n")) {
-        closeTransferSocket(sock);
-        r.rc = 1;
-        ponCodigo(r, "tree_dropped", {});
-        return r;
+        return cortado();
     }
 
     // Las firmas que conteste el destino, por ruta.
@@ -8858,10 +8887,7 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
     for (;;) {
         std::string linea;
         if (!leeLinea(sock, linea)) {
-            closeTransferSocket(sock);
-            r.rc = 1;
-            ponCodigo(r, "tree_dropped", {});
-            return r;
+            return cortado();
         }
         if (linea == "E") {
             break;
@@ -8872,24 +8898,13 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
         std::size_t bytes = 0;
         std::size_t lr = 0;
         if (!(iss >> letra >> tamBloque >> bytes >> lr) || letra != 'G') {
-            closeTransferSocket(sock);
-            r.rc = 1;
-            ponCodigo(r, "tree_dropped", {});
-            return r;
+            return cortado();
         }
         std::string ruta(lr, '\0');
-        if (lr > 0 && !leeExacto(sock, ruta.data(), lr)) {
-            closeTransferSocket(sock);
-            r.rc = 1;
-            ponCodigo(r, "tree_dropped", {});
-            return r;
-        }
         std::string crudas(bytes, '\0');
-        if (bytes > 0 && !leeExacto(sock, crudas.data(), bytes)) {
-            closeTransferSocket(sock);
-            r.rc = 1;
-            ponCodigo(r, "tree_dropped", {});
-            return r;
+        if ((lr > 0 && !leeExacto(sock, ruta.data(), lr))
+            || (bytes > 0 && !leeExacto(sock, crudas.data(), bytes))) {
+            return cortado();
         }
         std::vector<AR::Signature> fs;
         std::string errF;
@@ -8898,17 +8913,34 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
         }
     }
 
+    // La lista de cambios —las mismas marcas que la copia dentro de una máquina— y lo que no
+    // se pudo planear: un directorio con contenido donde ahora va otra cosa, sin borrado, y
+    // los directorios del origen que no se pudieron leer.
     std::string informe;
-    // Lo que se copia y llevaba ACL o atributos extendidos: el árbol no los transporta, y se
-    // DICE en vez de perderlos en silencio. Quien llama lo traduce a un aviso.
-    std::size_t sinMetadatos = 0;
+    std::size_t pendientes = 0;
     for (const AR::Operation& o : plan.operations) {
-        informe += AR::describe(o);
-        informe += '\n';
-        if ((o.action == AR::Action::Send || o.action == AR::Action::MakeDirectory)
-            && o.entry.extraMetadata) {
-            ++sinMetadatos;
+        const std::string l = AR::describe(o);
+        if (!l.empty()) {
+            informe += l + "\n";
+            ++pendientes;
         }
+    }
+    // Lo que no se pudo planear, como código del catálogo: el primero, y cuántos más.
+    std::string codigoProblema;
+    std::vector<std::string> argsProblema;
+    const auto conMas = [](const std::vector<std::string>& v) {
+        std::string s = v.front().empty() ? std::string(".") : v.front();
+        if (v.size() > 1) {
+            s += " (+" + std::to_string(v.size() - 1) + ")";
+        }
+        return s;
+    };
+    if (!plan.refused.empty()) {
+        codigoProblema = "tree_refused_dir";
+        argsProblema = {conMas(plan.refused)};
+    } else if (!ilegibles.empty()) {
+        codigoProblema = "tree_unreadable_source";
+        argsProblema = {conMas(ilegibles)};
     }
     const std::string lineaMetadatos =
         sinMetadatos > 0 ? "SIN_ACL_XATTR=" + std::to_string(sinMetadatos) + "\n" : std::string();
@@ -8918,7 +8950,10 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
         (void)mandaTodo(sock, "E\n");
         closeTransferSocket(sock);
         r.rc = 0;
-        r.out = informe + "PENDIENTES=" + std::to_string(plan.operations.size())
+        if (!codigoProblema.empty()) {
+            ponFallo(r, 1, codigoProblema, argsProblema);
+        }
+        r.out = informe + "PENDIENTES=" + std::to_string(pendientes)
                 + "\nBYTES=" + std::to_string(plan.bytes)
                 + "\nIGUALES=" + std::to_string(plan.unchanged) + "\n" + lineaMetadatos;
         return r;
@@ -8926,18 +8961,18 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
 
     const std::filesystem::path base(raiz);
     const auto rutaLocalDe = [&](const std::string& enManifiesto) {
-        return !ficheroSuelto.empty() && enManifiesto == comoLlega
-                   ? ficheroSuelto
-                   : (base / std::filesystem::path(enManifiesto)).string();
+        if (!ficheroSuelto.empty() && enManifiesto == comoLlega) {
+            return ficheroSuelto;
+        }
+        return (base / std::filesystem::path(enManifiesto)).lexically_normal().string();
     };
     bool bien = true;
     std::uint64_t bytesLiteralesTotal = 0;
     std::uint64_t bytesAhorrados = 0;
+    std::string errLectura;
     for (const AR::Operation& o : plan.operations) {
         // ¿Hay firmas de este fichero? Entonces va como PARCHE y no entero.
-        const auto itF = (o.action == AR::Action::Send)
-                             ? firmas.find(o.entry.path)
-                             : firmas.end();
+        const auto itF = (o.action == AR::Action::Send) ? firmas.find(o.entry.path) : firmas.end();
         if (itF != firmas.end()) {
             const std::size_t tamBloque = itF->second.first;
             std::vector<AR::Instruction> instrucciones;
@@ -8945,27 +8980,16 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
             std::string errD;
             std::string hashEntero;
             const std::string rutaLocal = rutaLocalDe(o.entry.path);
-            if (AR::delta(rutaLocal, itF->second.second, tamBloque, instrucciones, literales,
-                          errD)
+            if (AR::delta(rutaLocal, itF->second.second, tamBloque, instrucciones, literales, errD)
                 && AR::fileHash(rutaLocal, hashEntero, errD)) {
                 bytesLiteralesTotal += literales;
-                bytesAhorrados += (o.entry.size > literales) ? (o.entry.size - literales)
-                                                                 : 0;
+                bytesAhorrados += (o.entry.size > literales) ? (o.entry.size - literales) : 0;
+                // La cabecera de siempre, con «P» y el hash del resultado como destino.
                 AR::Operation parche = o;
-                // Dueño y grupo al final, igual que en el manifiesto y en la cabecera de
-                // operación: lo que sobra lo ignora un receptor anterior a esto.
-                std::string cab = "P " + std::to_string(o.entry.mode) + " "
-                                  + std::to_string(o.entry.mtime) + " "
-                                  + std::to_string(o.entry.size) + " "
-                                  + std::to_string(o.entry.path.size()) + " "
-                                  + std::to_string(hashEntero.size()) + " "
-                                  + std::to_string(o.entry.uid) + " "
-                                  + std::to_string(o.entry.gid) + " "
-                                  + std::to_string(o.entry.owner.size()) + " "
-                                  + std::to_string(o.entry.group.size()) + "\n";
-                bien = mandaTodo(sock, cab) && mandaTodo(sock, o.entry.path)
-                       && mandaTodo(sock, hashEntero)
-                       && mandaTodo(sock, o.entry.owner) && mandaTodo(sock, o.entry.group);
+                parche.entry.target = hashEntero;
+                std::string cab = AR::headerOf(parche);
+                cab[0] = 'P';
+                bien = mandaTodo(sock, cab);
                 for (const AR::Instruction& in : instrucciones) {
                     if (!bien) {
                         break;
@@ -8988,34 +9012,30 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
             }
             // Si el delta no se pudo calcular, se manda entero: es lento, no es incorrecto.
         }
-        if (!mandaTodo(sock, AR::headerOf(o)) || !mandaTodo(sock, o.entry.path)
-            || !mandaTodo(sock, o.entry.target) || !mandaTodo(sock, o.entry.owner)
-            || !mandaTodo(sock, o.entry.group)) {
+        if (!mandaTodo(sock, AR::headerOf(o))) {
             bien = false;
             break;
         }
         if (o.action != AR::Action::Send) {
             continue;
         }
-        const std::string rutaLocal = rutaLocalDe(o.entry.path);
-        std::FILE* f = std::fopen(rutaLocal.c_str(), "rb");
-        if (f == nullptr) {
-            bien = false;
+        // El contenido por tramos: los huecos y los bloques de ceros viajan como una
+        // longitud, no como bytes.
+        bien = AR::readStretches(
+            rutaLocalDe(o.entry.path), o.entry.size,
+            [&](const char* datos, std::size_t n) {
+                if (datos == nullptr) {
+                    return mandaTodo(sock, "h " + std::to_string(n) + "\n");
+                }
+                return mandaTodo(sock, "d " + std::to_string(n) + "\n") && mandaTodo(sock, datos, n);
+            },
+            errLectura);
+        if (bien) {
+            bien = mandaTodo(sock, "e\n");
+        }
+        if (!bien) {
             break;
         }
-        std::vector<char> buf(65536);
-        std::uint64_t quedan = o.entry.size;
-        while (quedan > 0 && bien) {
-            const std::size_t trozo =
-                static_cast<std::size_t>(std::min<std::uint64_t>(quedan, buf.size()));
-            const std::size_t leidos = std::fread(buf.data(), 1, trozo, f);
-            if (leidos != trozo || !mandaTodo(sock, buf.data(), trozo)) {
-                bien = false;
-                break;
-            }
-            quedan -= trozo;
-        }
-        std::fclose(f);
     }
     if (bien) {
         bien = mandaTodo(sock, "E\n");
@@ -9023,6 +9043,10 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
     if (!bien) {
         closeTransferSocket(sock);
         r.rc = 1;
+        if (!errLectura.empty() && errLectura != "the connection dropped") {
+            r.err = errLectura + "\n";
+            return r;
+        }
         ponCodigo(r, "tree_dropped", {});
         return r;
     }
@@ -9037,7 +9061,15 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
         // árbol no quedó igual, aunque la mayoría de las operaciones sí entraran.
         r.rc = 1;
         r.out = informe;
-        ponCodigo(r, "tree_partial", {trim(respuesta.substr(8))});
+        // «PARCIAL <hechas> <fallidas> <primer motivo>», dicho en una frase.
+        std::istringstream iss(respuesta.substr(8));
+        std::uint64_t hechas = 0;
+        std::uint64_t fallidas = 0;
+        std::string motivo;
+        iss >> hechas >> fallidas;
+        std::getline(iss, motivo);
+        ponCodigo(r, "tree_partial",
+                  {std::to_string(fallidas), std::to_string(hechas + fallidas), trim(motivo)});
         return r;
     }
     if (respuesta.rfind("OK ", 0) != 0) {
@@ -9046,6 +9078,9 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
         return r;
     }
     r.rc = 0;
+    if (!codigoProblema.empty()) {
+        ponFallo(r, 1, codigoProblema, argsProblema);
+    }
     r.out = informe + "APLICADAS=" + respuesta.substr(3)
             + "\nBYTES=" + std::to_string(plan.bytes)
             + "\nIGUALES=" + std::to_string(plan.unchanged);
@@ -10491,9 +10526,8 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
     // --- El contenido de un dataset, TIPADO.
     //
     // Hasta ahora esto se hacía mandando `sh -lc '<guion>'` por SSH, con la ruta metida
-    // dentro de una cadena de shell. Era el último camino de shell que quedaba, y en cuanto
-    // la ruta viene de un navegador —el servidor web— deja de ser aceptable: quien elige la
-    // ruta no debe poder elegir además lo que se ejecuta.
+    // dentro de una cadena de shell. Era el último camino de shell que quedaba: quien elige
+    // la ruta no debe poder elegir además lo que se ejecuta.
     //
     // La ruta se valida contra los PUNTOS DE MONTAJE reales. El daemon corre como root, así
     // que sin eso «léeme un fichero» sería «léeme /etc/shadow». Estar bajo un punto de
@@ -10596,9 +10630,8 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
     }
     // Los HOLDS de una instantánea: qué retenciones tiene puestas.
     //
-    // La interfaz los lee mandando `zfs holds -H` por shell —de lo poco que quedaba— y por
-    // eso el servidor web no podía enseñarlos: no iba a abrir un camino de shell para esto.
-    // Aquí es un verbo tipado como los demás.
+    // La interfaz los lee mandando `zfs holds -H` por shell —de lo poco que quedaba—. Aquí
+    // es un verbo tipado como los demás.
     //
     // Admite VARIAS instantáneas en una llamada, y no un dataset.
     //
@@ -11063,10 +11096,6 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
     if (cmd == "--mutate-zfs-allow-batch") {
         if (params.size() < 1) { r.rc = 2; ponCodigo(r, "usage", {std::string(argv0) + " --mutate-zfs-allow-batch <payload-b64>"}); return r; }
         return runZfsAllowBatchCapture(params[0]);
-    }
-    if (cmd == "--mutate-rsync-local") {
-        if (params.size() < 1) { r.rc = 2; ponCodigo(r, "usage", {std::string(argv0) + " --mutate-rsync-local <payload-b64>"}); return r; }
-        return runRsyncLocalCapture(params[0]);
     }
     if (cmd == "--mutate-copy-local") {
         if (params.size() < 1) { r.rc = 2; ponCodigo(r, "usage", {std::string(argv0) + " --mutate-copy-local <payload-b64>"}); return r; }
@@ -11578,9 +11607,6 @@ std::string describeJob(const std::string& cmd, const std::vector<std::string>& 
     };
     if (cmd == "--mutate-copy-local") {
         return pares("cp", 2);
-    }
-    if (cmd == "--mutate-rsync-local") {
-        return pares("rsync", 4);
     }
     if (cmd == "--tree-send-to-peer" && params.size() >= 3) {
         return "tree " + params[0] + " -> " + params[1] + ":" + params[2];
@@ -13213,13 +13239,6 @@ int main(int argc, char* argv[]) {
         return runMutateAdvancedFromDir(std::vector<std::string>(args.begin() + 2, args.end()));
     }
 #endif
-    if (cmd == "--mutate-rsync-local") {
-        if (args.size() < 3) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-        return runRsyncLocal(args[2]);
-    }
     if (cmd == "--mutate-copy-local") {
         if (args.size() < 3) {
             printUsage(args[0].c_str());

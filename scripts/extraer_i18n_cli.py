@@ -59,13 +59,7 @@ def extrae(ruta):
 
 def main():
     encontrados = {}
-    # `src/web` NO se cosecha. El servidor web se abandonó el 2026-08-23 —`ZFSMGR_BUILD_WEB`
-    # está en OFF, no se compila ni se distribuye, y su test ni siquiera entra en la suite—,
-    # pero esto siguió cosechándolo y metiendo sus textos en `es.json` pasada tras pasada:
-    # 276 claves, la cuarta parte del catálogo, de un programa que no se construye. De ellas
-    # 190 llegaron a traducirse al inglés, o sea trabajo de traducción gastado en algo
-    # muerto. Si alguna vez se retoma, se vuelve a añadir esta línea y el catálogo se
-    # repuebla solo: la fuente de verdad es el código, que es justo de lo que va este guion.
+    # Solo el CLI: la fuente de verdad es el código, que es justo de lo que va este guion.
     fuentes = sorted((RAIZ / 'src' / 'cli').glob('*.cpp'))
     for ruta in fuentes:
         encontrados.update(extrae(ruta))

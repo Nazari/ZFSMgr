@@ -279,8 +279,7 @@ mete_cli_en_bundle_macos() {
     rm -f "${viejo}"
   done
   local cliente
-  # Un solo cliente de línea de órdenes en el bundle, y el bucle se queda por si vuelve a
-  # haber más: el .app llevaba también el servidor web, retirado del árbol en 0.99.4.
+  # Un solo cliente de línea de órdenes en el bundle.
   for cliente in zfsmgr-cli; do
     if [[ ! -f "${build_dir}/${cliente}" ]]; then
       echo "Error: no se encontró ${build_dir}/${cliente} para meter en el bundle." >&2

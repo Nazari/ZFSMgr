@@ -52,7 +52,6 @@ cmd:--repair-alt-mountpoints
 cmd:--job-submit
 cmd:--mutate-zfs-allow-batch
 cmd:--zfs-pipe-local
-cmd:--mutate-rsync-local
 cmd:--wait-for-event
 cmd:--dump-tool-availability
 cmd:--dump-block-devices
@@ -96,6 +95,7 @@ cmd:--mutate-mount-ro-temp
 cmd:--mutate-unmount-ro-temp
 cmd:--tree-send-as
 copytree:skip-unchanged-delete-dryrun
+remotetree:ns-specials-meta-holes
 ]=])
 # La huella del agente: SU CONTENIDO, no solo sus capacidades.
 #
@@ -265,8 +265,6 @@ add_library(zfsmgr_commands STATIC
     ../src/commands/advanced.h
     ../src/commands/daemoninstall.cpp
     ../src/commands/daemoninstall.h
-    ../src/commands/endpoints.cpp
-    ../src/commands/endpoints.h
     ../src/commands/requests.cpp
     ../src/commands/zfsallow.cpp
     ../src/commands/zfsallow.h
@@ -381,7 +379,7 @@ endif()
 
 if(ZFSMGR_AGENT_ONLY)
     add_executable(zfsmgr_agent ../src/daemon/daemon_main.cpp ../src/commands/copytree.cpp
-                             ../src/commands/remotetree.cpp)
+                             ../src/commands/remotetree.cpp ../src/commands/fsmeta.cpp)
     target_include_directories(zfsmgr_agent PRIVATE ../src ../src/base ../src/commands)
     target_compile_definitions(zfsmgr_agent PRIVATE
         ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
@@ -592,6 +590,7 @@ add_executable(zfsmgr_agent
     ../src/daemon/daemon_main.cpp
     ../src/commands/copytree.cpp
     ../src/commands/remotetree.cpp
+    ../src/commands/fsmeta.cpp
 )
 target_include_directories(zfsmgr_agent PRIVATE ../src ../src/base ../src/commands)
 target_compile_definitions(zfsmgr_agent PRIVATE
@@ -801,6 +800,7 @@ if(BUILD_TESTING)
         ../tests/copytree_test.cpp
         ../src/commands/copytree.cpp
         ../src/commands/remotetree.cpp
+        ../src/commands/fsmeta.cpp
     )
     target_include_directories(zfsmgr_copytree_test PRIVATE ../src ../src ../src/base ../src/commands ../src/native)
     target_link_libraries(zfsmgr_copytree_test PRIVATE Qt6::Core Qt6::Test OpenSSL::Crypto)

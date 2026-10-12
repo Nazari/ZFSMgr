@@ -118,22 +118,6 @@ bool parValido(const std::string& etiqueta, const std::string& instantanea) {
 
 }  // namespace
 
-std::vector<std::string> argvHold(const std::string& etiqueta,
-                                     const std::string& instantanea) {
-    if (!parValido(etiqueta, instantanea)) {
-        return {};
-    }
-    return {"--mutate-zfs-hold", B::trim(etiqueta), B::trim(instantanea)};
-}
-
-std::vector<std::string> argvRelease(const std::string& etiqueta,
-                                    const std::string& instantanea) {
-    if (!parValido(etiqueta, instantanea)) {
-        return {};
-    }
-    return {"--mutate-zfs-release", B::trim(etiqueta), B::trim(instantanea)};
-}
-
 namespace {
 
 std::vector<std::string> argvZfsRetencion(const char* sub, const std::string& etiqueta,

@@ -12,9 +12,8 @@
 //
 // **What this module does and why it exists.** This is where each one's argv is composed and
 // where their rules live. Each client used to assemble it on its own: the shell in
-// `cli/shell.cpp`, the server in `web/main.cpp` and the interface in
-// `native/mainwindow_advanced*.cpp`. The same command three times, and with it its rules
-// three times —or not at all—.
+// `cli/shell.cpp` and the interface in `native/mainwindow_advanced*.cpp`. The same command
+// twice, and with it its rules twice —or not at all—.
 //
 // This is not a theoretical worry. The `assemble` rule below was discovered by RUNNING it,
 // after the operation reported success having done nothing, and it ended up written in a

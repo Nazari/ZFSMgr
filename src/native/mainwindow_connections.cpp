@@ -443,7 +443,7 @@ QString MainWindow::connectionStateTooltipHtml(int connIdx) const {
             {F::DirAssemble, QStringLiteral("Ensamblar")},
             {F::DirToDir, QStringLiteral("Hacia Dir")},
             {F::SendRecvStreaming, QStringLiteral("Enviar/Nivelar entre máquinas")},
-            {F::RsyncSync, QStringLiteral("Sincronizar entre máquinas (rsync)")},
+            {F::RsyncSync, QStringLiteral("Sincronizar")},
             {F::RepairAltMountpoints, QStringLiteral("Reparar mountpoints temporales")},
             {F::AlternateMount, QStringLiteral("Montaje alternativo")},
         };
@@ -713,34 +713,6 @@ QString connectivityMatrixRemoteProbe(const ConnectionProfile& target, bool verb
     return unixPathPrefix + sshBase + QStringLiteral(" ") + targetHost + QStringLiteral(" ") + targetCmd;
 }
 
-QString connectivityMatrixRsyncProbe(const ConnectionProfile& target) {
-    const QString unixPathPrefix =
-        QStringLiteral("PATH=\"/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin:$PATH\"; export PATH; ");
-    const QString targetHost = mwhelpers::shSingleQuote(mwhelpers::sshUserHost(target));
-    const QString targetCmd = mwhelpers::shSingleQuote(
-        QStringLiteral("if command -v rsync >/dev/null 2>&1; then echo ZFSMGR_RSYNC_OK; else echo ZFSMGR_RSYNC_MISSING >&2; exit 127; fi"));
-    const QString baseProbe = target.password.trimmed().isEmpty()
-        ? unixPathPrefix + mwhelpers::sshBaseCommand(target) + QStringLiteral(" ") + targetHost + QStringLiteral(" ") + targetCmd
-        : unixPathPrefix + QStringLiteral(
-              // Igual que en la prueba de SSH: la contraseña por la entrada estándar,
-              // nunca dentro de la orden.
-              "if command -v sshpass >/dev/null 2>&1; then "
-              "sshpass -d0 %1 -o BatchMode=no "
-              "-o PreferredAuthentications=password,keyboard-interactive,publickey "
-              "-o NumberOfPasswordPrompts=1 %2 %3; "
-              "else echo %4 >&2; exit 127; fi")
-              .arg(mwhelpers::sshBaseCommand(target),
-                   targetHost,
-                   targetCmd,
-                   mwhelpers::shSingleQuote(QStringLiteral("ZFSMgr: sshpass no disponible para esta prueba")));
-
-    return QStringLiteral(
-               "if command -v rsync >/dev/null 2>&1; then "
-               "%1; "
-               "else echo %2 >&2; exit 127; fi")
-        .arg(baseProbe,
-             mwhelpers::shSingleQuote(QStringLiteral("ZFSMgr: rsync no disponible en origen para esta prueba")));
-}
 }
 
 
@@ -891,8 +863,8 @@ void MainWindow::openConnectivityMatrixDialog() {
     };
     auto probeConnectivity = [&](int rowIdx, int colIdx) -> ConnectivityProbeResult {
         ConnectivityProbeResult result;
-        auto composeText = [](const QString& sshState, const QString& rsyncState) -> QString {
-            return QStringLiteral("SSH:%1\nrsync:%2").arg(sshState, rsyncState);
+        auto composeText = [](const QString& sshState) -> QString {
+            return QStringLiteral("SSH:%1").arg(sshState);
         };
         auto explainFailure = [this](const QString& raw, int rc) -> QString {
             const QString merged = raw.trimmed();
@@ -900,12 +872,6 @@ void MainWindow::openConnectivityMatrixDialog() {
                 return trk(QStringLiteral("t_connectivity_reason_sshpass_001"),
                            QStringLiteral("Motivo: en la conexión origen no está instalado sshpass y el destino requiere autenticación por contraseña."),
                            QStringLiteral("Reason: sshpass is not installed on the source connection and the target requires password authentication."));
-            }
-            if (merged.contains(QStringLiteral("rsync no disponible"), Qt::CaseInsensitive)
-                || merged.contains(QStringLiteral("ZFSMGR_RSYNC_MISSING"), Qt::CaseInsensitive)) {
-                return trk(QStringLiteral("t_connectivity_reason_rsync_001"),
-                           QStringLiteral("Motivo: rsync no está disponible en origen o destino."),
-                           QStringLiteral("Reason: rsync is not available on source or target."));
             }
             if (merged.contains(QStringLiteral("permission denied"), Qt::CaseInsensitive)
                 || merged.contains(QStringLiteral("publickey"), Qt::CaseInsensitive)
@@ -943,7 +909,7 @@ void MainWindow::openConnectivityMatrixDialog() {
                 .arg(rc);
         };
         if (rowIdx < 0 || rowIdx >= m_conns.profiles.size() || colIdx < 0 || colIdx >= m_conns.profiles.size()) {
-            result.text = composeText(QStringLiteral("-"), QStringLiteral("-"));
+            result.text = composeText(QStringLiteral("-"));
             return result;
         }
         const ConnectionProfile src = m_conns.profiles[rowIdx];
@@ -951,7 +917,7 @@ void MainWindow::openConnectivityMatrixDialog() {
         const bool srcOk = rowIdx < m_conns.states.size() && m_conns.states[rowIdx].status.trimmed().compare(QStringLiteral("OK"), Qt::CaseInsensitive) == 0;
         const bool dstOk = colIdx < m_conns.states.size() && m_conns.states[colIdx].status.trimmed().compare(QStringLiteral("OK"), Qt::CaseInsensitive) == 0;
         if (!srcOk || !dstOk) {
-            result.text = composeText(QStringLiteral("-"), QStringLiteral("-"));
+            result.text = composeText(QStringLiteral("-"));
             result.tooltip = trk(QStringLiteral("t_connectivity_notready_001"),
                                  QStringLiteral("La conexión origen o destino no está en estado OK."),
                                  QStringLiteral("The source or target connection is not in OK state."));
@@ -959,7 +925,7 @@ void MainWindow::openConnectivityMatrixDialog() {
             return result;
         }
         if (rowIdx == colIdx || sameMachine(rowIdx, colIdx)) {
-            result.text = composeText(QStringLiteral("✓"), QStringLiteral("✓"));
+            result.text = composeText(QStringLiteral("✓"));
             result.tooltip = trk(QStringLiteral("t_connectivity_same_machine_001"),
                                  QStringLiteral("Misma máquina."),
                                  QStringLiteral("Same machine."));
@@ -975,7 +941,7 @@ void MainWindow::openConnectivityMatrixDialog() {
                 effectiveDst = m_conns.profiles[sshIdx];
                 targetLabel = m_conns.profiles[sshIdx].name;
                 if (rowIdx == sshIdx || sameMachine(rowIdx, sshIdx)) {
-                    result.text = composeText(QStringLiteral("✓"), QStringLiteral("✓"));
+                    result.text = composeText(QStringLiteral("✓"));
                     result.tooltip = trk(QStringLiteral("t_connectivity_same_machine_001"),
                                          QStringLiteral("Misma máquina."),
                                          QStringLiteral("Same machine."));
@@ -984,7 +950,7 @@ void MainWindow::openConnectivityMatrixDialog() {
                     return result;
                 }
             } else {
-                result.text = composeText(QStringLiteral("-"), QStringLiteral("-"));
+                result.text = composeText(QStringLiteral("-"));
                 result.tooltip = trk(QStringLiteral("t_connectivity_local_no_ssh_001"),
                                      QStringLiteral("Local no tiene una conexión SSH equivalente para comprobarla remotamente."),
                                      QStringLiteral("Local has no equivalent SSH connection for remote probing."));
@@ -993,7 +959,7 @@ void MainWindow::openConnectivityMatrixDialog() {
             }
         }
         if (effectiveDst.connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0) {
-            result.text = composeText(QStringLiteral("-"), QStringLiteral("-"));
+            result.text = composeText(QStringLiteral("-"));
             result.tooltip = trk(QStringLiteral("t_connectivity_unsupported_target_001"),
                                  QStringLiteral("Solo se comprueba conectividad SSH hacia conexiones SSH/Local."),
                                  QStringLiteral("Only SSH connectivity to SSH/Local connections is checked."));
@@ -1002,7 +968,7 @@ void MainWindow::openConnectivityMatrixDialog() {
         }
         const QString sshCmd = connectivityMatrixRemoteProbe(effectiveDst);
         if (sshCmd.trimmed().isEmpty()) {
-            result.text = composeText(QStringLiteral("-"), QStringLiteral("-"));
+            result.text = composeText(QStringLiteral("-"));
             return result;
         }
         QString sshMerged;
@@ -1022,41 +988,19 @@ void MainWindow::openConnectivityMatrixDialog() {
                                                       claveDestino);
         const bool sshProbeOk = sshOk && sshMerged.contains(QStringLiteral("ZFSMGR_CONNECT_OK"));
 
-        QString rsyncState = QStringLiteral("-");
         QStringList tooltipLines;
         if (sshProbeOk) {
             tooltipLines << trk(QStringLiteral("t_connectivity_ok_001"),
                                 QStringLiteral("Conectividad SSH verificada hacia %1."),
                                 QStringLiteral("SSH connectivity verified to %1."))
                                 .arg(targetLabel);
-            const QString rsyncCmd = connectivityMatrixRsyncProbe(effectiveDst);
-            if (!rsyncCmd.trimmed().isEmpty()) {
-                QString rsyncMerged;
-                QString rsyncDetail;
-                const bool rsyncOk = fetchConnectionProbeOutput(rowIdx,
-                                                                QStringLiteral("Probe rsync"),
-                                                                rsyncCmd,
-                                                                &rsyncMerged,
-                                                                &rsyncDetail,
-                                                                12000,
-                                                                claveDestino);
-                if (rsyncOk && rsyncMerged.contains(QStringLiteral("ZFSMGR_RSYNC_OK"))) {
-                    rsyncState = QStringLiteral("✓");
-                    tooltipLines << trk(QStringLiteral("t_connectivity_rsync_ok_001"),
-                                        QStringLiteral("rsync disponible en origen y destino."),
-                                        QStringLiteral("rsync available on source and target."));
-                } else {
-                    rsyncState = QStringLiteral("✗");
-                    tooltipLines << explainFailure(rsyncDetail.isEmpty() ? rsyncMerged : rsyncDetail, rsyncOk ? 0 : -1);
-                }
-            }
-            result.text = composeText(QStringLiteral("✓"), rsyncState);
+            result.text = composeText(QStringLiteral("✓"));
             result.tooltip = tooltipLines.join(QStringLiteral("\n"));
             result.detail = result.tooltip;
             result.ok = true;
             return result;
         }
-        result.text = composeText(QStringLiteral("✗"), QStringLiteral("-"));
+        result.text = composeText(QStringLiteral("✗"));
         result.tooltip = explainFailure(sshDetail.isEmpty() ? sshMerged : sshDetail, sshOk ? 0 : -1);
         QString sshVerboseMerged;
         QString sshVerboseDetail;

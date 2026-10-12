@@ -67,38 +67,6 @@ std::string childName(const std::string& padre, const std::string& hoja) {
     return p + "/" + h;
 }
 
-std::vector<std::string> argvCreate(const std::string& dataset,
-                                   const std::vector<std::string>& propiedades, bool padres) {
-    const std::string ds = B::trim(dataset);
-    if (!isValidName(ds)) {
-        return {};
-    }
-    std::vector<std::string> out{"create"};
-    if (padres) {
-        out.push_back("-p");
-    }
-    for (const std::string& pv : propiedades) {
-        const std::string t = B::trim(pv);
-        // Sin «=» no es una propiedad: sería un argumento suelto que zfs leería como el
-        // nombre del dataset.
-        if (t.empty() || t.find('=') == std::string::npos) {
-            continue;
-        }
-        out.push_back("-o");
-        out.push_back(t);
-    }
-    out.push_back(ds);
-    return out;
-}
-
-std::vector<std::string> argvPromote(const std::string& dataset) {
-    const std::string ds = B::trim(dataset);
-    if (!isValidName(ds)) {
-        return {};
-    }
-    return {"promote", ds};
-}
-
 namespace {
 
 std::vector<std::string> argvMontaje(const char* sub, const std::string& dataset, bool forzar) {
@@ -115,14 +83,6 @@ std::vector<std::string> argvMontaje(const char* sub, const std::string& dataset
 }
 
 }  // namespace
-
-std::vector<std::string> argvMount(const std::string& dataset, bool forzar) {
-    return argvMontaje("mount", dataset, forzar);
-}
-
-std::vector<std::string> argvUnmount(const std::string& dataset, bool forzar) {
-    return argvMontaje("unmount", dataset, forzar);
-}
 
 std::vector<std::string> argvSetProperty(const std::string& dataset,
                                             const std::string& propiedad,

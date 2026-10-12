@@ -144,11 +144,10 @@ private:
 // When it happens, `ssh` fails to forward and the tunnel is not accepted, which is the
 // correct behaviour.
 //
-// **It never returns a port this program reserves for itself** —47653 the daemon, 47654 the
-// web server—, even when the kernel offers it. Linux's ephemeral range starts at 32768, so
-// both fall inside it and the system hands them out like any other: a tunnel could take the
-// web server's port and then the web server would not start, with a message that did not say
-// who had it.
+// **It never returns the port this program reserves for itself** —47653, the daemon's—,
+// even when the kernel offers it. Linux's ephemeral range starts at 32768, so it falls inside
+// it and the system hands it out like any other: a tunnel could take it and then the daemon
+// would not start, with a message that did not say who had it.
 std::uint16_t reserveFreeLocalPort();
 
 // Is that port on 127.0.0.1 accepting connections yet? It is the question to ask a

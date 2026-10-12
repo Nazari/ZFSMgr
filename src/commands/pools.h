@@ -65,12 +65,6 @@ std::vector<std::string> argv(Operation op, const std::string& pool, Phase phase
                               const std::vector<std::string>& flags = {},
                               const std::vector<std::string>& disks = {});
 
-// `zpool import <old> <new>`: import under a different name.
-//
-// Kept apart because it is the only one carrying TWO pool names, and because the new one
-// has to be validated: ZFS accepts letters, digits and `_-.:`, and it must start with a
-// letter.
-std::vector<std::string> argvImportAs(const std::string& pool, const std::string& newName);
 bool isValidPoolName(const std::string& name);
 
 }  // namespace zfsmgr::commands::pools

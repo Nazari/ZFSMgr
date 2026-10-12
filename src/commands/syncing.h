@@ -17,8 +17,7 @@
 // why it is «the one that shares the least».
 //
 // What lives here is the RULE —when it can be done and why not— and the typed payload of
-// the `--mutate-rsync-local` verb, which used to sit inside the main window
-// (`mainwindow.cpp:1963`) and which any other client needs just the same.
+// the `--mutate-copy-local` verb, which every client needs just the same.
 namespace zfsmgr::base::syncing {
 
 enum class Failure {
@@ -79,25 +78,16 @@ std::string labelOf(Failure f);
 // (`isUsableMountPath`), and having it twice means having it wrong in one of the two.
 bool isUsablePath(const std::string& path, bool isWindows = false);
 
-// The payload of `--mutate-rsync-local`: base64 of a JSON
-// `[delete, dryRun, rsh, targetHost, source1, target1, ...]`.
+// The payload of `--mutate-copy-local`: base64 of a JSON
+// `[delete, dryRun, source1, target1, ...]`. It is the copy within one machine behind both
+// `cp` and `rsync`, done by the project's own engine (`copytree`); the system's `rsync` is no
+// longer used anywhere.
 //
 // Empty when any pair is unusable. The paths have to be absolute: the daemon rejects the
 // ones that do not start with a slash, so letting them through here only changes where it
 // fails.
-// La carga de `--mutate-copy-local`: la MISMA forma que la de rsync menos los dos campos
-// que solo rsync entiende —el `rsh` y el host de destino, que allí sirven para copiar por
-// SSH y aquí no hacen falta porque esto es local por definición—.
-//
-// Existe porque el motor de copia del proyecto —`copytree`— ya hacía todo lo que hace falta
-// —ficheros dispersos, fechas exactas, enlaces duros, dueño y modo— y solo lo usaban
-// `todir`, `breakdown` y `assemble`, por dentro. `cp` llamaba al `rsync` del sistema, que es
-// una dependencia externa que este proyecto quiere quitarse.
 std::string copyLocalPayload(const std::vector<std::pair<std::string, std::string>>& pairs,
                              bool deleteExtraneous, bool dryRun);
 
-std::string rsyncPayload(const std::vector<std::pair<std::string, std::string>>& pairs,
-                       bool remove, bool dryRun,
-                       const std::string& rsh, const std::string& targetHost);
 
 }  // namespace zfsmgr::base::syncing

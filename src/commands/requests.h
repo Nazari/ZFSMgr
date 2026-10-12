@@ -108,9 +108,6 @@ std::vector<std::string> pathInfo(const std::string& path);
 // properties (answers MOUNTPOINT= and TEMPORARY=0|1), and releases it again. Not on Windows.
 std::vector<std::string> mountReadOnlyTemporarily(const std::string& dataset);
 std::vector<std::string> unmountReadOnlyTemporary(const std::string& directory);
-// `from` and `howMuch` in bytes; zero and zero means the whole file.
-std::vector<std::string> fileContents(const std::string& path, unsigned long long from,
-                                            unsigned long long howMuch);
 
 // ── The agent itself ─────────────────────────────────────────────────────────
 
@@ -162,7 +159,6 @@ std::vector<std::string> abortResumableReceive(const std::string& dataset);
 std::vector<std::string> repairAltMountpoints(const std::vector<std::string>& extras);
 std::vector<std::string> setPeers(const std::string& payloadB64);
 std::vector<std::string> setBindAddress(const std::string& address);
-std::vector<std::string> rsyncCopy(const std::string& payloadB64);
 
 // `--mutate-copy-local <carga>`: copiar dentro de una máquina con el motor del proyecto, no
 // con el `rsync` del sistema.

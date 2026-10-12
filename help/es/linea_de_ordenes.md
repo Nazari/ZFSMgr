@@ -10,12 +10,6 @@ llama por su nombre desde `cmd` o PowerShell. En Linux y macOS **se instala junt
 aplicación**, en `bin`, así que también se llama por su nombre. Antes no era así y no salía
 en ningún paquete de Unix.
 
-Hubo además un **servidor web**, `zfsmgr-web`, que enseñaba lo mismo en un navegador. Se
-abandonó en la 0.99.2 y se retiró del árbol en la 0.99.4: lo que lo justificaba era montar
-un dataset desde el Finder o el Explorador por WebDAV, y eso nunca llegó a funcionar. Los
-dos que quedan —ventana e intérprete— hablan con el mismo agente y comparten las mismas
-reglas.
-
 ## Dos formas de usarla
 
 **Con una orden**, para guiones:

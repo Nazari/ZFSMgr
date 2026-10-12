@@ -1,8 +1,8 @@
 #pragma once
 
-#include <cstdint>
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -14,11 +14,27 @@
 // emulation exactly where it matters most. See
 // docs/diseno_tecnico_copia_nativa_sin_rsync.md.
 //
-// It reproduces what was being asked of `rsync -aHWS [-x] --exclude=/x/`: recursive,
-// preserving permissions, timestamps, symlinks, HARD LINKS and sparse files, without
-// crossing into another filesystem when asked not to, and with excludes anchored at the
-// root of the copy.
+// It reproduces what was being asked of `rsync -aHWS -A -X [-x] --exclude=/x/`: recursive,
+// preserving owner, mode, nanosecond timestamps, symlinks (with their own owner and time),
+// HARD LINKS (also of symlinks and special files), special files (FIFOs, devices, sockets),
+// sparse files, extended attributes and POSIX ACLs; without crossing into another
+// filesystem when asked not to, and with excludes anchored at the root of the copy.
+// Measured attribute by attribute against rsync over the same tree.
+//
+// Where it differs from rsync on purpose: timestamps are compared to the nanosecond (rsync
+// compares seconds, and misses a same-size change within the same second), and one failing
+// entry does not stop the rest (as in rsync) but the result is not ok.
 namespace zfsmgr::copytree {
+
+// What happens to one entry, for the list a dry run shows. The path is relative to the root
+// of the copy, with a trailing «/» for directories.
+enum class Change {
+    Created,   // not at the target
+    Replaced,  // at the target with another type (a directory where now there is a file…)
+    Content,   // contents differ (a symlink pointing elsewhere counts here)
+    Metadata,  // same contents; owner, mode, time or attributes differ
+    Deleted,   // at the target and not at the source (only with deleteExtraneous)
+};
 
 struct Options {
     // Do not descend into another filesystem. On Unix the device is compared; on Windows
@@ -47,6 +63,9 @@ struct Options {
     // interface's preview before applying.
     bool dryRun = false;
 
+    // Called once per entry that changes (or would change, in a dry run). Null: nothing.
+    std::function<void(Change, const std::string&)> itemize;
+
     // Where to count the bytes as they go, or null. Each block READ adds its size —holes
     // included, since they are also file traversed—, so whoever samples it from another
     // thread sees the copy advance instead of a figure that only appears at the end.
@@ -55,10 +74,13 @@ struct Options {
 
 struct Result {
     bool ok = false;
+    // The first failure (with how many more there were), and all of them.
     std::string error;
+    std::vector<std::string> errors;
     std::uint64_t filesCopied = 0;
     std::uint64_t dirsCreated = 0;
     std::uint64_t symlinksCopied = 0;
+    std::uint64_t specialsCreated = 0;
     // Hard links recreated as such instead of copied again. This is the main difference
     // from robocopy, which would silently duplicate them.
     std::uint64_t hardLinksRecreated = 0;

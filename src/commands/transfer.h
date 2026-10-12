@@ -311,15 +311,15 @@ Job launchFromFileJob(TransportSession& ses, const AgentCall& call,
 //
 // `landAs`: the name a SINGLE FILE lands with (`--as` of the sender). It needs the
 // `--tree-send-as` capability; an older sender ignores it and keeps the file's name.
-// `rootMetadata`: send the source root's owner, mode and date too, for a landing directory
-// the agent has just created. An older sender ignores it.
+// The root of a directory tree always travels with its owner, mode, date and attributes, as in
+// the copy within one machine.
 Job launchTreeJob(TransportSession& ses, const AgentCall& call,
                             const ConnectionProfile& source, const ConnectionProfile& target,
                             const std::string& sourceDirectory,
                             const std::string& targetDirectory, bool sameConnection,
                             bool verbose, bool asJob, bool deleteAtTarget = false,
                             bool dryRun = false, std::string* sendOutput = nullptr,
-                            const std::string& landAs = {}, bool rootMetadata = false);
+                            const std::string& landAs = {});
 
 // Which address the SOURCE has to connect to in order to reach the TARGET.
 //
@@ -349,51 +349,5 @@ Resume findResumeToken(TransportSession& ses, const ConnectionProfile& target,
 // machine was never found.
 Resume findResumeToken(const AgentCall& call, const ConnectionProfile& target,
                        const std::string& objective);
-
-// ---------------------------------------------------------------------------
-// Levelling: bringing the target up to date with the source WITHOUT sending it all again.
-//
-// **It is not sending.** Send ships a complete stream and receives into «<target>/<leaf>»;
-// levelling ships an INCREMENTAL —`zfs send -I <base> <objective>`— and receives into the
-// target dataset as-is. Confusing them is not a nuance: with the target already populated,
-// the complete stream arrives with `zfs recv -Fus` and takes down whatever the source does
-// not have.
-//
-// The common base is NOT looked up by name, it is looked up by GUID. Two snapshots can share
-// a name on both machines without being related —having been created separately is enough—
-// and sending an incremental against a false base is sending against a different history. The
-// GUID already comes in `--dump-zfs-list-all`, so it costs no extra query.
-//
-// The three refusals are safety ones and come from the Qt interface, which has had them from
-// the start: without them, levelling can throw away work at the target without warning.
-struct Snapshot {
-    std::string name;   // short, without the «dataset@»
-    std::string guid;
-};
-
-enum class LevelFailure {
-    None_,
-    TargetNotAtSource,
-    TargetHasNoSnapshots,
-    BaseNotAtSource,
-    TargetIsNewer,
-    AlreadyLevel,
-};
-
-struct LevelPlan {
-    std::string base;        // where from: the send's «-I»
-    std::string objective;   // how far
-    LevelFailure failure{LevelFailure::None_};
-    bool ok() const { return failure == LevelFailure::None_; }
-};
-
-// Both lists go IN CREATION ORDER, which is how `zfs list -t snapshot` gives them. The order
-// is what decides what «newer» means, so handing them in sorted any other way does not return
-// an error: it returns a wrong answer.
-LevelPlan makeLevelPlan(const std::vector<Snapshot>& source,
-                          const std::vector<Snapshot>& target,
-                          const std::string& objective);
-
-std::string labelOf(LevelFailure f);
 
 }  // namespace zfsmgr::base::transfer

@@ -108,7 +108,7 @@ QString featureAgentVerb(Feature f) {
     case Feature::DirFromDirTree:       return QStringLiteral("--mutate-advanced-fromdir-prepare");
     case Feature::RepairAltMountpoints: return QStringLiteral("--repair-alt-mountpoints");
     case Feature::ToolAvailability:     return QStringLiteral("--dump-tool-availability");
-    case Feature::RsyncSync:            return QStringLiteral("--mutate-rsync-local");
+    case Feature::RsyncSync:            return QStringLiteral("--mutate-copy-local");
     case Feature::SendRecvStreaming:    return QStringLiteral("--zfs-send-to-peer");
     default:                            return QString();
     }
@@ -116,12 +116,8 @@ QString featureAgentVerb(Feature f) {
 
 QString featureRequiredTool(Feature f) {
     switch (f) {
-    // Solo Sincronizar sigue necesitando rsync. Desglosar, Ensamblar y Hacia Dir ya no:
-    // copian y verifican con la implementación propia del agente, que además es la que
-    // permite hacerlo en Windows, donde rsync no existe. Ver
-    // docs/diseno_tecnico_copia_nativa_sin_rsync.md.
-    case Feature::RsyncSync:
-        return QStringLiteral("rsync");
+    // Nada necesita ya rsync: Sincronizar, Desglosar, Ensamblar y Hacia Dir copian con la
+    // implementación propia del agente. Ver docs/diseno_tecnico_copia_nativa_sin_rsync.md.
     // Las instantáneas programadas con destino remoto salen por ssh desde el agente.
     case Feature::AutoSnapshotsGsa:
         return QStringLiteral("ssh");

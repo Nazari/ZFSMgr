@@ -29,7 +29,6 @@ QMap<QString, QString> packageMapFor(const QString& packageManagerId) {
     if (pm == QStringLiteral("apt") || pm == QStringLiteral("pacman") || pm == QStringLiteral("zypper")) {
         return {
             {QStringLiteral("sshpass"), QStringLiteral("sshpass")},
-            {QStringLiteral("rsync"), QStringLiteral("rsync")},
             {QStringLiteral("pv"), QStringLiteral("pv")},
             {QStringLiteral("mbuffer"), QStringLiteral("mbuffer")},
             {QStringLiteral("tar"), QStringLiteral("tar")},
@@ -43,7 +42,6 @@ QMap<QString, QString> packageMapFor(const QString& packageManagerId) {
     if (pm == QStringLiteral("brew")) {
         return {
             {QStringLiteral("sshpass"), QStringLiteral("hudochenkov/sshpass/sshpass")},
-            {QStringLiteral("rsync"), QStringLiteral("rsync")},
             {QStringLiteral("pv"), QStringLiteral("pv")},
             {QStringLiteral("mbuffer"), QStringLiteral("mbuffer")},
             {QStringLiteral("zstd"), QStringLiteral("zstd")},
@@ -55,7 +53,6 @@ QMap<QString, QString> packageMapFor(const QString& packageManagerId) {
     if (pm == QStringLiteral("pkg")) {
         return {
             {QStringLiteral("sshpass"), QStringLiteral("sshpass")},
-            {QStringLiteral("rsync"), QStringLiteral("rsync")},
             {QStringLiteral("pv"), QStringLiteral("pv")},
             {QStringLiteral("mbuffer"), QStringLiteral("mbuffer")},
             {QStringLiteral("gzip"), QStringLiteral("gzip")},

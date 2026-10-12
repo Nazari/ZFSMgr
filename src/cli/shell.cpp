@@ -1685,8 +1685,7 @@ bool listaPermisos(Estado& e, const ZfsmUrl& destino) {
     t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena};
     // El análisis vive en `base/zfsallow`, no aquí.
     //
-    // Estaba escrito dos veces —esta y la que hizo falta para el servidor web— sobre un
-    // formato que tiene una trampa: el ALCANCE va en el título de la sección y no en la
+    // Estaba escrito dos veces sobre un formato que tiene una trampa: el ALCANCE va en el título de la sección y no en la
     // línea, así que una copia que se despiste concede a los descendientes lo que se quería
     // conceder solo aquí. Una sola copia, con pruebas sobre salida real.
     namespace ZA = zfsmgr::base::zfsallow;
@@ -3225,8 +3224,7 @@ bool cmdRename(Estado& e, const LineaAnalizada& linea) {
     if (!exigeDataset(destino)) {
         return false;
     }
-    // La regla —sin barra se conserva el padre— vive en `commands::datasets`, compartida con
-    // el servidor web, que no la tenía.
+    // La regla —sin barra se conserva el padre— vive en `commands::datasets`.
     const std::vector<std::string> argvRen =
         DS::argvRename(destino.dataset, pet.uno("texto"));
     if (argvRen.empty()) {
@@ -3683,8 +3681,7 @@ bool cmdPeers(Estado& e, const LineaAnalizada& linea) {
         return true;
     }
 
-    // Componer la carga es cosa de la capa base: la interfaz y el servidor web necesitan
-    // exactamente lo mismo, y esto estaba solo aquí.
+    // Componer la carga es cosa de la capa base: la interfaz necesita exactamente lo mismo.
     // El uid de la máquina a la que se entrega. Sale de su perfil, que lo rellena `refresh`
     // preguntándoselo a ella. Es OBLIGATORIO: «¿este destino soy yo?» se decide por él y solo
     // por él.
@@ -4873,8 +4870,8 @@ bool cmdAssemble(Estado& e, const LineaAnalizada& linea) {
         return false;
     }
     // La regla de los nombres completos vive en `commands::advanced`, con su porqué y sus
-    // pruebas. Aquí estaba escrita en un comentario, otra vez en el servidor web, y resuelta
-    // de una tercera manera en la interfaz.
+    // pruebas. Aquí estaba escrita en un comentario, y resuelta de otra manera en la
+    // interfaz.
     const std::vector<std::string> argv =
         AV::argvAssemble(destino.dataset, pet.lista("texto"));
     if (argv.empty()) {
@@ -5778,8 +5775,7 @@ bool cmdInstalarDaemon(Estado& e, const LineaAnalizada& linea) {
 
     // El guion de instalación vive ahora en la capa base —`base/daemoninstall`— porque no
     // tenía nada de intérprete: son 200 líneas de decidir qué toca según el sistema de la
-    // otra punta, y el servidor web necesita las mismas. Aquí queda lo que sí es del
-    // intérprete: preguntar antes y contar después.
+    // otra punta. Aquí queda lo que sí es del intérprete: preguntar antes y contar después.
     namespace DI = B::daemoninstall;
     const B::ConnectionProfile perfil = conSudo(e, *p);
     const std::string plataforma = DI::platformOf(perfil);
@@ -6185,7 +6181,7 @@ bool cmdMantenimientoPool(Estado& e, const LineaAnalizada& linea, const char* op
     }
     const ZfsmUrl& destino = pet.objetivo;
     // La traducción de la fase a su letra —que NO es la misma para las tres operaciones— y
-    // el orden de los argumentos viven en `commands::pools`, compartidos con el servidor web.
+    // el orden de los argumentos viven en `commands::pools`.
     // Aquí solo se decide QUÉ operación y con qué palabras la pidió el usuario.
     const std::string fase = B::toLowerAscii(pet.uno("fase"));
     PL::Phase faseOp = PL::Phase::Start;
@@ -6712,8 +6708,8 @@ bool cmdRetencion(Estado& e, const LineaAnalizada& linea, bool poner) {
         return false;
     }
     const ZfsmUrl& destino = pet.objetivo;
-    // El orden —etiqueta primero— y la validación viven en `commands::snapshots`,
-    // compartidos con el servidor web. Se usa la forma de argv de `zfs` y no el verbo tipado
+    // El orden —etiqueta primero— y la validación viven en `commands::snapshots`. Se usa la
+    // forma de argv de `zfs` y no el verbo tipado
     // porque el intérprete admite `-r`, y el tipado NO: ese lee exactamente dos parámetros.
     const std::vector<std::string> argv =
         poner ? INST::argvZfsHold(pet.uno("etiqueta"), destino.zfsName(), pet.tiene("-r"))
@@ -6964,9 +6960,10 @@ bool montajeDe(Estado& e, const ZfsmUrl& u, std::string& out, bool paraEscribir)
 }
 
 
-// La copia entre máquinas no conserva ACL ni atributos extendidos, y el agente que envía
-// cuenta los ficheros que los llevaban (`SIN_ACL_XATTR=n`). Se dice aquí, en una frase y en
-// el idioma de quien lo lee: `send` es la vía que lo conserva todo.
+// La copia entre máquinas conserva ACL y atributos extendidos, pero no todos caben en un
+// sistema de otra familia —una ACL POSIX de Linux no significa nada en FreeBSD, y en Windows
+// no cabe ninguno—. El agente que envía cuenta las entradas que llevaban algo que el destino
+// no puede guardar (`SIN_ACL_XATTR=n`), y aquí se dice en el idioma de quien lo lee.
 void avisaSinMetadatos(const std::string& salida) {
     const std::size_t pos = salida.find("SIN_ACL_XATTR=");
     if (pos == std::string::npos) {
@@ -6979,9 +6976,9 @@ void avisaSinMetadatos(const std::string& salida) {
         return;
     }
     std::fprintf(stderr,
-                 TC("t_aviso_sin_acl_xattr",
-                    "aviso: %s ficheros llevaban ACL o atributos extendidos, y la copia entre "
-                    "máquinas no los conserva; para llevarlos tal cual, use «send»\n"),
+                 TC("t_aviso_meta_no_cabe",
+                    "aviso: %s entradas llevan ACL o atributos extendidos que la máquina de "
+                    "destino, de otro sistema, no puede guardar; esos no se han copiado\n"),
                  n.c_str());
 }
 
@@ -7185,8 +7182,7 @@ bool copiaArbol(Estado& e, const std::string& maqOrigen, const std::string& ruta
                                          /*comoTrabajo=*/!esperar && !simula, /*borra=*/false,
                                          simula, &salidaEnvio,
                                          esFichero && nombre != hojaDe(rutaOrigen) ? nombre
-                                                                                   : std::string(),
-                                         /*metadatosDeRaiz=*/!esFichero);
+                                                                                   : std::string());
     if (hecho.failure != TR::JobFailure::None_) {
         std::fprintf(stderr, "%s: %s\n", TR::labelOf(hecho.failure).c_str(),
                      hecho.detail.c_str());
@@ -7683,12 +7679,9 @@ bool cmdRsync(Estado& e, const LineaAnalizada& linea) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }
-    // La carga la arma la capa base. Estaba escrita aquí, otra vez en la ventana principal
-    // y una tercera en el servidor web: tres copias del mismo orden de campos, que es un
-    // contrato del daemon y no de ninguno de los tres.
     // ── Entre máquinas: el árbol entre daemons ───────────────────────────────────
     //
-    // `--mutate-rsync-local` es local por definición, así que aquí no sirve. El transporte
+    // `--mutate-copy-local` es local por definición, así que aquí no sirve. El transporte
     // es el mismo que usa «Desde Dir»: el destino escucha y el origen le manda el árbol
     // directamente, sin pasar por esta máquina.
     //
@@ -7765,14 +7758,16 @@ bool cmdRsync(Estado& e, const LineaAnalizada& linea) {
         return todoBien;
     }
 
-    const std::string carga = SY::rsyncPayload(pares, borra, simula, std::string(), std::string());
+    // Dentro de una máquina, la copia propia del agente: la misma que `cp`, con borrado y
+    // pasada en seco. El `rsync` del sistema ya no se usa en ninguna parte.
+    const std::string carga = SY::copyLocalPayload(pares, borra, simula);
     if (carga.empty()) {
         std::fputs(TC("t_rsync_rutas_mal",
                       "las rutas de origen y destino tienen que ser absolutas\n"),
                    stderr);
         return false;
     }
-    const std::vector<std::string> argv = PET::rsyncCopy(carga);
+    const std::vector<std::string> argv = PET::copyLocal(carga);
     // Un `--check` es una simulación: no hay nada que mandar al daemon como trabajo, y lo
     // que uno quiere es LEER la salida ahora mismo.
     if (simula) {

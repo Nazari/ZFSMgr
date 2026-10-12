@@ -44,7 +44,7 @@ Directories that already correspond to child datasets under their canonical name
 ## Important warnings
 
 - Intermediate space is taken **from the pool itself**, where the data has to end up; not from the system `/tmp`. The final step is a rename, not a second copy.
-- Before deleting the source directory the copy is **verified to be complete** (an `rsync` dry run counting pending files, with retries). If something is still missing after several attempts, the action stops and **deletes nothing**.
+- Before deleting the source directory the copy is **verified to be complete** (counting pending files with the agent's own copy, with retries). If something is still missing after several attempts, the action stops and **deletes nothing**.
 - Deletion of the original **does not cross mount points**: if it found something mounted that had not been unmounted first, it stops instead of deleting its contents.
 - If the final rename fails, the data is intact in the temporary datasets and the message states which they are and which name each should get. **Do not destroy them.**
-- The copy preserves **ACLs and extended attributes** when the system `rsync` supports them (detected automatically).
+- The copy preserves **ACLs and extended attributes** (the agent's own copy; `rsync` is not used).

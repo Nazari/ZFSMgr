@@ -67,19 +67,6 @@ std::vector<std::string> argvZfsClone(const std::string& sourceSnapshot,
                                        const std::string& newDataset,
                                        const std::vector<std::string>& flags = {});
 
-// `--mutate-zfs-hold <tag> <snapshot>` and its opposite.
-//
-// **The tag goes FIRST**, which is the reverse of how one says it out loud («hold this
-// snapshot with this tag»). Swapping them raises no error: `zfs hold` accepts any pair of
-// strings and fails later saying it cannot find the snapshot «mycopy».
-//
-// **These typed verbs do NOT take `-r`**: the daemon reads exactly two parameters and hands
-// them to `zfs`. To hold a whole tree there is the pair below, which goes through the generic
-// verb. This is not an oversight in this module: the typed verb is deliberately narrower, and
-// that is reflected here rather than papered over with a parameter that would be ignored.
-std::vector<std::string> argvHold(const std::string& tag, const std::string& snapshot);
-std::vector<std::string> argvRelease(const std::string& tag, const std::string& snapshot);
-
 // The same ones, shaped as a `zfs` argv for `--mutate-zfs-generic`, the only path that takes
 // the recursive form: `zfs hold [-r] <tag> <snapshot>`.
 std::vector<std::string> argvZfsHold(const std::string& etiqueta,

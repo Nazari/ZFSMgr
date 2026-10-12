@@ -51,8 +51,6 @@ const char* zfsToken(Who q);
 const char* keyOf(Who q);
 std::string labelOf(Scope a);
 std::string labelOf(Who q);
-Scope scopeFrom(const std::string& key);
-Who whoFrom(const std::string& key);
 
 // What `zfs allow <dataset>` says, turned into entries. Empty output —a dataset with nothing
 // delegated— returns an empty list and is NOT an error.

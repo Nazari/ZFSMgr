@@ -401,7 +401,7 @@ std::string buildSshPreviewCommandText(const ConnectionProfile& p, const std::st
 // base64-encoded.
 //
 // **It is a contract of the DAEMON, not of the caller.** It used to be written out fourteen
-// times —eleven in the main window, two in the shell and one in the web server—, each one
+// times —eleven in the main window, two in the shell and one more elsewhere—, each one
 // assembling the same JSON by hand. Fourteen places to get it wrong separately the day that
 // format changes, and none of the clients has any business knowing how it is serialised.
 std::string agentArgv(const std::vector<std::string>& argv);

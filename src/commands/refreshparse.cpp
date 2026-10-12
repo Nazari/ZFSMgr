@@ -15,7 +15,7 @@ std::vector<std::string> zfsmgrUnixCommandSet() {
     // transferir. Antes eso costaba cuatro sondas por SSH —dos herramientas por dos
     // extremos— cada vez que se abría el diálogo de sincronizar; aquí van con el resto y
     // salen gratis del refresco que ya se hace.
-    return {"zfs", "zpool", "rsync", "tar", "ssh", "sh", "zstd", "gzip"};
+    return {"zfs", "zpool", "tar", "ssh", "sh", "zstd", "gzip"};
 }
 
 std::string normalizeMachineUuid(std::string s) {

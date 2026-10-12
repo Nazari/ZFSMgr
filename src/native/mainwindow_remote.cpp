@@ -1351,8 +1351,8 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
         // líneas más abajo. Dos viajes por pool y por refresco, y el árbol de datasets
         // era el único camino de lectura que no pasaba por el daemon.
         //
-        // El reparto de columnas lo hace `commands::listings`, que es quien ya lo hacía
-        // para el servidor web: una línea con menos de diez columnas se salta en vez de
+        // El reparto de columnas lo hace `commands::listings`: una línea con menos de diez
+        // columnas se salta en vez de
         // rellenar con vacíos, porque un punto de montaje con un tabulador dentro
         // correría los campos y enseñaría un montaje donde va el nombre.
         const std::vector<zfsmgr::base::listings::Entry> entradas =

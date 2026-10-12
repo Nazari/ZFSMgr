@@ -161,33 +161,29 @@ Se retiró del daemon (handler, `runZfsPipeLocalAsync()` y su declaración).
 
 ---
 
-### `--mutate-rsync-local` (sync tipado)
+### `--mutate-copy-local` (copia y sincronización dentro de una máquina)
 
 **Args:** `payload-b64`
 
 `payload` es base64(JSON array) de strings:
 
 ```
-[delete("0"|"1"), dryRun("0"|"1"), rsh, dstHost, src1, dst1, src2, dst2, ...]
+[delete("0"|"1"), dryRun("0"|"1"), src1, dst1, src2, dst2, ...]
 ```
 
-Debe haber al menos un par `src`/`dst` y la lista de rutas debe ser par. Varios
-pares cubren el caso de subdatasets, que antes encadenaba N invocaciones de rsync
-con `set -e; … && …`: el probe se ejecuta **una vez** y los pares corren en orden,
-parando al primer fallo (misma semántica).
+Copia con el motor propio (`copytree`), sin `rsync`: `--mutate-rsync-local` se retiró el
+2026-10-12. Conserva dueño, modo, fechas al nanosegundo, enlaces simbólicos y duros,
+ficheros especiales, huecos, xattr y ACL (POSIX en Linux, NFSv4 en FreeBSD, extendidas en
+macOS), con paridad medida contra `rsync -aHWS -A -X`. Un origen que es un fichero se copia
+a la ruta final dada; un directorio, su contenido dentro del destino.
 
-`rsh`/`dstHost` van vacíos en sync de mismo host. Con `dstHost`, el destino pasa a
-ser `<dstHost>:<dst>/` y `rsh` (si no está vacío) se pasa como `-e`; rsync aplica su
-propia tokenización *quote-aware* a esa cadena, por lo que el comportamiento es
-idéntico al del shell anterior (verificado empíricamente con rsync 3.4.1).
+En seco (`dryRun=1`) devuelve una línea por cambio —`+` nuevo, `!` cambia de tipo,
+`>` contenido, `.` solo metadatos, `-` se borra— y el resumen
+`FILES= DIRS= SYMLINKS= SPECIALS= HARDLINKS= BYTES= UNCHANGED= DELETED=`. Un fallo en una
+entrada no corta la copia: se sigue y al final rc=1 con todos los motivos.
 
-El daemon ejecuta el sondeo de capacidades que antes iba embebido en el shell
-(`rsync --help | grep -- '--info'`, `rsync -A/-X --version`, `--extended-attributes`)
-y monta el argv él mismo, ejecutando `rsync` con execvp. **No interviene ningún
-shell**, así que la GUI solo aporta rutas y booleanos.
-
-Validación rechazada con rc=2: base64/JSON inválido, número de campos < 6 o lista de
-rutas impar, flags que no sean `"0"`/`"1"`, o rutas no absolutas.
+Rechazado con rc=2: base64/JSON inválido, número de campos < 4 o lista de rutas impar, o
+rutas no absolutas.
 
 ---
 

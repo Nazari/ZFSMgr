@@ -24,34 +24,14 @@ bool isValidName(const std::string& name);
 //
 // Without this, typing «photos» to rename `tank/media/movies` sends `zfs rename
 // tank/media/movies photos`, and ZFS answers «cannot create 'photos': missing dataset name»
-// —a message that does not say what to do about it—. The shell already applied the rule; the
-// web server did not, so the same product behaved differently depending on the way in.
+// —a message that does not say what to do about it—.
 std::string renamedName(const std::string& current, const std::string& wanted);
 
 // `zfs rename <current> <full-new-name>`
 std::vector<std::string> argvRename(const std::string& current, const std::string& wanted);
 
-// `zfs create [-p] [-o p=v...] <dataset>`
-//
-// `parents` adds `-p`: create the missing intermediate datasets. Without it, `zfs create
-// a/b/c` fails when `a/b` does not exist.
-std::vector<std::string> argvCreate(const std::string& dataset,
-                                   const std::vector<std::string>& properties = {},
-                                   bool parents = false);
-
 // The name of a child: `<parent>/<leaf>`. If the leaf already carries a slash, it is honoured.
 std::string childName(const std::string& parent, const std::string& leaf);
-
-// `zfs promote <dataset>`
-//
-// Only does something when the dataset is a CLONE: promoting it flips the relationship with
-// its origin. On one that is not, ZFS answers «not a cloned filesystem» —correct, but the
-// client can say it sooner and better—.
-std::vector<std::string> argvPromote(const std::string& dataset);
-
-// `zfs mount [-f] <dataset>` and `zfs unmount [-f] <dataset>`
-std::vector<std::string> argvMount(const std::string& dataset, bool force = false);
-std::vector<std::string> argvUnmount(const std::string& dataset, bool force = false);
 
 // `zfs set <prop>=<value> <dataset>`
 //

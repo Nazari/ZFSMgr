@@ -918,8 +918,8 @@ bool ChildProcess::start(const std::string& program, const std::vector<std::stri
         // el `ssh -L` sigue corriendo con `ppid=1` para siempre.
         //
         // No es teórico. En la máquina de desarrollo había 31 túneles huérfanos, el más
-        // viejo de casi cuatro días, y uno se había quedado con el 47654 — el puerto por
-        // omisión del servidor web, que por eso no arrancaba.
+        // viejo de casi cuatro días, y uno se había quedado con un puerto que otro
+        // programa del proyecto necesitaba para arrancar.
         //
         // El `getppid()` de después cierra la carrera: si el padre murió entre el `fork` y
         // este `prctl`, la señal ya no va a llegar nunca y hay que irse a mano.
@@ -1079,15 +1079,14 @@ namespace {
 
 std::uint16_t reserveFreeLocalPortCrudo();
 
-// Los puertos que este programa se reserva y que, por tanto, un túnel no debe ocupar.
-bool esPuertoNuestro(std::uint16_t p) { return p == 47653 || p == 47654; }
+// El puerto que este programa se reserva y que, por tanto, un túnel no debe ocupar.
+bool esPuertoNuestro(std::uint16_t p) { return p == 47653; }
 
 }  // namespace
 
 std::uint16_t reserveFreeLocalPort() {
     // Se pide varias veces si hace falta: la probabilidad de que el núcleo dé justo uno de
-    // los nuestros es pequeña, pero no es cero —le pasó a un servidor web que no arrancó—
-    // y volver a pedir es lo más barato que hay.
+    // los nuestros es pequeña, pero no es cero, y volver a pedir es lo más barato que hay.
     for (int intento = 0; intento < 8; ++intento) {
         const std::uint16_t p = reserveFreeLocalPortCrudo();
         if (p == 0 || !esPuertoNuestro(p)) {

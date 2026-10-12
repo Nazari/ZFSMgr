@@ -200,15 +200,6 @@ std::vector<std::string> unmountReadOnlyTemporary(const std::string& directorio)
     return withOne("--mutate-unmount-ro-temp", directorio);
 }
 
-std::vector<std::string> fileContents(const std::string& ruta, unsigned long long desde,
-                                            unsigned long long cuanto) {
-    const std::string r = limpia(ruta);
-    if (r.empty()) {
-        return {};
-    }
-    return {"--dump-file", r, std::to_string(desde), std::to_string(cuanto)};
-}
-
 std::vector<std::string> health() { return {"--health"}; }
 
 std::vector<std::string> daemonLog(unsigned long long desdeByte, unsigned long long cuantos) {
@@ -281,10 +272,6 @@ std::vector<std::string> setBindAddress(const std::string& direccion) {
     return withOne("--mutate-set-bind", direccion);
 }
 
-std::vector<std::string> rsyncCopy(const std::string& cargaB64) {
-    return withOne("--mutate-rsync-local", cargaB64);
-}
-
 std::vector<std::string> copyLocal(const std::string& cargaB64) {
     return withOne("--mutate-copy-local", cargaB64);
 }
@@ -300,7 +287,7 @@ bool canEnqueue(const std::string& verbo) {
     // qué camino tomar—, así que la tentación era escribirla dos veces. `daemon_main.cpp`
     // enlaza `zfsmgr_commands` y llama aquí: `isAsyncSubmittableCommand` es una línea.
     return v == "--mutate-advanced-breakdown" || v == "--mutate-advanced-assemble"
-           || v == "--mutate-advanced-todir" || v == "--mutate-rsync-local"
+           || v == "--mutate-advanced-todir"
            || v == "--tree-send-to-peer"
            // La copia dentro de una misma máquina (`cp` entre dos sitios de ella). Faltaba,
            // y `cp` sin `--wait` —su forma normal, la que manda la copia al daemon y vuelve—

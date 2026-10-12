@@ -2121,20 +2121,23 @@ QStringList MainWindow::daemonizeRsyncSyncArgs(int connIdx,
     if (pathPairs.isEmpty()) {
         return {};
     }
+    // Entre máquinas se hacía con rsync por SSH desde el agente de origen, y rsync ya no se
+    // usa. El CLI lo hace con el árbol entre daemons; la interfaz lo tendrá en la 2.0.
+    (void)rsh;
+    if (!dstHost.isEmpty()) {
+        return {};
+    }
 
-    // La carga la arma la capa base. El orden de los campos es un contrato del DAEMON, y
-    // estaba escrito tres veces —aquí, en el intérprete y en el servidor web—; tres sitios
-    // donde equivocarse por separado el día que ese contrato cambie.
+    // La carga la arma la capa base: el orden de los campos es un contrato del DAEMON.
     std::vector<std::pair<std::string, std::string>> pares;
     for (const QPair<QString, QString>& pair : pathPairs) {
         pares.push_back({pair.first.trimmed().toStdString(), pair.second.trimmed().toStdString()});
     }
-    const std::string carga = zfsmgr::base::syncing::rsyncPayload(
-        pares, useDelete, dryRun, rsh.toStdString(), dstHost.toStdString());
+    const std::string carga = zfsmgr::base::syncing::copyLocalPayload(pares, useDelete, dryRun);
     if (carga.empty()) {
         return {};
     }
-    return mwhelpers::argvQt(zfsmgr::commands::requests::rsyncCopy(carga));
+    return mwhelpers::argvQt(zfsmgr::commands::requests::copyLocal(carga));
 }
 
 // Sincronizar dos directorios de la MISMA máquina con la copia propia del agente, sin

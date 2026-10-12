@@ -8,9 +8,11 @@
 
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <string>
 
 #ifndef _WIN32
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #if defined(__linux__) || defined(__APPLE__)
@@ -35,6 +37,15 @@ std::string readFile(const fs::path& p) {
     return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 }
 
+
+// Una operación por el cable y de vuelta: la línea, y los nombres que van detrás.
+bool idaYVuelta(const AR::Operation& o, AR::Operation& vuelta, AR::HeaderLengths& l,
+                std::string& err) {
+    const std::string h = AR::headerOf(o);
+    const std::size_t fin = h.find('\n');
+    return AR::parseHeader(h.substr(0, fin), vuelta, l, err)
+           && AR::takeNames(h.substr(fin + 1), l, vuelta, err);
+}
 }  // namespace
 
 // La copia de árboles sustituye a rsync en operaciones que BORRAN el origen
@@ -306,6 +317,173 @@ private Q_SLOTS:
         QVERIFY2(fs::exists(dst_ / "sobra.txt"), "ni borrar");
     }
 
+    // ── Lo que salió midiendo contra rsync sobre el mismo árbol (2026-10-12) ──────────
+
+    // Un directorio del destino que en el origen pasó a ser fichero. Antes la copia
+    // abortaba ahí («could not create») y dejaba sin hacer todo lo que venía detrás.
+    void unCambioDeTipoSeRehaceConBorrado() {
+        writeFile(dst_ / "era_dir" / "dentro.txt", "viejo");
+        writeFile(src_ / "era_dir", "ahora fichero");
+        writeFile(src_ / "despues.txt", "lo de detrás también");
+        Options opt;
+        opt.deleteExtraneous = true;
+        const Result r = copyTree(src_.string(), dst_.string(), opt);
+        QVERIFY2(r.ok, r.error.c_str());
+        QVERIFY(fs::is_regular_file(dst_ / "era_dir"));
+        QCOMPARE(readFile(dst_ / "era_dir"), std::string("ahora fichero"));
+        QCOMPARE(readFile(dst_ / "despues.txt"), std::string("lo de detrás también"));
+    }
+
+    // Sin borrado, un directorio CON contenido no se tira para poner un fichero —es lo
+    // que hace rsync sin --force—; pero el resto de la copia sigue, y el fallo se dice.
+    void sinBorradoNoSeVaciaUnDirectorioYSeSigue() {
+        writeFile(dst_ / "era_dir" / "dentro.txt", "no me pierdas");
+        writeFile(src_ / "era_dir", "ahora fichero");
+        writeFile(src_ / "despues.txt", "sí");
+        const Result r = copyTree(src_.string(), dst_.string(), {});
+        QVERIFY(!r.ok);
+        QCOMPARE(r.errors.size(), static_cast<std::size_t>(1));
+        QCOMPARE(readFile(dst_ / "era_dir" / "dentro.txt"), std::string("no me pierdas"));
+        QCOMPARE(readFile(dst_ / "despues.txt"), std::string("sí"));
+    }
+
+    // En seco, la lista de cambios: es para lo que se pide una pasada en seco.
+    void laPasadaEnSecoDiceQueCambiaria() {
+        writeFile(src_ / "nuevo.txt", "1");
+        writeFile(src_ / "igual.txt", "2");
+        writeFile(src_ / "cambia.txt", "nuevo contenido");
+        writeFile(dst_ / "sobra.txt", "3");
+        writeFile(dst_ / "cambia.txt", "viejo");
+        QVERIFY(copyTree((src_ / "igual.txt").string(), (dst_ / "igual.txt").string(), {}).ok);
+        std::map<std::string, Change> visto;
+        Options opt;
+        opt.dryRun = true;
+        opt.deleteExtraneous = true;
+        opt.itemize = [&visto](Change c, const std::string& rel) { visto[rel] = c; };
+        const Result r = copyTree(src_.string(), dst_.string(), opt);
+        QVERIFY2(r.ok, r.error.c_str());
+        QVERIFY(visto.count("nuevo.txt") && visto["nuevo.txt"] == Change::Created);
+        QVERIFY(visto.count("cambia.txt") && visto["cambia.txt"] == Change::Content);
+        QVERIFY(visto.count("sobra.txt") && visto["sobra.txt"] == Change::Deleted);
+        QVERIFY2(!visto.count("igual.txt"), "lo que no cambia no sale en la lista");
+        QVERIFY(fs::exists(dst_ / "sobra.txt"));
+    }
+
+#ifndef _WIN32
+    // Un `chmod` en el origen tiene que llegar aunque el contenido no cambie. Antes los
+    // metadatos solo se copiaban al copiar los datos.
+    void unCambioDeModoLlegaSinCambiarElContenido() {
+        writeFile(src_ / "f.txt", "x");
+        QVERIFY(copyTree(src_.string(), dst_.string(), {}).ok);
+        fs::permissions(src_ / "f.txt", fs::perms::owner_read | fs::perms::owner_write);
+        const Result r = copyTree(src_.string(), dst_.string(), {});
+        QVERIFY2(r.ok, r.error.c_str());
+        QCOMPARE(r.filesCopied, static_cast<std::uint64_t>(0));
+        QCOMPARE(fs::status(dst_ / "f.txt").permissions(),
+                 fs::perms::owner_read | fs::perms::owner_write);
+    }
+
+    // La fecha de un enlace simbólico es suya, no de a lo que apunta.
+    void elEnlaceSimbolicoConservaSuFecha() {
+        writeFile(src_ / "f.txt", "x");
+        fs::create_symlink("f.txt", src_ / "enlace");
+        struct timespec t[2] = {{1600000000, 5}, {1600000000, 123456789}};
+        QCOMPARE(::utimensat(AT_FDCWD, (src_ / "enlace").c_str(), t, AT_SYMLINK_NOFOLLOW), 0);
+        const Result r = copyTree(src_.string(), dst_.string(), {});
+        QVERIFY2(r.ok, r.error.c_str());
+        struct stat st {};
+        QCOMPARE(::lstat((dst_ / "enlace").c_str(), &st), 0);
+#if defined(__APPLE__)
+        QCOMPARE(static_cast<long long>(st.st_mtimespec.tv_nsec), 123456789LL);
+#else
+        QCOMPARE(static_cast<long long>(st.st_mtim.tv_nsec), 123456789LL);
+#endif
+    }
+
+    // Los ficheros especiales se recrean, como con `rsync -a`. Una FIFO no pide root; los
+    // dispositivos sí y los cubre la medición contra rsync.
+    void unaFifoSeRecrea() {
+        QCOMPARE(::mkfifo((src_ / "tubo").c_str(), 0620), 0);
+        const Result r = copyTree(src_.string(), dst_.string(), {});
+        QVERIFY2(r.ok, r.error.c_str());
+        struct stat st {};
+        QCOMPARE(::lstat((dst_ / "tubo").c_str(), &st), 0);
+        QVERIFY(S_ISFIFO(st.st_mode));
+        QCOMPARE(st.st_mode & 07777, static_cast<mode_t>(0620));
+        QCOMPARE(r.specialsCreated, static_cast<std::uint64_t>(1));
+    }
+
+    // Reescribir un fichero NO puede tocar a sus enlaces duros del destino que en el
+    // origen ya no lo son: se escribe en un temporal y se renombra, como rsync. Antes se
+    // escribía encima y el antiguo compañero cambiaba con él.
+    void reescribirNoArrastraAUnEnlaceDuroDelDestino() {
+        writeFile(src_ / "a.txt", "nuevo a, más largo");
+        writeFile(src_ / "b.txt", "b");
+        writeFile(dst_ / "a.txt", "viejo");
+        fs::create_hard_link(dst_ / "a.txt", dst_ / "b.txt");
+        const Result r = copyTree(src_.string(), dst_.string(), {});
+        QVERIFY2(r.ok, r.error.c_str());
+        QCOMPARE(readFile(dst_ / "a.txt"), std::string("nuevo a, más largo"));
+        QCOMPARE(readFile(dst_ / "b.txt"), std::string("b"));
+    }
+
+    // Un directorio del origen que no se puede leer no puede vaciar su copia con el
+    // borrado: antes se recorría como vacío (skip_permission_denied) y se borraba todo.
+    void unDirectorioIlegibleNoVaciaSuCopia() {
+        if (::geteuid() == 0) {
+            QSKIP("como root se puede leer todo");
+        }
+        writeFile(src_ / "cerrado" / "f.txt", "1");
+        writeFile(src_ / "abierto.txt", "2");
+        QVERIFY(copyTree(src_.string(), dst_.string(), {}).ok);
+        fs::permissions(src_ / "cerrado", fs::perms::none);
+        Options opt;
+        opt.deleteExtraneous = true;
+        const Result r = copyTree(src_.string(), dst_.string(), opt);
+        fs::permissions(src_ / "cerrado", fs::perms::owner_all);
+        // La copia le pone al destino el modo del origen (000), como debe: se abre para mirar.
+        fs::permissions(dst_ / "cerrado", fs::perms::owner_all);
+        QVERIFY(!r.ok);
+        QVERIFY2(fs::exists(dst_ / "cerrado" / "f.txt"), "lo que no se pudo leer no se borra");
+    }
+
+    // Los huecos se buscan a grano de 4 KiB: 4 KiB de datos al final de un hueco ocupaban
+    // el búfer de lectura entero (256 KiB) de ceros escritos.
+    void unPocoDeDatosTrasUnHuecoNoMaterializaElBufer() {
+        const fs::path f = src_ / "cola.img";
+        {
+            // Ceros ESCRITOS, no un hueco: así SEEK_DATA no ayuda, igual que en ZFS, que da
+            // los datos por registros de 128 KiB.
+            std::ofstream out(f, std::ios::binary);
+            out << std::string(1024 * 1024 - 4096, '\0') << std::string(4096, 'x');
+        }
+        const Result r = copyTree(src_.string(), dst_.string(), {});
+        QVERIFY2(r.ok, r.error.c_str());
+        QCOMPARE(readFile(dst_ / "cola.img"), readFile(f));
+        struct stat st {};
+        QCOMPARE(::stat((dst_ / "cola.img").c_str(), &st), 0);
+        QVERIFY2(st.st_blocks * 512 <= 64 * 1024, "solo el bloque con datos ocupa sitio");
+    }
+#endif
+
+#ifdef __linux__
+    // Un atributo quitado en el origen se quita en el destino, como `rsync -X`. Antes solo
+    // se añadían, y una ACL retirada seguía dando permiso en la copia.
+    void unAtributoQuitadoSeQuitaEnElDestino() {
+        writeFile(src_ / "f.txt", "x");
+        const std::string s = (src_ / "f.txt").string();
+        if (::lsetxattr(s.c_str(), "user.zfsmgr_prueba", "v", 1, 0) != 0) {
+            QSKIP("el sistema de ficheros de /tmp no admite atributos extendidos");
+        }
+        QVERIFY(copyTree(src_.string(), dst_.string(), {}).ok);
+        QCOMPARE(::lremovexattr(s.c_str(), "user.zfsmgr_prueba"), 0);
+        const Result r = copyTree(src_.string(), dst_.string(), {});
+        QVERIFY2(r.ok, r.error.c_str());
+        char buf[8];
+        QVERIFY(::lgetxattr((dst_ / "f.txt").c_str(), "user.zfsmgr_prueba", buf, sizeof buf) < 0);
+    }
+#endif
+
     // La verificación previa al borrado. Es la única red que impide perder datos, así
     // que se prueba tanto que cuenta lo que falta como que llega a cero cuando no falta.
     void countPendingReportsMissingFiles() {
@@ -416,9 +594,14 @@ private Q_SLOTS:
         QCOMPARE(largo, x.path.size() + x.owner.size() + x.group.size());
         // Tras saltar esos bytes, lo siguiente es la línea de cierre y nada más.
         QCOMPARE(QString::fromStdString(m.substr(linea.size() + 1 + largo)), QStringLiteral("E\n"));
-        // Una línea de un agente anterior, sin dueño ni grupo, sigue valiendo.
-        QVERIFY(AR::manifestNamesLength("F 3 0 420 5 0", largo));
-        QCOMPARE(largo, std::size_t(5));
+        // Y la huella de los atributos también es un «nombre»: sus bytes van detrás.
+        x.meta.xattrs["user.a"] = "1";
+        const std::string m2 = AR::serializeManifest({x});
+        QVERIFY(AR::manifestNamesLength(m2.substr(0, m2.find('\n')), largo));
+        QCOMPARE(largo, x.path.size() + x.owner.size() + x.group.size()
+                            + zfsmgr::fsmeta::digestOf(x.meta).size());
+        // Sin compatibilidad con el formato anterior: una línea corta no vale.
+        QVERIFY(!AR::manifestNamesLength("F 3 0 420 5 0", largo));
         QVERIFY(!AR::manifestNamesLength("root 0 0", largo));
     }
 
@@ -436,24 +619,25 @@ private Q_SLOTS:
         QVERIFY(!AR::walkSingleFile(src_.string(), x, err));
     }
 
-    // La copia entre máquinas no lleva ACL ni xattr, y lo AVISA. Para eso el emisor tiene que
-    // distinguir un fichero que los lleva de uno que no.
-    void distingueLosFicherosConXattr() {
+    // El recorrido lee los atributos, y `fitFor` dice cuáles caben en el otro extremo: lo
+    // demás se cuenta y se avisa en vez de perderse en silencio.
+    void elRecorridoLeeLosAtributosYSabeCualesCabenAlli() {
 #ifdef __linux__
-        writeFile(src_ / "limpio.txt", "a");
         writeFile(src_ / "con.txt", "b");
-        QVERIFY(!AR::hasExtraMetadata((src_ / "limpio.txt").string()));
         if (::setxattr((src_ / "con.txt").c_str(), "user.prueba", "1", 1, 0) != 0) {
             QSKIP("este sistema de ficheros no admite xattr de usuario");
         }
-        QVERIFY(AR::hasExtraMetadata((src_ / "con.txt").string()));
-        // Y el recorrido lo anota en la entrada, que es de donde lo cuenta el emisor.
         std::vector<AR::Entry> e;
         std::string err;
         QVERIFY(AR::walk(src_.string(), e, err));
-        for (const auto& x : e) {
-            QCOMPARE(x.extraMetadata, x.path == "con.txt");
-        }
+        QCOMPARE(e.size(), size_t(1));
+        QCOMPARE(e[0].meta.xattrs.count("user.prueba"), size_t(1));
+        namespace FM = zfsmgr::fsmeta;
+        bool perdido = true;
+        QCOMPARE(FM::fitFor(e[0].meta, FM::Family::FreeBSD, &perdido).xattrs.size(), size_t(1));
+        QVERIFY(!perdido);
+        QVERIFY(FM::fitFor(e[0].meta, FM::Family::Windows, &perdido).empty());
+        QVERIFY(perdido);
 #else
         QSKIP("solo en Linux");
 #endif
@@ -595,20 +779,20 @@ private Q_SLOTS:
         o.entry.owner = "linarese";
         o.entry.group = "users";
         AR::Operation vuelta;
-        std::size_t lr = 0, ld = 0, ldu = 0, lgr = 0;
+        AR::HeaderLengths l;
         std::string err;
-        QVERIFY2(AR::parseHeader(AR::headerOf(o), vuelta, lr, ld, ldu, lgr, err), err.c_str());
+        QVERIFY2(idaYVuelta(o, vuelta, l, err), err.c_str());
         QCOMPARE(vuelta.entry.uid, o.entry.uid);
         QCOMPARE(vuelta.entry.gid, o.entry.gid);
-        QCOMPARE(ldu, o.entry.owner.size());
-        QCOMPARE(lgr, o.entry.group.size());
+        QCOMPARE(QString::fromStdString(vuelta.entry.owner), QStringLiteral("linarese"));
+        QCOMPARE(QString::fromStdString(vuelta.entry.group), QStringLiteral("users"));
     }
 
     void unaCabeceraDeOperacionSinDuenoSeRechaza() {
         AR::Operation vuelta;
-        std::size_t lr = 0, ld = 0, ldu = 0, lgr = 0;
+        AR::HeaderLengths l;
         std::string err;
-        QVERIFY(!AR::parseHeader("F 420 1700000000 7 5 0", vuelta, lr, ld, ldu, lgr, err));
+        QVERIFY(!AR::parseHeader("F 420 1700000000 7 5 0", vuelta, l, err));
         QVERIFY(!err.empty());
     }
 
@@ -716,17 +900,19 @@ private Q_SLOTS:
         o.entry.mode = 0644;
         o.entry.mtime = 1700000000;
         o.entry.size = 12345;
+        o.entry.mtimeNsec = 123456789;
+        o.entry.meta.xattrs["user.a"] = std::string("\0x\n", 3);
+        o.entry.meta.acl = {"nfs4", "owner@:rw-p--aARWcCos:-------:allow"};
         AR::Operation vuelta;
-        size_t lr = 0, ld = 0;
+        AR::HeaderLengths l;
         std::string err;
-        std::size_t ldu = 0;
-        std::size_t lgr = 0;
-        QVERIFY2(AR::parseHeader(AR::headerOf(o), vuelta, lr, ld, ldu, lgr, err), err.c_str());
+        QVERIFY2(idaYVuelta(o, vuelta, l, err), err.c_str());
         QVERIFY(vuelta.action == AR::Action::Send);
         QCOMPARE(vuelta.entry.size, uint64_t(12345));
         QCOMPARE(vuelta.entry.mtime, int64_t(1700000000));
-        QCOMPARE(lr, o.entry.path.size());
-        QCOMPARE(ld, size_t(0));
+        QCOMPARE(vuelta.entry.mtimeNsec, uint32_t(123456789));
+        QCOMPARE(QString::fromStdString(vuelta.entry.path), QStringLiteral("sub/a.txt"));
+        QVERIFY(vuelta.entry.meta == o.entry.meta);
     }
 
     // --- Delta: mandar solo lo que cambio -----------------------------------------
@@ -911,8 +1097,258 @@ private Q_SLOTS:
         }
     }
 
-private:
     // Un arbol con los cuatro tipos dentro.
+    // ── Árbol entre máquinas al nivel de copytree (2026-10-12) ───────────────────────────
+
+    // La fecha al nanosegundo, pero a la resolución del más tosco de los dos: exacto entre
+    // dos que tienen nanosegundos, a 100 ns con NTFS, al segundo con uno que no guarda fracción.
+    void laFechaSeComparaALaResolucionDelMasTosco() {
+        QVERIFY(AR::sameMtime(100, 123456789, 100, 123456789));
+        QVERIFY2(!AR::sameMtime(100, 123456789, 100, 123456782),
+                 "dentro del mismo segundo, distinto: rsync no lo ve, esto sí");
+        QVERIFY(!AR::sameMtime(100, 0, 101, 0));
+        QVERIFY2(AR::sameMtime(100, 123456789, 100, 0), "un lado sin fracción: al segundo");
+        QVERIFY2(AR::sameMtime(100, 123456789, 100, 123456700), "NTFS: a 100 ns");
+        QVERIFY(!AR::sameMtime(100, 123456789, 100, 123456600));
+    }
+
+    // Un `chmod` sin cambio de contenido es una operación de METADATOS, no un reenvío.
+    void unCambioDeModoEsSoloDeMetadatos() {
+        std::vector<AR::Entry> o(1), d(1);
+        o[0].path = d[0].path = "a.txt";
+        o[0].size = d[0].size = 10;
+        o[0].mtime = d[0].mtime = 1000;
+        o[0].owner = d[0].owner = "u";
+        o[0].group = d[0].group = "g";
+        o[0].mode = 0600;
+        d[0].mode = 0644;
+        const AR::Plan p = AR::makePlan(o, d, false);
+        QCOMPARE(p.operations.size(), size_t(1));
+        QVERIFY(p.operations[0].action == AR::Action::Metadata_);
+        QVERIFY(p.operations[0].change == AR::Change::Metadata);
+        QCOMPARE(p.bytes, uint64_t(0));
+        // Y un atributo distinto, igual: la huella del manifiesto lo delata.
+        o[0].mode = 0644;
+        o[0].metaDigest = "abcd";
+        QVERIFY(AR::makePlan(o, d, false).operations.at(0).action == AR::Action::Metadata_);
+        // Un `chmod 000` de verdad se ve (lleva nombres; un origen Windows no los lleva).
+        o[0].metaDigest.clear();
+        o[0].mode = 0;
+        QCOMPARE(AR::makePlan(o, d, false).operations.size(), size_t(1));
+        o[0].owner.clear();
+        o[0].group.clear();
+        o[0].uid = o[0].gid = 0;
+        QCOMPARE(AR::makePlan(o, d, false).operations.size(), size_t(0));
+    }
+
+    // Un directorio con contenido donde ahora va un fichero: sin borrado se rechaza (como
+    // rsync sin --force); con borrado se sustituye, y lo de dentro no se planea borrar aparte.
+    void unDirectorioConContenidoSoloSeSustituyeConBorrado() {
+        std::vector<AR::Entry> o(1), d(2);
+        o[0].path = "x";
+        o[0].size = 3;
+        d[0].path = "x";
+        d[0].kind = AR::EntryKind::Directory;
+        d[1].path = "x/dentro";
+        const AR::Plan sin = AR::makePlan(o, d, false);
+        QCOMPARE(sin.refused.size(), size_t(1));
+        QCOMPARE(sin.operations.size(), size_t(0));
+        const AR::Plan con = AR::makePlan(o, d, true);
+        QVERIFY(con.refused.empty());
+        QCOMPARE(con.operations.size(), size_t(1));
+        QVERIFY(con.operations[0].change == AR::Change::Replaced);
+        QCOMPARE(QString::fromStdString(AR::describe(con.operations[0])), QStringLiteral("! x"));
+    }
+
+    // Lo que cuelga de un directorio del origen que no se pudo leer no se borra: no se sabe
+    // qué tiene. Antes salía vacío y el borrado vaciaba su copia.
+    void loDeUnDirectorioIlegibleNoSeBorra() {
+        std::vector<AR::Entry> o(1), d(3);
+        o[0].path = "cerrado";
+        o[0].kind = AR::EntryKind::Directory;
+        d[0] = o[0];
+        d[1].path = "cerrado/f.txt";
+        d[2].path = "sobra.txt";
+        const AR::Plan p = AR::makePlan(o, d, true, {"cerrado"});
+        std::vector<std::string> borrados;
+        for (const auto& op : p.operations) {
+            if (op.action == AR::Action::Delete) {
+                borrados.push_back(op.entry.path);
+            }
+        }
+        QCOMPARE(borrados.size(), size_t(1));
+        QCOMPARE(QString::fromStdString(borrados[0]), QStringLiteral("sobra.txt"));
+    }
+
+    // El receptor escribe dentro de un directorio y le cambia la fecha: se le devuelve con una
+    // operación SILENCIOSA, que no sale en la lista ni cuenta como cambio.
+    void elDirectorioDondeSeEscribeRecuperaSuFecha() {
+        std::vector<AR::Entry> o(2), d(1);
+        o[0].path = d[0].path = "dir";
+        o[0].kind = d[0].kind = AR::EntryKind::Directory;
+        o[0].mtime = d[0].mtime = 5;
+        o[1].path = "dir/nuevo.txt";
+        const AR::Plan p = AR::makePlan(o, d, false);
+        QCOMPARE(p.operations.size(), size_t(2));
+        QVERIFY(p.operations[1].silent);
+        QCOMPARE(QString::fromStdString(p.operations[1].entry.path), QStringLiteral("dir"));
+        QVERIFY(AR::describe(p.operations[1]).empty());
+    }
+
+    // El dueño se compara por el NÚMERO que pondrá el receptor: un grupo «nogroup» que allí no
+    // existe se queda con su número, que allí se llama «nobody». Comparando nombres, eso salía
+    // distinto en cada pasada.
+    void unNombreQueNoExisteAlliSeComparaPorNumero() {
+        std::vector<AR::Entry> o(1), d(1);
+        o[0].path = d[0].path = "f";
+        o[0].owner = "linarese";
+        o[0].uid = 1000;
+        o[0].group = "nogroup";
+        o[0].gid = 65534;
+        d[0].owner = "linarese";
+        d[0].uid = 1001;            // allí linarese es el 1001
+        d[0].group = "nobody";
+        d[0].gid = 65534;
+        AR::OwnerMap alli;
+        alli.users["linarese"] = 1001;  // «nogroup» no existe allí
+        AR::expectAtReceiver(o, alli);
+        QCOMPARE(AR::makePlan(o, d, false).operations.size(), size_t(0));
+        // Y si allí el fichero es de otro, se corrige aunque el número coincida con el de aquí.
+        d[0].uid = 1000;
+        QCOMPARE(AR::makePlan(o, d, false).operations.size(), size_t(1));
+        // Un destino sin dueños (Windows) no puede guardarlos: no se pide nada.
+        d[0] = AR::Entry{};
+        d[0].path = "f";
+        QCOMPARE(AR::makePlan(o, d, false).operations.size(), size_t(0));
+    }
+
+    // El manifiesto lleva ya los nanosegundos, los especiales y la huella de los atributos.
+    void elManifiestoLlevaNanosegundosEspecialesYHuella() {
+        AR::Entry x;
+        x.path = "nulo";
+        x.kind = AR::EntryKind::Special;
+        x.special = 'c';
+        x.devMajor = 1;
+        x.devMinor = 3;
+        x.mtime = 1700000000;
+        x.mtimeNsec = 987654321;
+        x.meta.xattrs["user.a"] = "1";
+        std::vector<AR::Entry> vuelta;
+        std::string err;
+        QVERIFY2(AR::parseManifest(AR::serializeManifest({x}), vuelta, err), err.c_str());
+        QCOMPARE(vuelta.size(), size_t(1));
+        QVERIFY(vuelta[0].kind == AR::EntryKind::Special);
+        QCOMPARE(vuelta[0].special, 'c');
+        QCOMPARE(vuelta[0].devMinor, uint32_t(3));
+        QCOMPARE(vuelta[0].mtimeNsec, uint32_t(987654321));
+        QCOMPARE(QString::fromStdString(vuelta[0].metaDigest),
+                 QString::fromStdString(zfsmgr::fsmeta::digestOf(x.meta)));
+    }
+
+    // Lo que cabe en cada sistema: una ACL POSIX de Linux no significa nada en FreeBSD, una
+    // NFSv4 solo en FreeBSD, y en Windows no cabe nada.
+    void cadaSistemaGuardaLoSuyo() {
+        namespace FM = zfsmgr::fsmeta;
+        QVERIFY(FM::xattrFits("system.posix_acl_access", FM::Family::Linux));
+        QVERIFY(!FM::xattrFits("system.posix_acl_access", FM::Family::FreeBSD));
+        QVERIFY(FM::xattrFits("user.x", FM::Family::FreeBSD));
+        QVERIFY(FM::xattrFits("com.apple.FinderInfo", FM::Family::Darwin));
+        QVERIFY(!FM::xattrFits("com.apple.FinderInfo", FM::Family::Linux));
+        QVERIFY(!FM::xattrFits("user.x", FM::Family::Windows));
+        QVERIFY(!FM::xattrFits("security.selinux", FM::Family::Linux));
+        QVERIFY(FM::aclFits({"nfs4", "x"}, FM::Family::FreeBSD));
+        QVERIFY(!FM::aclFits({"nfs4", "x"}, FM::Family::Linux));
+        QVERIFY(FM::aclFits({}, FM::Family::Windows));
+        FM::Metadata m;
+        m.xattrs["user.x"] = std::string("\0\1", 2);
+        m.acl = {"darwin", "!#acl 1\n"};
+        FM::Metadata v;
+        std::string err;
+        QVERIFY2(FM::parse(FM::serialize(m), v, err), err.c_str());
+        QVERIFY(v == m);
+        QVERIFY(FM::digestOf(m) == FM::digestOf(v));
+        QVERIFY(FM::digestOf(FM::Metadata{}).empty());
+    }
+
+#ifndef _WIN32
+    // El contenido viaja por tramos: los huecos y los bloques de ceros como una longitud.
+    // Y el que escribe los deja como huecos.
+    void losHuecosViajanComoLongitudYLleganComoHuecos() {
+        const fs::path f = src_ / "d.img";
+        {
+            std::ofstream out(f, std::ios::binary);
+            out << std::string(8192, 'a') << std::string(65536, '\0') << std::string(4096, 'b');
+            out.seekp(4 * 1024 * 1024);
+            out << 'z';
+        }
+        const auto tam = static_cast<std::uint64_t>(fs::file_size(f));
+        std::uint64_t datos = 0;
+        std::uint64_t hueco = 0;
+        std::string reconstruido;
+        std::string err;
+        const std::string tmp = (dst_ / "d.img").string();
+        AR::SparseWriter w;
+        QVERIFY2(w.open(tmp, err), err.c_str());
+        QVERIFY2(AR::readStretches(f.string(), tam,
+                                   [&](const char* p, std::size_t n) {
+                                       if (p == nullptr) {
+                                           hueco += n;
+                                           w.skip(n);
+                                           return true;
+                                       }
+                                       datos += n;
+                                       return w.write(p, n);
+                                   },
+                                   err),
+                 err.c_str());
+        QVERIFY2(w.finish(err), err.c_str());
+        QCOMPARE(datos + hueco, tam);
+        QVERIFY2(datos <= 8192 + 4096 + 4096, "solo viajan los bloques con datos");
+        QCOMPARE(readFile(tmp), readFile(f));
+        struct stat st {};
+        QCOMPARE(::stat(tmp.c_str(), &st), 0);
+        QVERIFY2(st.st_blocks * 512 <= 128 * 1024, "y llegan como huecos");
+    }
+
+    // FIFO como especial, y un enlace duro A un enlace simbólico como enlace duro.
+    void elRecorridoVeEspecialesYEnlacesDurosDeSimbolicos() {
+        QCOMPARE(::mkfifo((src_ / "tubo").c_str(), 0600), 0);
+        fs::create_symlink("x", src_ / "a_sim");
+        QCOMPARE(::linkat(AT_FDCWD, (src_ / "a_sim").c_str(), AT_FDCWD, (src_ / "b_duro").c_str(), 0), 0);
+        std::vector<AR::Entry> e;
+        std::string err;
+        QVERIFY(AR::walk(src_.string(), e, err));
+        std::map<std::string, AR::Entry> por;
+        for (const auto& x : e) {
+            por[x.path] = x;
+        }
+        QVERIFY(por["tubo"].kind == AR::EntryKind::Special);
+        QCOMPARE(por["tubo"].special, 'p');
+        QVERIFY(por["a_sim"].kind == AR::EntryKind::Symlink);
+        QVERIFY(por["b_duro"].kind == AR::EntryKind::HardLink);
+        QCOMPARE(QString::fromStdString(por["b_duro"].target), QStringLiteral("a_sim"));
+    }
+
+    // Un subdirectorio ilegible no corta el recorrido: se apunta.
+    void unSubdirectorioIlegibleSeApunta() {
+        if (::geteuid() == 0) {
+            QSKIP("como root se puede leer todo");
+        }
+        writeFile(src_ / "cerrado" / "f.txt", "1");
+        writeFile(src_ / "abierto.txt", "2");
+        fs::permissions(src_ / "cerrado", fs::perms::none);
+        std::vector<AR::Entry> e;
+        std::vector<std::string> ilegibles;
+        std::string err;
+        const bool ok = AR::walk(src_.string(), e, err, false, &ilegibles);
+        fs::permissions(src_ / "cerrado", fs::perms::owner_all);
+        QVERIFY(ok);
+        QCOMPARE(ilegibles.size(), size_t(1));
+        QCOMPARE(QString::fromStdString(ilegibles[0]), QStringLiteral("cerrado"));
+    }
+#endif
+
+private:
     void namedirs() {
         fs::create_directories(src_ / "sub");
         writeFile(src_ / "a.txt", "hola");

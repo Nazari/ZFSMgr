@@ -37,4 +37,4 @@ Así el nombre conserva la ruta y un Desglosar posterior puede reconstruirla. El
 - El espacio intermedio se toma **del propio pool**, no del `/tmp` del sistema. En la mayoría de las distribuciones de Linux `/tmp` está en memoria, y usarlo hacía imposible ensamblar un dataset grande.
 - Antes de destruir el dataset de origen se **verifica que la copia esté completa**; si falta algo, la acción se detiene y el dataset **no se destruye**.
 - Se destruye **solo** el dataset elegido, sin `-r`: sus descendientes ya se han reasignado antes.
-- La copia preserva **ACLs y atributos extendidos** cuando el `rsync` del sistema los soporta (se detecta automáticamente).
+- La copia preserva **ACLs y atributos extendidos** (la copia propia del agente; no se usa `rsync`).

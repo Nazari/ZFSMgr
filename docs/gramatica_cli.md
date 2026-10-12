@@ -207,8 +207,8 @@ verbo rsync {
   objetivo  @dataset
   ranura    destino:url<dataset>!  misma_maquina_que($objetivo)
   opcion    --delete --check --wait
-  agente    --mutate-rsync-local  b64(json([
-              $--delete, $--check, "", "", montaje($objetivo), montaje($destino)]))
+  agente    --mutate-copy-local  b64(json([
+              $--delete, $--check, montaje($objetivo), montaje($destino)]))
   trabajo   salvo si $--check          # las que mueven datos van como trabajo
   confirma  si $--delete: "%1 va a quedar IDÉNTICO a %2, borrando lo que sobre"
 }

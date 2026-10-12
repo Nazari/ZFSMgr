@@ -44,7 +44,7 @@ Se ocultan los directorios que ya corresponden a subdatasets con su nombre canó
 ## Advertencias importantes
 
 - El espacio intermedio se toma **del propio pool**, donde los datos tienen que acabar; no del `/tmp` del sistema. El paso final es un cambio de nombre, no una segunda copia.
-- Antes de borrar el directorio origen se **verifica que la copia esté completa** (pasada en seco de `rsync` contando ficheros pendientes, con reintentos). Si tras varios intentos falta algo, la acción se detiene y **no borra nada**.
+- Antes de borrar el directorio origen se **verifica que la copia esté completa** (contando con la copia propia del agente los ficheros pendientes, con reintentos). Si tras varios intentos falta algo, la acción se detiene y **no borra nada**.
 - El borrado del original **no cruza puntos de montaje**: si encontrara algo montado que no se hubiera desmontado antes, se detiene en vez de borrar su contenido.
 - Si falla el renombrado final, los datos están íntegros en los datasets provisionales y el mensaje dice cuáles son y a qué nombre les corresponde ir. **No los destruya.**
-- La copia preserva **ACLs y atributos extendidos** cuando el `rsync` del sistema los soporta (se detecta automáticamente).
+- La copia preserva **ACLs y atributos extendidos** (la copia propia del agente; no se usa `rsync`).

@@ -833,9 +833,7 @@ if [[ "${BUNDLE_APP}" -eq 1 ]]; then
   #
   # Antes de firmar, como los agentes.
   #
-  # Viaja dentro del .app porque en macOS no hay instalador que lo ponga en el PATH. El
-  # bucle se queda por si vuelve a haber más de un cliente: llevaba también el servidor
-  # web, retirado del árbol en 0.99.4.
+  # Viaja dentro del .app porque en macOS no hay instalador que lo ponga en el PATH.
   for cliente in zfsmgr-cli; do
     if [[ ! -f "${BUILD_DIR}/${cliente}" ]]; then
       echo "Error: no se encontró ${BUILD_DIR}/${cliente} para meter en el bundle." >&2

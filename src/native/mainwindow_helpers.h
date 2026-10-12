@@ -73,7 +73,7 @@ QString agentArgv(const QStringList& argv);
 // Existen por lo mismo que el de arriba: la interfaz habla QStringList y la capa de órdenes
 // no conoce Qt. Lo que NO deben hacer es decidir nada —completar un nombre, descartar un par
 // a medias, validar una ruta—: eso está del otro lado, con sus pruebas, y compartido con el
-// intérprete y el servidor web. Aquí solo se convierte.
+// intérprete. Aquí solo se convierte.
 QStringList argvAssemble(const QString& dataset, const QStringList& hijos);
 QStringList argvBreakdown(const QString& dataset, const QStringList& subdirs,
                           const QStringList& nombres);

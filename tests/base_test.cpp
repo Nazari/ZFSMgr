@@ -4,7 +4,6 @@
 
 #include "zfsprops.h"
 #include "daemoninstall.h"
-#include "endpoints.h"
 #include "syncing.h"
 #include "osinfo.h"
 #include "peers.h"
@@ -1603,261 +1602,93 @@ int main() {
                   "zfsallow: lo que no se entiende no se inventa");
     }
 
-    // --- qué se puede hacer con DOS extremos
-    //
-    // La regla estaba dentro del menú contextual de la interfaz. No es de interfaz: es qué
-    // deja hacer ZFS entre dos objetos, y el servidor web necesita la misma para saber qué
-    // ofrece y qué deja en gris. Lo que se fija aquí son los NOES, que es lo que se enseña.
+    // Sincronizar NO es zfs send: compara FICHEROS sobre los puntos de montaje, y por
+    // eso puede borrar en el destino. Lo que se fija aqui es cuando NO se puede, que es
+    // lo que se pinta en gris.
     {
-        namespace DX = zfsmgr::base::endpoints;
-        const DX::Endpoint snap{"local", "fc16/user@lunes"};
-        const DX::Endpoint snap2{"local", "fc16/user@martes"};
-        const DX::Endpoint ds{"local", "fc16/user"};
-        const DX::Endpoint otroDs{"local", "fc16/work"};
-        const DX::Endpoint otraMaq{"unibody", "tank/x"};
-        const DX::Endpoint nada{};
+        namespace SY = zfsmgr::base::syncing;
+        SY::Endpoint o;
+        o.connection = "local"; o.object = "wa/uno";
+        o.mounted = true; o.mountpoint = "/wa/uno"; o.hasDaemon = true;
+        SY::Endpoint d = o;
+        d.object = "wa/dos"; d.mountpoint = "/wa/dos";
 
-        // Comparar: dos puntos de la MISMA historia. Es lo que la gente espera mal la
-        // primera vez —cree que compara dos datasets cualesquiera— y por eso el motivo
-        // tiene que salir escrito.
-        comprobar(DX::check(DX::Action::Diff, snap, snap2) == DX::NotApplicable::None_,
-                  "dosextremos: comparar dos instantaneas del mismo dataset");
-        comprobar(DX::check(DX::Action::Diff, snap, ds) == DX::NotApplicable::None_,
-                  "dosextremos: y una instantanea contra su dataset vivo");
-        comprobar(DX::check(DX::Action::Diff, snap, otroDs) == DX::NotApplicable::DifferentDataset,
-                  "dosextremos: pero NO contra otro dataset");
-        comprobar(DX::check(DX::Action::Diff, ds, otroDs)
-                      == DX::NotApplicable::SourceIsNotSnapshot,
-                  "dosextremos: ni con un dataset de origen");
-        comprobar(DX::check(DX::Action::Diff, snap, otraMaq) == DX::NotApplicable::DifferentMachine,
-                  "dosextremos: ni entre maquinas distintas");
+        const SY::Plan ok = SY::makePlan(o, d);
+        comprobar(ok.ok(), "sincronizar: dos datasets montados en la misma maquina");
+        comprobar(ok.sourcePath == "/wa/uno" && ok.targetPath == "/wa/dos",
+                  "sincronizar: y devuelve las dos rutas");
 
-        // Clonar: de una instantanea a un sitio, y ese sitio es un dataset.
-        comprobar(DX::check(DX::Action::Clone, snap, otroDs) == DX::NotApplicable::None_,
-                  "dosextremos: clonar de una instantanea a un dataset");
-        comprobar(DX::check(DX::Action::Clone, snap, snap2)
-                      == DX::NotApplicable::TargetIsNotDataset,
-                  "dosextremos: no se clona SOBRE una instantanea");
-        comprobar(DX::check(DX::Action::Clone, ds, otroDs)
-                      == DX::NotApplicable::SourceIsNotSnapshot,
-                  "dosextremos: ni desde un dataset");
+        // Entre maquinas SI se puede: va por el arbol por el socket entre daemons, que
+        // no necesita rsync en ninguno de los dos lados.
+        SY::Endpoint otraMaq = d; otraMaq.connection = "unibody";
+        comprobar(SY::makePlan(o, otraMaq).ok(),
+                  "sincronizar: entre maquinas si, por el arbol");
+        // Y con un extremo Windows tambien, que es justo lo que ese mecanismo vino a
+        // arreglar: por tar no habia ni borrado ni simulacion.
+        SY::Endpoint winRemoto = d;
+        winRemoto.connection = "oldlau";
+        winRemoto.isWindows = true;
+        // Con la ruta que de verdad se puede abrir en Windows. Comprobado en vivo: la
+        // propiedad `mountpoint` de un dataset alli dice «/winpool/sa», y esa ruta NO
+        // EXISTE para el sistema; la buena, con letra de unidad, sale de `zfs mount`.
+        winRemoto.mountpoint = "Z:/sa";
+        comprobar(SY::makePlan(o, winRemoto).ok(),
+                  "sincronizar: con un extremo Windows entre maquinas, tambien");
+        SY::Endpoint winMal = winRemoto;
+        winMal.mountpoint = "/winpool/sa";
+        comprobar(SY::makePlan(o, winMal).failure == SY::Failure::UnusablePath,
+                  "sincronizar: una ruta POSIX en Windows no vale, aunque lo diga zfs list");
+        comprobar(SY::isUsablePath("Z:/sa", true) && !SY::isUsablePath("Z:/sa", false),
+                  "sincronizar: la letra de unidad solo vale en Windows");
+        // Y dentro de UNA misma maquina Windows tambien, desde que ese caso va por el
+        // arbol —el daemon conectandose consigo mismo— en vez de por rsync. Tener dos
+        // caminos segun la plataforma dejaba uno de los dos sin probar la mitad de las
+        // veces.
+        SY::Endpoint win = d;
+        win.isWindows = true;
+        win.mountpoint = "Z:/dos";
+        SY::Endpoint winO = o;
+        winO.isWindows = true;
+        winO.mountpoint = "Z:/uno";
+        comprobar(SY::makePlan(winO, win).ok(),
+                  "sincronizar: dentro de una misma maquina Windows, por el arbol");
+        SY::Endpoint sinMontar = d; sinMontar.mounted = false;
+        comprobar(SY::makePlan(o, sinMontar).failure == SY::Failure::TargetNotMounted,
+                  "sincronizar: sin montar no hay nada que comparar");
+        SY::Endpoint sinRuta = d; sinRuta.mountpoint = "none";
+        comprobar(SY::makePlan(o, sinRuta).failure == SY::Failure::UnusablePath,
+                  "sincronizar: «none» no es una ruta");
+        SY::Endpoint instant = d; instant.object = "wa/dos@lunes";
+        comprobar(SY::makePlan(o, instant).failure == SY::Failure::TargetIsNotDataset,
+                  "sincronizar: no se sincroniza contra una instantanea");
+        SY::Endpoint sinD = d; sinD.hasDaemon = false;
+        comprobar(SY::makePlan(o, sinD).failure == SY::Failure::NoDaemon,
+                  "sincronizar: hace falta el daemon");
 
-        // Sin origen, ninguna. Y el mismo objeto en los dos extremos tampoco.
-        for (const DX::Action a : {DX::Action::Diff, DX::Action::Clone, DX::Action::Send}) {
-            comprobar(DX::check(a, nada, ds) == DX::NotApplicable::NoSource,
-                      std::string("dosextremos: sin origen no aplica ") + DX::keyOf(a));
-            comprobar(DX::check(a, ds, ds) == DX::NotApplicable::SameObject,
-                      std::string("dosextremos: el mismo objeto no aplica ") + DX::keyOf(a));
-        }
+        // La comprobacion barata NO mira montajes: es la que se usa al pintar, y mirar
+        // montajes ahi costaba una consulta por dataset dibujado.
+        SY::Endpoint desmontado = d; desmontado.mounted = false;
+        comprobar(SY::check(o, desmontado) == SY::Failure::None_,
+                  "sincronizar: la comprobacion barata no consulta montajes");
 
-        // Sincronizar NO es zfs send: compara FICHEROS sobre los puntos de montaje, y por
-        // eso puede borrar en el destino. Lo que se fija aqui es cuando NO se puede, que es
-        // lo que se pinta en gris.
-        {
-            namespace SY = zfsmgr::base::syncing;
-            SY::Endpoint o;
-            o.connection = "local"; o.object = "wa/uno";
-            o.mounted = true; o.mountpoint = "/wa/uno"; o.hasDaemon = true;
-            SY::Endpoint d = o;
-            d.object = "wa/dos"; d.mountpoint = "/wa/dos";
+        comprobar(!SY::isUsablePath("none") && !SY::isUsablePath("legacy")
+                      && !SY::isUsablePath("") && !SY::isUsablePath("relativa"),
+                  "sincronizar: rutas que no sirven");
+        comprobar(SY::isUsablePath("/wa/uno"), "sincronizar: una ruta absoluta si");
 
-            const SY::Plan ok = SY::makePlan(o, d);
-            comprobar(ok.ok(), "sincronizar: dos datasets montados en la misma maquina");
-            comprobar(ok.sourcePath == "/wa/uno" && ok.targetPath == "/wa/dos",
-                      "sincronizar: y devuelve las dos rutas");
-
-            // Entre maquinas SI se puede: va por el arbol por el socket entre daemons, que
-            // no necesita rsync en ninguno de los dos lados.
-            SY::Endpoint otraMaq = d; otraMaq.connection = "unibody";
-            comprobar(SY::makePlan(o, otraMaq).ok(),
-                      "sincronizar: entre maquinas si, por el arbol");
-            // Y con un extremo Windows tambien, que es justo lo que ese mecanismo vino a
-            // arreglar: por tar no habia ni borrado ni simulacion.
-            SY::Endpoint winRemoto = d;
-            winRemoto.connection = "oldlau";
-            winRemoto.isWindows = true;
-            // Con la ruta que de verdad se puede abrir en Windows. Comprobado en vivo: la
-            // propiedad `mountpoint` de un dataset alli dice «/winpool/sa», y esa ruta NO
-            // EXISTE para el sistema; la buena, con letra de unidad, sale de `zfs mount`.
-            winRemoto.mountpoint = "Z:/sa";
-            comprobar(SY::makePlan(o, winRemoto).ok(),
-                      "sincronizar: con un extremo Windows entre maquinas, tambien");
-            SY::Endpoint winMal = winRemoto;
-            winMal.mountpoint = "/winpool/sa";
-            comprobar(SY::makePlan(o, winMal).failure == SY::Failure::UnusablePath,
-                      "sincronizar: una ruta POSIX en Windows no vale, aunque lo diga zfs list");
-            comprobar(SY::isUsablePath("Z:/sa", true) && !SY::isUsablePath("Z:/sa", false),
-                      "sincronizar: la letra de unidad solo vale en Windows");
-            // Y dentro de UNA misma maquina Windows tambien, desde que ese caso va por el
-            // arbol —el daemon conectandose consigo mismo— en vez de por rsync. Tener dos
-            // caminos segun la plataforma dejaba uno de los dos sin probar la mitad de las
-            // veces.
-            SY::Endpoint win = d;
-            win.isWindows = true;
-            win.mountpoint = "Z:/dos";
-            SY::Endpoint winO = o;
-            winO.isWindows = true;
-            winO.mountpoint = "Z:/uno";
-            comprobar(SY::makePlan(winO, win).ok(),
-                      "sincronizar: dentro de una misma maquina Windows, por el arbol");
-            SY::Endpoint sinMontar = d; sinMontar.mounted = false;
-            comprobar(SY::makePlan(o, sinMontar).failure == SY::Failure::TargetNotMounted,
-                      "sincronizar: sin montar no hay nada que comparar");
-            SY::Endpoint sinRuta = d; sinRuta.mountpoint = "none";
-            comprobar(SY::makePlan(o, sinRuta).failure == SY::Failure::UnusablePath,
-                      "sincronizar: «none» no es una ruta");
-            SY::Endpoint instant = d; instant.object = "wa/dos@lunes";
-            comprobar(SY::makePlan(o, instant).failure == SY::Failure::TargetIsNotDataset,
-                      "sincronizar: no se sincroniza contra una instantanea");
-            SY::Endpoint sinD = d; sinD.hasDaemon = false;
-            comprobar(SY::makePlan(o, sinD).failure == SY::Failure::NoDaemon,
-                      "sincronizar: hace falta el daemon");
-
-            // La comprobacion barata NO mira montajes: es la que se usa al pintar, y mirar
-            // montajes ahi costaba una consulta por dataset dibujado.
-            SY::Endpoint desmontado = d; desmontado.mounted = false;
-            comprobar(SY::check(o, desmontado) == SY::Failure::None_,
-                      "sincronizar: la comprobacion barata no consulta montajes");
-
-            comprobar(!SY::isUsablePath("none") && !SY::isUsablePath("legacy")
-                          && !SY::isUsablePath("") && !SY::isUsablePath("relativa"),
-                      "sincronizar: rutas que no sirven");
-            comprobar(SY::isUsablePath("/wa/uno"), "sincronizar: una ruta absoluta si");
-
-            // La carga del verbo tipado: base64 de un JSON con los flags delante.
-            const std::string carga =
-                SY::rsyncPayload({{"/wa/uno", "/wa/dos"}}, true, true, "", "");
-            comprobar(!carga.empty(), "sincronizar: la carga se construye");
-            std::string claro;
-            comprobar(zfsmgr::base::base64Decode(carga, claro),
-                      "sincronizar: y es base64 valido");
-            comprobar(claro.find("[\"1\",\"1\",\"\",\"\",\"/wa/uno\",\"/wa/dos\"]")
-                          != std::string::npos,
-                      "sincronizar: con los flags y el par en orden");
-            comprobar(SY::rsyncPayload({{"/wa/uno", "none"}}, false, false, "", "").empty(),
-                      "sincronizar: una ruta mala no genera carga");
-            comprobar(SY::rsyncPayload({}, false, false, "", "").empty(),
-                      "sincronizar: sin pares no hay carga");
-        }
-
-        // Nivelar: incremental sobre una base comun buscada POR GUID. La web hacia un
-        // envio completo, que no es lo mismo ni de lejos: llega con `zfs recv -Fus` y
-        // arrastra lo que el origen no tenga.
-        {
-            namespace TRN = zfsmgr::base::transfer;
-            const std::vector<TRN::Snapshot> orig = {
-                {"lunes", "111"}, {"martes", "222"}, {"miercoles", "333"}, {"jueves", "444"}};
-
-            // El caso normal: el destino llego hasta «martes», se manda de ahi a «jueves».
-            const TRN::LevelPlan ok =
-                TRN::makeLevelPlan(orig, {{"lunes", "111"}, {"martes", "222"}}, "jueves");
-            comprobar(ok.ok(), "nivelar: hay incremental");
-            comprobar(ok.base == "martes", "nivelar: la base es la ultima del destino");
-            comprobar(ok.objective == "jueves", "nivelar: hasta la pedida");
-
-            // El GUID manda sobre el nombre. Aqui el destino tiene un «martes» que NO es el
-            // del origen —lo creo otro—, asi que no hay base comun aunque el nombre coincida.
-            const TRN::LevelPlan impostor =
-                TRN::makeLevelPlan(orig, {{"martes", "999"}}, "jueves");
-            comprobar(impostor.failure == TRN::LevelFailure::BaseNotAtSource,
-                      "nivelar: un nombre igual con otro guid NO es base comun");
-
-            // Sin snapshots en el destino no hay desde donde seguir.
-            comprobar(TRN::makeLevelPlan(orig, {}, "jueves").failure
-                          == TRN::LevelFailure::TargetHasNoSnapshots,
-                      "nivelar: destino vacio no se nivela, se copia");
-
-            // El destino va POR DELANTE de lo que se quiere enviar: se para.
-            comprobar(TRN::makeLevelPlan(orig, {{"miercoles", "333"}}, "martes").failure
-                          == TRN::LevelFailure::TargetIsNewer,
-                      "nivelar: no se pisa un destino mas moderno");
-
-            // Ya esta al dia: no hay nada que mandar, y decirlo es mejor que mandar cero.
-            comprobar(TRN::makeLevelPlan(orig, {{"jueves", "444"}}, "jueves").failure
-                          == TRN::LevelFailure::AlreadyLevel,
-                      "nivelar: ya nivelado");
-
-            // Y la que se pide tiene que existir en el origen.
-            comprobar(TRN::makeLevelPlan(orig, {{"lunes", "111"}}, "viernes").failure
-                          == TRN::LevelFailure::TargetNotAtSource,
-                      "nivelar: el objetivo tiene que existir");
-
-            // Cada motivo con su texto, y ninguno repetido: es lo que se pinta.
-            std::set<std::string> textosN;
-            const std::vector<TRN::LevelFailure> fallos = {
-                TRN::LevelFailure::TargetNotAtSource,
-                TRN::LevelFailure::TargetHasNoSnapshots,
-                TRN::LevelFailure::BaseNotAtSource,
-                TRN::LevelFailure::TargetIsNewer,
-                TRN::LevelFailure::AlreadyLevel};
-            for (const TRN::LevelFailure f : fallos) {
-                const std::string t = TRN::labelOf(f);
-                comprobar(!t.empty(), "nivelar: el motivo tiene texto");
-                textosN.insert(t);
-            }
-            comprobar(textosN.size() == fallos.size(),
-                      "nivelar: ningun motivo se confunde con otro");
-        }
-
-        // Mover NO es copiar y destruir: es un `zfs rename`, y por eso no sale de su pool
-        // ni acepta snapshots. El documento de diseno decia lo contrario; estas
-        // aserciones son las que fijan la version buena.
-        const DX::Endpoint otroPool{"local", "worg/sitio"};
-        const DX::Endpoint hijo{"local", "fc16/user/dentro"};
-        comprobar(DX::check(DX::Action::Move, ds, otroDs) == DX::NotApplicable::None_,
-                  "dosextremos: mover un dataset bajo otro del mismo pool");
-        comprobar(DX::check(DX::Action::Move, ds, otroPool) == DX::NotApplicable::DifferentPool,
-                  "dosextremos: pero NO a otro pool, que eso es copiar");
-        comprobar(DX::check(DX::Action::Move, snap, otroDs)
-                      == DX::NotApplicable::SourceIsNotDataset,
-                  "dosextremos: ni una instantanea de origen");
-        comprobar(DX::check(DX::Action::Move, ds, snap2)
-                      == DX::NotApplicable::TargetIsNotDataset,
-                  "dosextremos: ni sobre una instantanea");
-        comprobar(DX::check(DX::Action::Move, ds, otraMaq) == DX::NotApplicable::DifferentMachine,
-                  "dosextremos: ni entre maquinas");
-        comprobar(DX::check(DX::Action::Move, ds, hijo)
-                      == DX::NotApplicable::TargetInsideSource,
-                  "dosextremos: ni dentro de si mismo");
-        // «fc16/user» NO es padre de «fc16/user2»: la comparacion lleva la barra puesta.
-        const DX::Endpoint casiHijo{"local", "fc16/user2"};
-        comprobar(DX::check(DX::Action::Move, ds, casiHijo) == DX::NotApplicable::None_,
-                  "dosextremos: y user2 no es descendiente de user");
-        comprobar(DX::moveDestination(ds, otroDs) == "fc16/work/user",
-                  "dosextremos: al mover conserva su ultimo nombre");
-
-        // Las tres de transfer que faltan se ofrecen y se dicen: esconderlas haria
-        // creer que no existen, y el motivo es distinto de «no aplica aqui».
-        for (const DX::Action a : {DX::Action::Send, DX::Action::Sync,
-                                   DX::Action::Level}) {
-            comprobar(DX::check(a, snap, otroDs) == DX::NotApplicable::NotInTheWebYet,
-                      std::string("dosextremos: ") + DX::keyOf(a) + " dice que aun no esta");
-        }
-
-        // Cada motivo tiene su texto, y ninguno se confunde con otro: es lo que se pinta.
-        std::set<std::string> textos;
-        const std::vector<DX::NotApplicable> motivos = {DX::NotApplicable::NoSource,
-                                                   DX::NotApplicable::SameObject,
-                                                   DX::NotApplicable::SourceIsNotSnapshot,
-                                                   DX::NotApplicable::TargetIsNotDataset,
-                                                   DX::NotApplicable::DifferentDataset,
-                                                   DX::NotApplicable::DifferentMachine,
-                                                   DX::NotApplicable::DifferentPool,
-                                                   DX::NotApplicable::SourceIsNotDataset,
-                                                   DX::NotApplicable::TargetInsideSource,
-                                                   DX::NotApplicable::NotInTheWebYet};
-        for (const DX::NotApplicable n : motivos) {
-            const std::string t = DX::labelOf(n);
-            comprobar(!t.empty(), "dosextremos: el motivo tiene texto");
-            textos.insert(t);
-        }
-        // Se cuenta contra la propia lista, no contra un numero escrito a mano: con el 7
-        // fijo, anadir un motivo rompia esta asercion por el conteo y no por lo que
-        // comprueba, que es que NINGUN motivo se confunda con otro.
-        comprobar(textos.size() == motivos.size(),
-                  "dosextremos: y ningun motivo se confunde con otro");
-        igual(DX::labelOf(DX::NotApplicable::None_), "",
-              "dosextremos: «si aplica» no tiene motivo que enseñar");
+        // La carga del verbo tipado: base64 de un JSON con los flags delante.
+        const std::string carga = SY::copyLocalPayload({{"/wa/uno", "/wa/dos"}}, true, true);
+        comprobar(!carga.empty(), "sincronizar: la carga se construye");
+        std::string claro;
+        comprobar(zfsmgr::base::base64Decode(carga, claro),
+                  "sincronizar: y es base64 valido");
+        comprobar(claro.find("[\"1\",\"1\",\"/wa/uno\",\"/wa/dos\"]")
+                      != std::string::npos,
+                  "sincronizar: con los flags y el par en orden");
+        comprobar(SY::copyLocalPayload({{"/wa/uno", "none"}}, false, false).empty(),
+                  "sincronizar: una ruta mala no genera carga");
+        comprobar(SY::copyLocalPayload({}, false, false).empty(),
+                  "sincronizar: sin pares no hay carga");
     }
 
     // --- una respuesta LENTA no se da por perdida
@@ -1956,10 +1787,9 @@ int main() {
 
     // --- el puerto local de un tunel nunca es uno de los NUESTROS
     //
-    // El rango efimero de Linux es 32768-60999 e incluye el 47653 (daemon) y el 47654
-    // (servidor web), asi que el nucleo los reparte como cualquier otro. Un `ssh -L` se
-    // quedaba con el 47654 y despues el servidor web no arrancaba, con un mensaje que no
-    // decia quien lo tenia. Paso de verdad.
+    // El rango efimero de Linux es 32768-60999 e incluye el 47653 (daemon), asi que el
+    // nucleo lo reparte como cualquier otro. Un `ssh -L` que se quedara con el se lo
+    // quitaria al daemon, con un mensaje que no dice quien lo tiene.
     {
         bool salioUnoNuestro = false;
         int cuantos = 0;
@@ -1969,7 +1799,7 @@ int main() {
                 continue;   // sin puertos libres en esta maquina: no es lo que se prueba
             }
             ++cuantos;
-            if (p == 47653 || p == 47654) {
+            if (p == 47653) {
                 salioUnoNuestro = true;
             }
         }
@@ -1982,8 +1812,7 @@ int main() {
     // Esta regla estaba TRES veces: `isDatasetPropertySupportedOnPlatform` duplicada letra
     // por letra en `mainwindow_dataset_props.cpp` y `mainwindow_dataset_tree.cpp`, y la de
     // editabilidad otras dos con nombres distintos —`isDatasetPropertyEditable` y
-    // `...EditableInline`— y el mismo cuerpo. Las tres con Qt dentro, así que el servidor
-    // web no podía usarlas y habría acabado con una cuarta.
+    // `...EditableInline`— y el mismo cuerpo. Las tres con Qt dentro.
     {
         namespace ZP = zfsmgr::base::zfsprops;
         igual(std::to_string(static_cast<int>(ZP::platformOf("FreeBSD 15", ""))),
@@ -2056,8 +1885,7 @@ int main() {
     //
     // Estas 200 lineas vivian dentro de `src/cli/shell.cpp`, sueltas entre los fprintf del
     // interprete y sin una sola prueba: para verlas habia que instalar de verdad en una
-    // maquina de cada sistema. Al bajarlas a la capa base —para que el servidor web use el
-    // MISMO guion y no una copia— se pueden mirar aqui.
+    // maquina de cada sistema. Al bajarlas a la capa base se pueden mirar aqui.
     //
     // Lo que se fija es lo que distingue a un sistema de otro y lo que, de romperse, deja
     // una maquina que PARECE atendida: el gestor de servicios y la comprobacion posterior.
@@ -2792,7 +2620,7 @@ int main() {
             // dos se sondeaban aparte, con cuatro viajes por SSH cada vez que se abría el
             // diálogo de sincronizar; aquí salen gratis del refresco que ya se hace.
             const auto set = R::zfsmgrUnixCommandSet();
-            const std::vector<std::string> esperado = {"zfs",  "zpool", "rsync", "tar",
+            const std::vector<std::string> esperado = {"zfs",  "zpool", "tar",
                                                        "ssh",  "sh",    "zstd",  "gzip"};
             comprobar(set == esperado, "la lista de herramientas es la que se espera");
             // Y sigue siendo corta a propósito: cada una es una respuesta que el agente tiene
@@ -3979,15 +3807,6 @@ int main() {
         igual(PE::labelOf(PE::composeHandover({perfil("local", true)}, "local", "").failure),
               PE::labelOf(PE::Failure::NoOtherConnections),
               "peers: no hay ninguna otra");
-
-        // Las direcciones de escucha son tres y no más: el cliente llega por un túnel contra
-        // 127.0.0.1 y una dirección suelta le cortaría el acceso.
-        comprobar(PE::isValidBindAddress("127.0.0.1"), "peers: el bucle local vale");
-        comprobar(PE::isValidBindAddress("0.0.0.0"), "peers: el comodín IPv4 vale");
-        comprobar(PE::isValidBindAddress("::"), "peers: el comodín IPv6 vale");
-        comprobar(!PE::isValidBindAddress("192.168.1.5"),
-                  "peers: una dirección suelta NO, cortaría el túnel");
-        comprobar(!PE::isValidBindAddress(""), "peers: vacía tampoco");
     }
 
     {
@@ -4313,16 +4132,10 @@ int main() {
                   "pools: y export, porque el pool desaparece de esa máquina");
         comprobar(!PL::needsConfirmation(Op::Scrub), "pools: un scrub no necesita permiso");
 
-        // Importar con otro nombre.
-        comprobar(PL::argvImportAs("viejo", "nuevo")
-                      == std::vector<std::string>{"import", "viejo", "nuevo"},
-                  "pools: importar renombrando");
         comprobar(PL::isValidPoolName("tank2"), "pools: nombre válido");
         comprobar(!PL::isValidPoolName("9tank"), "pools: no puede empezar por dígito");
         comprobar(!PL::isValidPoolName("con/barra"), "pools: la barra haría un dataset");
         comprobar(!PL::isValidPoolName("con espacio"), "pools: ni espacios");
-        comprobar(PL::argvImportAs("viejo", "9malo").empty(),
-                  "pools: con un nombre inválido no se manda nada");
     }
 
     {
@@ -4366,15 +4179,7 @@ int main() {
         comprobar(IN::argvClone("tank/d@ayer", "tank/copia@x").empty(),
                   "inst: y que el destino NO lo sea");
 
-        // **La etiqueta va primero.** Invertirlos no da error: `zfs hold` acepta dos cadenas
-        // cualesquiera y falla luego diciendo que no encuentra la instantánea «micopia».
-        comprobar(IN::argvHold("micopia", "tank/d@ayer")
-                      == std::vector<std::string>{"--mutate-zfs-hold", "micopia", "tank/d@ayer"},
-                  "inst: retener, etiqueta primero");
-        comprobar(IN::argvRelease("micopia", "tank/d@ayer")
-                      == std::vector<std::string>{"--mutate-zfs-release", "micopia", "tank/d@ayer"},
-                  "inst: soltar, igual");
-        // El verbo tipado NO admite -r; para eso está la forma genérica.
+        // El verbo tipado de hold NO admite -r; recursivo va por la forma genérica.
         comprobar(IN::argvZfsHold("micopia", "tank/d@ayer", true)
                       == std::vector<std::string>{"hold", "-r", "micopia", "tank/d@ayer"},
                   "inst: retener recursivo va por el verbo genérico de zfs");
@@ -4387,18 +4192,13 @@ int main() {
         comprobar(!IN::isValidTag("con/barra"), "inst: ni barras");
         comprobar(!IN::isValidTag(""), "inst: ni vacía");
         comprobar(IN::isValidTag("mi-copia_2024.1"), "inst: guiones y puntos sí");
-        comprobar(IN::argvHold("mal etiqueta", "tank/d@ayer").empty(),
-                  "inst: con etiqueta inválida no se manda nada");
-        comprobar(IN::argvHold("ok", "tank/d").empty(),
-                  "inst: ni sobre algo que no es instantánea");
     }
 
     {
         // Datasets.
         namespace DS = zfsmgr::commands::datasets;
 
-        // **La regla del renombrado**, que el intérprete aplicaba y el servidor web no: un
-        // nombre SIN barra cambia la hoja y deja el dataset donde está. Sin ella, teclear
+        // **La regla del renombrado**: un nombre SIN barra cambia la hoja y deja el dataset donde está. Sin ella, teclear
         // «fotos» manda `zfs rename tank/media/cine fotos` y ZFS responde «cannot create
         // 'fotos': missing dataset name», que no dice qué hay que hacer. Comprobado en vivo.
         igual(DS::renamedName("tank/media/cine", "fotos"), "tank/media/fotos",
@@ -4424,27 +4224,6 @@ int main() {
 
         igual(DS::childName("tank/d", "sub"), "tank/d/sub", "ds: hijo");
         igual(DS::childName("tank/d", "otro/sub"), "otro/sub", "ds: con barra se respeta");
-
-        comprobar(DS::argvCreate("tank/d") == std::vector<std::string>{"create", "tank/d"},
-                  "ds: crear a secas");
-        comprobar(DS::argvCreate("tank/a/b/c", {}, true)
-                      == std::vector<std::string>{"create", "-p", "tank/a/b/c"},
-                  "ds: con -p se crean los intermedios");
-        comprobar(DS::argvCreate("tank/d", {"compression=lz4", "atime=off"})
-                      == std::vector<std::string>{"create", "-o", "compression=lz4", "-o",
-                                                  "atime=off", "tank/d"},
-                  "ds: cada propiedad con su -o");
-        // Sin «=» no es una propiedad: zfs la leería como el nombre del dataset.
-        comprobar(DS::argvCreate("tank/d", {"basura"})
-                      == std::vector<std::string>{"create", "tank/d"},
-                  "ds: lo que no es prop=valor se descarta");
-
-        comprobar(DS::argvMount("tank/d", true)
-                      == std::vector<std::string>{"mount", "-f", "tank/d"}, "ds: montar forzando");
-        comprobar(DS::argvUnmount("tank/d")
-                      == std::vector<std::string>{"unmount", "tank/d"}, "ds: desmontar");
-        comprobar(DS::argvPromote("tank/d") == std::vector<std::string>{"promote", "tank/d"},
-                  "ds: promover");
 
         comprobar(DS::argvSetProperty("tank/d", "atime", "off")
                       == std::vector<std::string>{"set", "atime=off", "tank/d"},

@@ -120,8 +120,8 @@ bool showZfsSendOptionsDialog(QWidget* parent,
 
 QString buildZfsSendFlags(const ZfsSendOptions& opts)
 {
-    // Las banderas viven en `base/transfer`: el servidor web tiene que componer las
-    // mismas, y dos listas con el mismo orden acaban discrepando en cuanto se añada una.
+    // Las banderas viven en `base/transfer`: el intérprete compone las mismas, y dos listas
+    // con el mismo orden acaban discrepando en cuanto se añada una.
     zfsmgr::base::transfer::SendOptions o;
     o.w = opts.flagW;
     o.L = opts.flagL;
@@ -1738,10 +1738,7 @@ void MainWindow::actionSyncDatasets() {
             return;
         }
         auto buildRsyncSyncCommand = [&](bool useDelete, bool dryRun) -> QString {
-            // Prefer the typed --mutate-rsync-local RPC: the daemon runs the
-            // capability probe and assembles the rsync argv itself, so no shell is
-            // built. Falls back to the inline shell probe when the daemon is not
-            // available (e.g. Windows or an out-of-date agent).
+            // The agent's own copy (--mutate-copy-local), same machine only.
             const QStringList typedRsync = daemonizeRsyncSyncArgs(
                 src.connIdx,
                 {qMakePair(srcEffectiveMp, dstEffectiveMp)},
@@ -1764,6 +1761,16 @@ void MainWindow::actionSyncDatasets() {
         //
         // Las DOS puntas: sincronizar compara y copia entre dos máquinas, y sin agente en
         // cualquiera de ellas no hay camino.
+        // Entre máquinas era rsync por SSH, y rsync ya no se usa: el CLI lo hace con el árbol
+        // entre daemons y la interfaz lo tendrá en la 2.0.
+        if (!sameConnection) {
+            QMessageBox::information(
+                this, QStringLiteral("ZFSMgr"),
+                trk(QStringLiteral("t_sync_entre_maquinas_cli"),
+                    QStringLiteral("Sincronizar entre máquinas no está disponible en la interfaz: use «rsync» en zfsmgr-cli."),
+                    QStringLiteral("Sync between machines is not available in the interface: use «rsync» in zfsmgr-cli.")));
+            return;
+        }
         if (!requireDaemonForMutation(src.connIdx, QStringLiteral("sincronizar"))) {
             return;
         }
@@ -1949,9 +1956,7 @@ void MainWindow::actionSyncDatasets() {
                          command);
     } else {
         auto buildSubdatasetRsyncCommand = [&](bool useDelete, bool dryRun) -> QString {
-            // Prefer the typed --mutate-rsync-local RPC: one probe, then one rsync
-            // per pair, stopping at the first failure (same as the `set -e` + `&&`
-            // chain below, which stays as the no-daemon fallback).
+            // The agent's own copy (--mutate-copy-local), same machine only.
             QList<QPair<QString, QString>> typedPairs;
             typedPairs.reserve(syncPairs.size());
             for (const auto& pair : syncPairs) {
@@ -1970,6 +1975,16 @@ void MainWindow::actionSyncDatasets() {
             // Ídem: el `set -e; … && …` de rsync por shell ya no está.
             return QString();
         };
+        // Entre máquinas era rsync por SSH, y rsync ya no se usa: el CLI lo hace con el árbol
+        // entre daemons y la interfaz lo tendrá en la 2.0.
+        if (!sameConnection) {
+            QMessageBox::information(
+                this, QStringLiteral("ZFSMgr"),
+                trk(QStringLiteral("t_sync_entre_maquinas_cli"),
+                    QStringLiteral("Sincronizar entre máquinas no está disponible en la interfaz: use «rsync» en zfsmgr-cli."),
+                    QStringLiteral("Sync between machines is not available in the interface: use «rsync» in zfsmgr-cli.")));
+            return;
+        }
         if (!requireDaemonForMutation(src.connIdx, QStringLiteral("sincronizar subdatasets"))) {
             return;
         }
@@ -2006,9 +2021,7 @@ bool MainWindow::launchDaemonJobTransfer(const QString& srcSnap,
     const bool sameConn = (srcConnIdx == dstConnIdx);
 
     // Los tres pasos —que el destino escuche, averiguar la dirección de vuelta, y que el
-    // origen arranque— viven en `base/transfer`. Es lo que el servidor web necesita
-    // para poder copiar, porque es el único camino que sostiene el daemon en vez de quien
-    // lo lanzó.
+    // origen arranque— viven en `base/transfer`, compartidos con el intérprete.
     // Cómo se le habla al agente de cada máquina: es la ventana quien lo sabe, porque una
     // conexión Local no se alcanza igual que una remota.
     const auto llama = [this](const zfsmgr::base::ConnectionProfile& maquina,

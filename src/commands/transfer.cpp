@@ -523,8 +523,7 @@ Job launchTreeJob(TransportSession& ses, const AgentCall& llama,
                             const std::string& directorioOrigen,
                             const std::string& directorioDestino, bool mismaConexion,
                             bool verboso, bool comoTrabajo, bool borrarEnDestino, bool enSeco,
-                            std::string* salidaDelEnvio, const std::string& llegaComo,
-                            bool metadatosDeRaiz) {
+                            std::string* salidaDelEnvio, const std::string& llegaComo) {
     Job t;
     if (trim(directorioOrigen).empty() || trim(directorioDestino).empty()) {
         t.failure = JobFailure::ReceiverNotListening;
@@ -585,9 +584,6 @@ Job launchTreeJob(TransportSession& ses, const AgentCall& llama,
         args.push_back("--as");
         args.push_back(llegaComo);
     }
-    if (metadatosDeRaiz) {
-        args.push_back("--root-metadata");
-    }
     const ConnectionProfile& quienEnvia = mismaConexion ? destino : origen;
     salida.clear();
     err.clear();
@@ -613,78 +609,6 @@ Job launchTreeJob(TransportSession& ses, const AgentCall& llama,
         t.detail = trim(salida);
     }
     return t;
-}
-
-std::string labelOf(LevelFailure f) {
-    switch (f) {
-        case LevelFailure::None_:
-            return {};
-        case LevelFailure::TargetNotAtSource:
-            return i18n::tr("t_cmd_transfer_snapshot_origen_ya_esta", "el snapshot de origen ya no está en su dataset");
-        case LevelFailure::TargetHasNoSnapshots:
-            return i18n::tr("t_cmd_transfer_destino_tiene_ningun_snapshot", "el destino no tiene ningún snapshot: no hay base común desde la que "
-                   "seguir; para llevarlo entero, copie");
-        case LevelFailure::BaseNotAtSource:
-            return i18n::tr("t_cmd_transfer_ultimo_snapshot_destino_existe", "el último snapshot del destino no existe en el origen: son historias "
-                   "distintas y no hay incremental posible");
-        case LevelFailure::TargetIsNewer:
-            return i18n::tr("t_cmd_transfer_destino_tiene_snapshot_mas", "el destino tiene un snapshot más moderno que el que se quiere enviar");
-        case LevelFailure::AlreadyLevel:
-            return i18n::tr("t_cmd_transfer_destino_ya_esta_nivelado", "el destino ya está nivelado en ese snapshot");
-    }
-    return {};
-}
-
-LevelPlan makeLevelPlan(const std::vector<Snapshot>& origen,
-                          const std::vector<Snapshot>& destino,
-                          const std::string& objetivo) {
-    LevelPlan plan;
-    plan.objective = objetivo;
-
-    std::size_t iObjetivo = origen.size();
-    for (std::size_t i = 0; i < origen.size(); ++i) {
-        if (origen[i].name == objetivo) {
-            iObjetivo = i;
-            break;
-        }
-    }
-    if (iObjetivo == origen.size()) {
-        plan.failure = LevelFailure::TargetNotAtSource;
-        return plan;
-    }
-    if (destino.empty()) {
-        plan.failure = LevelFailure::TargetHasNoSnapshots;
-        return plan;
-    }
-
-    // La ÚLTIMA del destino marca hasta dónde llegó, y su GUID es lo que hay que reconocer
-    // en el origen. Buscarla por nombre daría con la equivocada en cuanto las dos máquinas
-    // tengan una instantánea llamada igual, que con nombres automáticos es lo normal y no
-    // lo raro.
-    const std::string guidUltima = destino.back().guid;
-    std::size_t iBase = origen.size();
-    if (!guidUltima.empty()) {
-        for (std::size_t i = 0; i < origen.size(); ++i) {
-            if (!origen[i].guid.empty() && origen[i].guid == guidUltima) {
-                iBase = i;
-                break;
-            }
-        }
-    }
-    if (iBase == origen.size()) {
-        plan.failure = LevelFailure::BaseNotAtSource;
-        return plan;
-    }
-    if (iBase > iObjetivo) {
-        plan.failure = LevelFailure::TargetIsNewer;
-        return plan;
-    }
-    if (iBase == iObjetivo) {
-        plan.failure = LevelFailure::AlreadyLevel;
-        return plan;
-    }
-    plan.base = origen[iBase].name;
-    return plan;
 }
 
 }  // namespace zfsmgr::base::transfer

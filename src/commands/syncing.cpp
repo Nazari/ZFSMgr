@@ -116,26 +116,4 @@ std::string copyLocalPayload(const std::vector<std::pair<std::string, std::strin
     return helpers::agentArgv(campos);
 }
 
-std::string rsyncPayload(const std::vector<std::pair<std::string, std::string>>& pares,
-                       bool borrar, bool enSeco,
-                       const std::string& rsh, const std::string& hostDestino) {
-    if (pares.empty()) {
-        return {};
-    }
-    // La carga es una lista de cadenas, igual que la de cualquier verbo genérico: se
-    // empaqueta con la misma función y no con un JSON escrito aquí. Lo único propio de
-    // rsync es el ORDEN de los campos, que sí es cosa de este módulo.
-    std::vector<std::string> campos = {borrar ? "1" : "0", enSeco ? "1" : "0", rsh, hostDestino};
-    for (const auto& par : pares) {
-        const std::string o = trim(par.first);
-        const std::string d = trim(par.second);
-        if (!isUsablePath(o) || !isUsablePath(d)) {
-            return {};
-        }
-        campos.push_back(o);
-        campos.push_back(d);
-    }
-    return helpers::agentArgv(campos);
-}
-
 }  // namespace zfsmgr::base::syncing

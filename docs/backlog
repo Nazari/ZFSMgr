@@ -24,15 +24,42 @@ Listado de cambios.
    La GUI se habla al empezar la 2.0. En principio no parece que se vaya a quitar Qt, pero esa
    decisión no se toma ahora.
 
-5. [SIGUE EN PIE 2026-10-11] Retirar la dependencia de rsync también en Unix, sustituyéndolo por el árbol por el socket entre daemons (src/arbolremoto), que ya se usa entre máquinas y dentro de Windows y que ya lleva transferencia delta con el algoritmo de rsync.
-   NO se puede hacer todavía: hoy rsync se invoca con -aHWS más -A y -X cuando el sistema los admite, y el árbol preserva menos. Faltan cuatro cosas, en este orden de importancia:
-   	- [HECHO 2026-10-08] Propietario y grupo. Era la grave. Se llevan uid/gid Y sus nombres en el manifiesto y en la cabecera de operación, y se resuelve en destino por nombre cayendo a numérico. De paso se arreglaron dos cosas más que estaban dentro del mismo saco y no eran lo mismo: el MODO de los directorios no se capturaba —`en.mode` se rellenaba en un solo sitio, la rama del fichero— y su FECHA se capturaba y no se aplicaba, y había que ponerla al final porque escribir dentro la cambia. Medido entre fc16 y unib antes y después.
-   	- Fecha exacta. Hoy viaja en segundos enteros y eso no detecta un cambio dentro del mismo segundo que además conserve el tamaño. Se vio en vivo en oldlau: un fichero con contenido distinto salió como IGUAL. Mandar también nanosegundos y comparar exacto cuando los dos lados los tienen.
-   	- Ficheros dispersos. Hoy se rellenan: un disco virtual de 100 GB con 8 GB usados llegaría ocupando 100 GB. SEEK_HOLE/SEEK_DATA en POSIX, y su equivalente en Windows.
-   	- Dispositivos y ficheros especiales. Hoy se saltan en silencio. Poco frecuente en datasets de datos.
-   	- ACL y atributos extendidos: lo más caro y lo más específico de cada plataforma. Decidir si los datasets de uno los usan antes de invertir ahí.
-   El orden es primero PARIDAD DEMOSTRADA y después retirada, y la paridad hay que medirla contra rsync sobre el mismo árbol comparando propietarios, huecos y atributos uno a uno; no vale con que «parezca igual». Mientras tanto rsync se queda: hoy preserva cosas que el árbol pierde sin decirlo.
-   El motivo para hacerlo es el mismo que llevó el árbol a Windows: con dos mecanismos, el menos usado acumula fallos que nadie ve.
+5. [HECHO 2026-10-12, dentro de una máquina y entre máquinas] Retirar rsync.
+   Hecho: ya no se llama al `rsync` del sistema en ninguna parte. El verbo
+   `--mutate-rsync-local` se ha quitado; la orden `rsync` del CLI (y Sincronizar de la GUI)
+   copia dentro de una máquina con `copytree` por `--mutate-copy-local`, el mismo motor que
+   `cp`, `todir`, `breakdown` y `assemble`. Entre máquinas ya iba por el árbol entre daemons.
+   La paridad se MIDIÓ, atributo a atributo, contra `rsync -aHWS -A -X` sobre el mismo árbol
+   —dueños sin nombre, setuid/setgid/sticky, nanosegundos, enlaces simbólicos (con su dueño y
+   su fecha) y duros (también de un enlace simbólico), FIFO, dispositivos, socket, dispersos,
+   ceros escritos, xattr, ACL, nombres no UTF-8, 255 bytes— en Linux y FreeBSD sobre ZFS, y
+   también la sincronización (cambios de tipo, borrado, solo metadatos, pasada en seco). Lo que
+   destapó y se arregló en copytree: abortaba con un cambio de tipo; no reaplicaba metadatos a
+   lo que no cambiaba de contenido; no quitaba xattr retirados; ni dueño ni fecha en los enlaces
+   simbólicos; no copiaba especiales; escribía encima (arrastrando enlaces duros del destino) en
+   vez de temporal + rename; huecos a grano de 256 KiB; un directorio ilegible se recorría como
+   vacío y el borrado vaciaba su copia; la pasada en seco no decía QUÉ cambiaría. Y donde ahora
+   es MEJOR que rsync: compara fechas al nanosegundo (rsync al segundo: no ve un cambio del mismo
+   tamaño dentro del mismo segundo), copia las ACL NFSv4 de FreeBSD y los extattr «system» (rsync
+   pierde los dos). Lo que ninguno ve: mismo tamaño y misma fecha exacta con otro contenido (haría
+   falta comparar contenido, el `-c` de rsync).
+   La GUI ya no sincroniza ENTRE máquinas (era rsync por SSH): lo dice y remite al CLI; vuelve
+   en la 2.0.
+   Entre máquinas (`remotetree`, mismo día) ya conserva lo mismo que copytree, con un módulo común
+   `commands/fsmeta` para xattr y ACL: nanosegundos (comparados a la resolución del más tosco:
+   NTFS 100 ns, sin fracción al segundo), huecos por tramos (no viajan ceros), xattr y ACL
+   (POSIX de Linux, NFSv4 de FreeBSD, extendidas de macOS), especiales, enlaces duros de
+   simbólicos y especiales (y detectados en Windows), dueño y fecha de los simbólicos (y su modo
+   en FreeBSD y macOS), cambios de tipo, solo metadatos, temporal + rename, y la raíz siempre.
+   El receptor dice qué sistema es y solo viaja lo que allí cabe; lo demás se cuenta
+   (SIN_ACL_XATTR) y el CLI lo avisa. El dueño se compara por el NÚMERO que pondrá el receptor
+   (le pregunta los suyos), como rsync: si no, un grupo que allí no existe salía distinto en cada
+   pasada. Medido con el árbol duro en todas las direcciones entre Linux (fc16, unib), FreeBSD
+   (VM), macOS (mbp, sobre tstpl2) y Windows (w11): idéntico salvo lo que el sistema de destino
+   no puede guardar, y la tercera pasada sin nada pendiente. De paso: un nombre que Windows no
+   puede representar tiraba el daemon entero (excepción fuera del hilo).
+   QUEDA: en Windows, una ruta de más de 260 caracteres no se puede crear (también en copytree);
+   el «-1» de macOS («nogroup») no se puede poner como grupo.
 
 6. [APLAZADO a la 2.0] Revisión completa de la ayuda de la GUI Qt (help/es, help/en). No se ha hecho: al regenerar las capturas del 2026-08-21 salieron varias cosas que apuntan a que el texto tampoco está al día.
    Lo que ya se sabe y sirve de punto de partida:
@@ -95,7 +122,7 @@ Listado de cambios.
 9. [HECHO 2026-10-12] Pregunta del usuario: ¿por qué el agente devuelve TEXTO y no solo
    Lo hecho: catálogo `base/agentmsg` (código estable + argumentos + castellano e inglés). El
    agente manda "code"/"args" junto a la frase inglesa de stderr; el cliente los traduce donde
-   lee la respuesta (sin tocar firmas). Compatible en los dos sentidos. Migrados ~200 sitios:
+   lee la respuesta (sin tocar firmas). Desde 7fd3ed3 el agente manda solo el código (sin compatibilidad con agentes viejos). Migrados ~200 sitios:
    planificador (también su gsa-state.json), trabajos (jobs, job, --wait), envío entre
    máquinas, desglosar/ensamblar/todir, ficheros y árboles, dispositivos, pares y bind, el
    cliente TLS de la capa base (que estaba en castellano a mano) y los «usage» de una línea.

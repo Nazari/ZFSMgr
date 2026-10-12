@@ -714,7 +714,7 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
     // funciona en Windows —comprobado contra OldLau: los datasets vuelven a ser directorios
     // en su sitio, «Z:\\des\\fotos\\a.txt» donde tenía que estar— y el agente lo anuncia allí.
     // El argv y la regla de los nombres completos salen de `commands::advanced`,
-    // que es lo que usan también el intérprete y el servidor web. Aquí llegaban ya
+    // que es lo que usa también el intérprete. Aquí llegaban ya
     // completos por otro camino —un mapa del árbol—, así que la regla no se aplicaba
     // sino que se cumplía por casualidad: si ese mapa devolviera alguna vez un
     // relativo, la operación diría que sí y no haría nada.

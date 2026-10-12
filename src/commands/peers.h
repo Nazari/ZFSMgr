@@ -105,12 +105,6 @@ bool destinationIsSelf(const std::string& connId, const SelfMatch& m);
 
 std::string labelOf(Failure f);
 
-// The three addresses the daemon accepts to listen on.
-//
-// Not an arbitrary list: the client arrives through a tunnel against 127.0.0.1, so binding
-// to a single address would cut it off. The daemon rejects the rest, and having the same
-// list here means only the valid ones get offered, instead of letting the call fail.
-bool isValidBindAddress(const std::string& address);
 std::vector<std::string> bindAddresses();
 
 }  // namespace zfsmgr::base::peers

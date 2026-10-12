@@ -148,14 +148,4 @@ std::vector<std::string> bindAddresses() {
     return {"127.0.0.1", "0.0.0.0", "::"};
 }
 
-bool isValidBindAddress(const std::string& dir) {
-    const std::string d = trim(dir);
-    for (const std::string& v : bindAddresses()) {
-        if (d == v) {
-            return true;
-        }
-    }
-    return false;
-}
-
 }  // namespace zfsmgr::base::peers

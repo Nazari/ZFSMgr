@@ -661,7 +661,7 @@ private Q_SLOTS:
             QStringLiteral("--mutate-advanced-todir"),
             QStringLiteral("--mutate-advanced-breakdown"),
             QStringLiteral("--mutate-advanced-assemble"),
-            QStringLiteral("--mutate-rsync-local"),
+            QStringLiteral("--mutate-copy-local"),
             QStringLiteral("--mutate-zfs-destroy"),
             QStringLiteral("--zfs-pipe-local"),
             QStringLiteral("--zfs-send-to-peer"),

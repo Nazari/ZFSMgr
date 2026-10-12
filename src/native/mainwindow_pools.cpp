@@ -1010,7 +1010,7 @@ void MainWindow::importPoolRenamingFromRow(int row) {
     }
     auto buildImportRenameCommandForTarget = [&](const QString& target) -> QString {
         // Importar RENOMBRANDO: `zpool import <origen> <nuevo>`. El nombre nuevo se valida
-        // con la misma regla que usan el intérprete y el servidor web —empieza por letra y
+        // con la misma regla que usa el intérprete —empieza por letra y
         // solo lleva letras, dígitos y `_-.:`—, que vive en `commands::pools`.
         if (!zfsmgr::commands::pools::isValidPoolName(
                 newNameEd->text().trimmed().toStdString())) {

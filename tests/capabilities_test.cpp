@@ -73,15 +73,16 @@ private Q_SLOTS:
         }
     }
 
-    // Y en NINGUNA plataforma dependen ya de rsync: solo Sincronizar lo necesita.
-    void dirOperationsNoLongerNeedRsync() {
+    // Y en NINGUNA plataforma depende ya nada de rsync, tampoco Sincronizar: todo copia con
+    // el agente.
+    void nothingNeedsRsync() {
         Platform p = unixReady();
         p.missingTools.insert(QStringLiteral("rsync"));
-        for (const Feature f : {Feature::DirBreakdown, Feature::DirAssemble, Feature::DirToDir}) {
+        for (const Feature f : {Feature::DirBreakdown, Feature::DirAssemble, Feature::DirToDir,
+                                Feature::RsyncSync}) {
             QVERIFY2(featureAvailability(f, p).available,
                      "sin rsync deben seguir disponibles: copian con el agente");
         }
-        QCOMPARE(featureAvailability(Feature::RsyncSync, p).reason, Reason::MissingTool);
     }
 
     // Los trabajos en segundo plano también, desde la fase 5. Nunca dependieron de fork
@@ -118,12 +119,7 @@ private Q_SLOTS:
     // no debe ofrecerse. Antes solo se sondeaban para pintar una lista informativa.
     void missingToolDisablesTheFeaturesThatNeedIt() {
         Platform p = unixReady();
-        p.missingTools.insert(QStringLiteral("rsync"));
-        // Solo Sincronizar. Desglosar, Ensamblar y Hacia Dir ya copian y verifican con
-        // el agente, y su caso lo cubre dirOperationsNoLongerNeedRsync.
-        const Availability a = featureAvailability(Feature::RsyncSync, p);
-        QVERIFY2(!a.available, "sin rsync no hay con qué sincronizar");
-        QCOMPARE(a.reason, Reason::MissingTool);
+        p.missingTools.insert(QStringLiteral("ssh"));
         // Y no debe afectar a lo que no lo usa.
         QVERIFY(featureAvailability(Feature::DatasetPermissions, p).available);
 
@@ -136,9 +132,9 @@ private Q_SLOTS:
     // el verbo si no puede ejecutar el programa.
     void missingToolWinsOverDeclaredCapabilities() {
         Platform p = unixReady();
-        p.daemonCaps.insert(featureAgentVerb(Feature::RsyncSync));
-        p.missingTools.insert(QStringLiteral("rsync"));
-        QCOMPARE(featureAvailability(Feature::RsyncSync, p).reason, Reason::MissingTool);
+        p.daemonCaps.insert(featureAgentVerb(Feature::AutoSnapshotsGsa));
+        p.missingTools.insert(QStringLiteral("ssh"));
+        QCOMPARE(featureAvailability(Feature::AutoSnapshotsGsa, p).reason, Reason::MissingTool);
     }
 
     void unixKeepsEverythingAvailableWhenDaemonIsReady() {

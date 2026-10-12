@@ -68,25 +68,6 @@ std::string labelOf(Who q) {
     return {};
 }
 
-Scope scopeFrom(const std::string& clave) {
-    for (const Scope a : {Scope::Local, Scope::Descendants, Scope::LocalAndDescendants,
-                            Scope::OnCreate, Scope::Set}) {
-        if (clave == keyOf(a)) {
-            return a;
-        }
-    }
-    return Scope::LocalAndDescendants;
-}
-
-Who whoFrom(const std::string& clave) {
-    for (const Who q : {Who::User, Who::Group, Who::Everyone, Who::Set}) {
-        if (clave == keyOf(q)) {
-            return q;
-        }
-    }
-    return Who::User;
-}
-
 std::vector<Entry> parse(const std::string& salida) {
     std::vector<Entry> out;
     // El alcance viene del TÍTULO de la sección, así que hay que llevarlo mientras se leen

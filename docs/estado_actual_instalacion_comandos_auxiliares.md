@@ -143,7 +143,6 @@ Límite actual:
 ## Comandos actualmente contemplados por el catálogo
 
 - `sshpass`
-- `rsync`
 - `pv`
 - `mbuffer`
 - `tar`

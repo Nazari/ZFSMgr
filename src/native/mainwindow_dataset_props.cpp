@@ -93,8 +93,7 @@ protected:
 
 // La familia de plataforma, el soporte por plataforma y la editabilidad viven ahora en
 // `base/zfsprops`, sin Qt. Estaban DUPLICADAS letra por letra en este fichero y en el
-// otro, y el servidor web necesita la misma regla para saber qué celda pinta con una caja
-// de edición. Esto es solo el puente entre los QString de aquí y las cadenas de allí.
+// otro. Esto es solo el puente entre los QString de aquí y las cadenas de allí.
 using DatasetPlatformFamily = zfsmgr::base::zfsprops::Platform;
 
 DatasetPlatformFamily datasetPlatformFamilyFromStrings(const QString& osType, const QString& osLine) {

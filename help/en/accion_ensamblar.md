@@ -37,4 +37,4 @@ That way the name keeps the path and a later Break down can reconstruct it. The 
 - Intermediate space is taken **from the pool itself**, not from the system `/tmp`. On most Linux distributions `/tmp` lives in memory, and using it made assembling a large dataset impossible.
 - Before destroying the source dataset the copy is **verified to be complete**; if something is missing, the action stops and the dataset **is not destroyed**.
 - **Only** the chosen dataset is destroyed, without `-r`: its descendants have already been reassigned.
-- The copy preserves **ACLs and extended attributes** when the system `rsync` supports them (detected automatically).
+- The copy preserves **ACLs and extended attributes** (the agent's own copy; `rsync` is not used).

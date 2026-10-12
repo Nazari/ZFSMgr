@@ -144,14 +144,4 @@ bool isValidPoolName(const std::string& nombre) {
                                "0123456789_-.:") == std::string::npos;
 }
 
-std::vector<std::string> argvImportAs(const std::string& pool,
-                                          const std::string& nombreNuevo) {
-    const std::string p = zfsmgr::base::trim(pool);
-    const std::string n = zfsmgr::base::trim(nombreNuevo);
-    if (p.empty() || !isValidPoolName(n)) {
-        return {};
-    }
-    return {"import", p, n};
-}
-
 }  // namespace zfsmgr::commands::pools
