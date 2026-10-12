@@ -38,4 +38,6 @@ if [[ $check -eq 1 ]]; then
   echo "formato: hay líneas cambiadas sin formatear; arréglalo con scripts/formato.sh $desde" >&2
   exit 1
 fi
-"$gcf" --binary "$cf" --extensions "$exts" "$desde"
+# --force: también sobre ficheros con cambios sin añadir al índice, que es lo normal cuando se
+# acaba de editar. Puede hacer falta repetirlo: formatear mueve los bordes de lo cambiado.
+"$gcf" --binary "$cf" --extensions "$exts" --force "$desde"

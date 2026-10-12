@@ -273,8 +273,6 @@ std::string discoIlegible() {
 #endif
 }
 
-bool discosIlegibles() { return !discoIlegible().empty(); }
-
 constexpr const char* kApiVersion = "3";
 #include "zfsmgr/agentversion_generated.h"
 #ifndef ZFSMGR_AGENT_VERSION_STRING
@@ -2913,24 +2911,6 @@ bool parseJsonStringArray(const std::string& json, std::vector<std::string>& out
     return false;
 }
 
-int runGenericMutation(const std::string& tool, const std::string& payloadB64) {
-    std::string decoded;
-    if (!decodeBase64(payloadB64, decoded)) {
-        std::cerr << "invalid generic payload\n";
-        return 2;
-    }
-    std::vector<std::string> arr;
-    if (!parseJsonStringArray(decoded, arr) || arr.empty()) {
-        std::cerr << "invalid generic payload\n";
-        return 2;
-    }
-    if (!isAllowedMutationOp(tool, arr.front())) {
-        std::cerr << "unsupported " << tool << " mutation op\n";
-        return 2;
-    }
-    return runExecStreaming(tool, arr);
-}
-
 // ¿Hay algún motivo para NO intentar cambiar la frase de este dataset?
 //
 // `zfs change-key` sin banderas NO pregunta si `keylocation` apunta a un fichero o a una
@@ -4035,43 +4015,6 @@ ExecResult runZfsAllowBatchCapture(const std::string& payloadB64) {
     return r;
 }
 
-int runZfsAllowBatch(const std::string& payloadB64) {
-    std::vector<std::vector<std::string>> batch;
-    std::string errMsg;
-    if (!decodeZfsAllowBatch(payloadB64, batch, errMsg)) {
-        std::cerr << errMsg;
-        return 2;
-    }
-    int rc = 0;
-    for (const std::vector<std::string>& argv : batch) {
-        const int sub = runExecStreaming("zfs", argv);
-        if (sub != 0 && rc == 0) {
-            rc = sub;  // run all entries; surface the first failure
-        }
-    }
-    return rc;
-}
-
-// Una ruta absoluta no tiene la misma forma en las dos plataformas, y darlo por hecho
-// era lo que dejaba fuera a Windows de entrada: allí un punto de montaje es «Z:\\ds»,
-// que no empieza por '/' y por tanto no pasaba ninguna validación.
-bool isAbsolutePathForPlatform(const std::string& p) {
-    if (p.empty()) {
-        return false;
-    }
-#ifdef _WIN32
-    // «Z:\...», «Z:/...» o UNC. La letra sola («Z:») no vale: sin separador no es la
-    // raíz de la unidad sino el directorio actual DE esa unidad, que es otra cosa.
-    if (p.size() >= 3 && std::isalpha(static_cast<unsigned char>(p[0])) && p[1] == ':'
-        && (p[2] == '\\' || p[2] == '/')) {
-        return true;
-    }
-    return p.size() >= 2 && (p[0] == '\\' || p[0] == '/') && (p[1] == '\\' || p[1] == '/');
-#else
-    return p[0] == '/';
-#endif
-}
-
 // --mutate-copy-local: copiar dentro de esta máquina con el motor del proyecto.
 //
 // El mismo `copytree` que ya usan `todir`, `breakdown` y `assemble` —ficheros dispersos,
@@ -4471,20 +4414,6 @@ static bool lzcExists(const std::string& name) {
 }
 #endif // HAVE_LIBZFS_CORE
 
-int runDumpRefreshBasics() {
-    const std::string osLine = compactSpaces(detectOsLine());
-    const std::string machineUuid = compactSpaces(detectMachineUuid());
-    const std::string zraw = compactSpaces(detectZfsVersionRaw());
-    std::cout << "OS_LINE=" << osLine << "\n";
-    std::cout << "MACHINE_UUID=" << machineUuid << "\n";
-    std::cout << "ZFS_VERSION_RAW=" << zraw << "\n";
-    if (zraw.empty()) {
-        std::cout << "ZFS_DETAIL=" << detectZfsUnavailableReason() << "\n";
-    }
-    return 0;
-}
-
-
 // ── Generación del material TLS por el propio agente ─────────────────────────
 // Antes lo hacía un openssl EXTERNO invocado por shell desde la GUI. En Windows eso
 // no vale: openssl no está en el PATH (comprobado en un Windows 11 real; solo
@@ -4711,44 +4640,6 @@ ExecResult runDumpToolAvailabilityCapture(const std::string& payloadB64) {
 }
 #endif
 
-int runDumpZpoolGuidStatusBatch() {
-    ExecResult pools = runExecCapture("zpool", {"list", "-H", "-o", "name"});
-    if (pools.rc != 0) {
-        if (!pools.out.empty()) {
-            std::cout << pools.out;
-        }
-        if (!pools.err.empty()) {
-            std::cerr << pools.err;
-        }
-        return pools.rc;
-    }
-    for (const std::string& raw : splitLines(pools.out)) {
-        const std::string pool = trim(raw);
-        if (pool.empty()) {
-            continue;
-        }
-        ExecResult guid = runExecCapture("zpool", {"get", "-H", "-o", "value", "guid", pool});
-        ExecResult status = runExecCapture("zpool", {"status", "-v", pool});
-        std::cout << "__ZFSMGR_POOL__:" << pool << "\n";
-        std::cout << "__ZFSMGR_GUID__:" << trim(splitLines(guid.out).empty() ? std::string() : splitLines(guid.out).front()) << "\n";
-        std::cout << "__ZFSMGR_STATUS_BEGIN__\n";
-        if (!status.out.empty()) {
-            std::cout << status.out;
-            if (status.out.back() != '\n') {
-                std::cout << '\n';
-            }
-        }
-        if (!status.err.empty()) {
-            std::cout << status.err;
-            if (status.err.back() != '\n') {
-                std::cout << '\n';
-            }
-        }
-        std::cout << "__ZFSMGR_STATUS_END__\n";
-    }
-    return 0;
-}
-
 ExecResult runDumpZpoolGuidStatusBatchCapture() {
     ExecResult r;
     ExecResult pools = runExecCapture("zpool", {"list", "-H", "-o", "name"});
@@ -4791,43 +4682,6 @@ ExecResult runDumpZpoolGuidStatusBatchCapture() {
         r.rc = 0;
     }
     return r;
-}
-
-int runDumpGsaRawAllPools() {
-    ExecResult pools = runExecCapture("zpool", {"list", "-H", "-o", "name"});
-    if (pools.rc != 0) {
-        if (!pools.out.empty()) {
-            std::cout << pools.out;
-        }
-        if (!pools.err.empty()) {
-            std::cerr << pools.err;
-        }
-        return pools.rc;
-    }
-
-    for (const std::string& raw : splitLines(pools.out)) {
-        const std::string pool = trim(raw);
-        if (pool.empty()) {
-            continue;
-        }
-        ExecResult one = runExecCapture(
-            "zfs",
-            {"get", "-H", "-o", "name,property,value", "-r",
-             "org.zfsmgr:schedule-enabled,org.zfsmgr:schedule-level,org.zfsmgr:schedule-target", pool});
-        if (!one.out.empty()) {
-            std::cout << one.out;
-            if (one.out.back() != '\n') {
-                std::cout << '\n';
-            }
-        }
-        if (!one.err.empty()) {
-            std::cerr << one.err;
-            if (one.err.back() != '\n') {
-                std::cerr << '\n';
-            }
-        }
-    }
-    return 0;
 }
 
 // ── El planificador de instantáneas (GSA) ───────────────────────────────────────────
@@ -10406,831 +10260,1168 @@ ExecResult runZpoolLabelclear(const std::vector<std::string>& params) {
 #endif
 }
 
-ExecResult executeAgentCommandCapture(const std::string& cmd,
-                                      const std::vector<std::string>& params,
-                                      const char* argv0) {
-    ExecResult r;
-    if (cmd == "--health") {
-        r.rc = 0;
-        r.out =
-            "STATUS=OK\n"
-            "VERSION=" ZFSMGR_AGENT_VERSION_STRING "\n"
-            "API=3\n"
-            "SERVER=1\n"
-            "CACHE_ENTRIES=0\n"
-            "CACHE_MAX_ENTRIES=0\n"
-            "CACHE_INVALIDATIONS=0\n"
-            "POOL_INVALIDATIONS=0\n"
-            "RPC_FAILURES=0\n"
-            "RPC_COMMANDS=\n"
-            "ZED_ACTIVE=0\n";
-        r.out += "CAPS=" + agentCapabilityList() + "\n";
-        return r;
+// ── La tabla de verbos ──────────────────────────────────────────────────────────────────
+//
+// UNA sola tabla para las dos puertas del agente: el RPC (`executeAgentCommandCapture`) y la
+// línea de órdenes (`main`). Antes cada puerta tenía su cadena de `if (cmd == …)` con su propia
+// copia de cada verbo, y se separaban: `--mutate-zfs-rename` admitía `r` (rename -r) por RPC y
+// no por la otra puerta. Ahora un verbo se escribe una vez, aquí, y las dos lo sirven igual.
+//
+// `soloRpc`: verbos que llevan un SECRETO en sus parámetros (la frase de una clave). Por RPC
+// viajan cifrados por mTLS; por la línea de órdenes irían en argv, a la vista de `ps`, así que
+// esa puerta los rechaza.
+struct Peticion {
+    const std::string& cmd;
+    const std::vector<std::string>& params;
+    const char* argv0;
+};
+using Manejador = std::function<ExecResult(const Peticion&)>;
+struct Verbo {
+    Manejador haz;
+    bool soloRpc{false};
+};
+
+class TablaDeVerbos {
+public:
+    void pon(std::initializer_list<const char*> nombres, Manejador haz) {
+        for (const char* n : nombres) {
+            verbos_[n] = Verbo{haz, false};
+        }
     }
-    if (cmd == "--dump-refresh-basics") {
-        return runDumpRefreshBasicsCapture();
+    void soloPorRpc(std::initializer_list<const char*> nombres) {
+        for (const char* n : nombres) {
+            verbos_.at(n).soloRpc = true;
+        }
     }
-    if (cmd == "--dump-tool-availability") {
-        if (params.size() < 1) {
-            r.rc = 2;
-            ponCodigo(r, "usage", {std::string(argv0) + " --dump-tool-availability <payload-b64>"});
+    const Verbo* busca(const std::string& nombre) const {
+        const auto it = verbos_.find(nombre);
+        return it == verbos_.end() ? nullptr : &it->second;
+    }
+
+private:
+    std::map<std::string, Verbo> verbos_;
+};
+
+const TablaDeVerbos& tablaDeVerbos() {
+    static const TablaDeVerbos tabla = [] {
+        TablaDeVerbos t;
+
+        t.pon({"--health"}, [](const Peticion&) -> ExecResult {
+            ExecResult r;
+            r.rc = 0;
+            r.out =
+                "STATUS=OK\n"
+                "VERSION=" ZFSMGR_AGENT_VERSION_STRING
+                "\n"
+                "API=3\n"
+                "SERVER=1\n"
+                "CACHE_ENTRIES=0\n"
+                "CACHE_MAX_ENTRIES=0\n"
+                "CACHE_INVALIDATIONS=0\n"
+                "POOL_INVALIDATIONS=0\n"
+                "RPC_FAILURES=0\n"
+                "RPC_COMMANDS=\n"
+                "ZED_ACTIVE=0\n";
+            r.out += "CAPS=" + agentCapabilityList() + "\n";
             return r;
-        }
-        return runDumpToolAvailabilityCapture(params[0]);
-    }
-    if (cmd == "--dump-zfs-version") {
-        r = runExecCapture("zfs", {"version"});
-        if (r.rc != 0 || trim(r.out).empty()) {
-            r = runExecCapture("zfs", {"--version"});
-        }
-        if (r.rc != 0 || trim(r.out + "\n" + r.err).empty()) {
-            r = runExecCapture("zpool", {"--version"});
-        }
-        return r;
-    }
-    if (cmd == "--dump-zfs-mount") return runExecCapture("zfs", {"mount", "-j"});
-    if (cmd == "--dump-block-devices") return runDumpBlockDevicesCapture();
-    if (cmd == "--dump-zpool-list") return runExecCapture("zpool", {"list", "-j"});
-    if (cmd == "--dump-zpool-import-probe") {
-        ExecResult a = runExecCapture("zpool", {"import"});
-        ExecResult b = runExecCapture("zpool", {"import", "-s"});
-        r.rc = b.rc;
-        r.out = a.out + b.out;
-        if (const std::string ilegible = discoIlegible(); !ilegible.empty()) {
-            r.out += kMarcaDiscosIlegibles;
-            r.out += kMarcaDiscoIlegible + ilegible + "\n";
-            if (permisosCambiaronTrasArranque()) {
-                r.out += kMarcaTccTrasArranque;
+        });
+        t.pon({"--dump-refresh-basics"},
+              [](const Peticion&) -> ExecResult { return runDumpRefreshBasicsCapture(); });
+        t.pon({"--dump-tool-availability"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.size() < 1) {
+                r.rc = 2;
+                ponCodigo(r, "usage",
+                          {std::string(p.argv0) + " --dump-tool-availability <payload-b64>"});
+                return r;
             }
-        }
-        r.err = a.err + b.err;
-        return r;
-    }
-    if (cmd == "--dump-zpool-guid-status-batch") return runDumpZpoolGuidStatusBatchCapture();
-    if (cmd == "--dump-resolve-devices") {
-        r.rc = 0;
-        for (const std::string& n : params) {
-            r.out += n + "=" + resolveDeviceName(n) + "\n";
-        }
-        return r;
-    }
-    if (cmd == "--mutate-zpool-labelclear") {
-        return runZpoolLabelclear(params);
-    }
-    if (cmd == "--dump-zpool-guid") {
-        if (params.size() < 1) { r.rc = 2; ponCodigo(r, "usage", {std::string(argv0) + " --dump-zpool-guid <pool>"}); return r; }
-        return runExecCapture("zpool", {"get", "-H", "-o", "value", "guid", params[0]});
-    }
-    if (cmd == "--dump-zpool-status") {
-        if (params.size() < 1) { r.rc = 2; ponCodigo(r, "usage", {std::string(argv0) + " --dump-zpool-status <pool>"}); return r; }
-        return runExecCapture("zpool", {"status", "-v", params[0]});
-    }
-    if (cmd == "--dump-zpool-status-p") {
-        if (params.size() < 1) { r.rc = 2; ponCodigo(r, "usage", {std::string(argv0) + " --dump-zpool-status-p <pool>"}); return r; }
-        return runExecCapture("zpool", {"status", "-P", params[0]});
-    }
-    // La DDT: cuántas entradas tiene y cuánta memoria cuesta.
-    //
-    // Es un verbo aparte y no un indicador del de arriba porque sirve para otra cosa: aquel
-    // es el estado de los discos y este el coste de la deduplicación. Se mide: sobre una
-    // DDT de 1,15 M de entradas tarda 0,03 s, lo mismo que `zpool status` a secas, porque
-    // el histograma sale de contadores acumulados y no de recorrer la tabla.
-    //
-    // En Linux hay además `/proc/spl/kstat/zfs/<pool>/ddt_stats_*`, que no se usa: es solo
-    // de Linux, y esto tiene que contestar igual en las cuatro plataformas.
-    if (cmd == "--dump-zpool-status-dedup") {
-        if (params.size() < 1) { r.rc = 2; ponCodigo(r, "usage", {std::string(argv0) + " --dump-zpool-status-dedup <pool>"}); return r; }
-        return runExecCapture("zpool", {"status", "-D", params[0]});
-    }
-    if (cmd == "--dump-zpool-history") {
-        if (params.size() < 1) { r.rc = 2; ponCodigo(r, "usage", {std::string(argv0) + " --dump-zpool-history <pool>"}); return r; }
-        return runExecCapture("zpool", {"history", params[0]});
-    }
-    if (cmd == "--dump-zpool-get-all") {
-        if (params.size() < 1) { r.rc = 2; ponCodigo(r, "usage", {std::string(argv0) + " --dump-zpool-get-all <pool>"}); return r; }
-        return runExecCapture("zpool", {"get", "-j", "all", params[0]});
-    }
-    if (cmd == "--dump-zfs-list-all") {
-        if (params.size() < 1) { r.rc = 2; ponCodigo(r, "usage", {std::string(argv0) + " --dump-zfs-list-all <dataset>"}); return r; }
-        return conDispositivoDeVolumen(runExecCapture("zfs", {"list", "-H", "-p", "-t", "filesystem,volume,snapshot", "-o",
-                                      // `type` AL FINAL, y por eso es compatible: el cliente corta por tabuladores y
-                                      // lee por índice, así que uno anterior a esto
-                                      // sigue leyendo las diez primeras y la ignora.
-                                      // Sin ella, un VOLUMEN no se distingue de un
-                                      // sistema de ficheros: el tipo se adivinaba
-                                      // mirando si el nombre llevaba «@», o sea que lo
-                                      // único que se distinguía era la instantánea.
-                                      "name,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount,type",
-                                      "-r", params[0]}));
-    }
-    // --- El contenido de un dataset, TIPADO.
-    //
-    // Hasta ahora esto se hacía mandando `sh -lc '<guion>'` por SSH, con la ruta metida
-    // dentro de una cadena de shell. Era el último camino de shell que quedaba: quien elige
-    // la ruta no debe poder elegir además lo que se ejecuta.
-    //
-    // La ruta se valida contra los PUNTOS DE MONTAJE reales. El daemon corre como root, así
-    // que sin eso «léeme un fichero» sería «léeme /etc/shadow». Estar bajo un punto de
-    // montaje de ZFS es lo que separa «el contenido que la aplicación enseña» de «cualquier
-    // cosa de la máquina».
-    if (cmd == "--dump-path-list" || cmd == "--dump-path-info") {
-        if (params.empty()) {
-            r.rc = 2;
-            r.err = std::string("usage: ") + argv0 + " " + cmd + " <path>\n";
-            return r;
-        }
-        return cmd == "--dump-path-list" ? listaRuta(params[0]) : describeRuta(params[0]);
-    }
-    if (cmd == "--mutate-mount-ro-temp" || cmd == "--mutate-unmount-ro-temp") {
-        if (params.empty()) {
-            r.rc = 2;
-            r.err = std::string("usage: ") + argv0 + " " + cmd
-                    + (cmd == "--mutate-mount-ro-temp" ? " <dataset>\n" : " <dir>\n");
-            return r;
-        }
-        return cmd == "--mutate-mount-ro-temp" ? montaSoloLecturaTemporal(params[0])
-                                               : desmontaSoloLecturaTemporal(params[0]);
-    }
-    if (cmd == "--dump-dir-list" || cmd == "--dump-file") {
-        if (params.empty()) {
-            r.rc = 2;
-            r.err = std::string("usage: ") + argv0 + " " + cmd + " <path>\n";
-            return r;
-        }
-        if (!rutaDentroDeUnMountpoint(params[0])) {
-            r.rc = 13;
-            ponCodigo(r, "path_outside_zfs", {});
-            return r;
-        }
-        if (cmd == "--dump-dir-list") {
-            return listaDirectorio(params[0]);
-        }
-        const std::uintmax_t desde =
-            params.size() > 1 ? std::strtoull(params[1].c_str(), nullptr, 10) : 0;
-        const std::uintmax_t cuanto =
-            params.size() > 2 ? std::strtoull(params[2].c_str(), nullptr, 10) : 0;
-        return leeFichero(params[0], desde, cuanto);
-    }
-    if (cmd == "--dump-zfs-guid-map") {
-        if (params.size() < 1) { r.rc = 2; ponCodigo(r, "usage", {std::string(argv0) + " --dump-zfs-guid-map <dataset>"}); return r; }
-        return runExecCapture("zfs", {"get", "-H", "-o", "name,value", "guid", "-r", params[0]});
-    }
-    // Las letras de unidad de un pool, CON su origen.
-    //
-    // El origen hace falta para distinguir la letra PUESTA en un dataset de la HEREDADA del
-    // pool: en Windows los descendientes heredan la del pool y se montan planos bajo esa
-    // unidad, así que dos datasets con la misma letra heredada es el funcionamiento normal.
-    // Sin el origen, cualquier pool con más de un dataset parecía tener letras duplicadas, y
-    // ese aviso llenaba el registro en cada refresco tapando los de verdad.
-    //
-    // El verbo existe en las dos plataformas aunque solo Windows tenga letras. Fuera de
-    // Windows `zfs` contesta que la propiedad no existe —en macOS, «invalid property
-    // 'driveletter'», comprobado— con código distinto de cero, y el cliente lo lee como «no
-    // hay letras». Un verbo que solo existiera en una plataforma obligaría a quien llama a
-    // saber en cuál está, y eso es justo lo que se está quitando de la aplicación.
-    if (cmd == "--dump-zfs-driveletters") {
-        if (params.size() < 1) {
-            r.rc = 2;
-            ponCodigo(r, "usage", {std::string(argv0) + " --dump-zfs-driveletters <pool>"});
-            return r;
-        }
-        return runExecCapture("zfs", {"get", "-H", "-o", "name,value,source", "-r", "driveletter",
-                                      params[0]});
-    }
-    if (cmd == "--dump-zfs-list-children") {
-        if (params.size() < 1) { r.rc = 2; ponCodigo(r, "usage", {std::string(argv0) + " --dump-zfs-list-children <dataset>"}); return r; }
-        return runExecCapture("zfs", {"list", "-H", "-o", "name", "-r", params[0]});
-    }
-    if (cmd == "--dump-advanced-breakdown-list") {
-        if (params.size() < 1) { r.rc = 2; ponCodigo(r, "usage", {std::string(argv0) + " --dump-advanced-breakdown-list <dataset>"}); return r; }
-        return runDumpAdvancedBreakdownListCapture(params[0]);
-    }
-    if (cmd == "--dump-zfs-get-prop") {
-        if (params.size() < 2) { r.rc = 2; ponCodigo(r, "usage", {std::string(argv0) + " --dump-zfs-get-prop <prop> <dataset>"}); return r; }
-        return runExecCapture("zfs", {"get", "-H", "-o", "value", params[0], params[1]});
-    }
-    if (cmd == "--dump-zfs-get-all") {
-        if (params.size() < 1) { r.rc = 2; ponCodigo(r, "usage", {std::string(argv0) + " --dump-zfs-get-all <dataset>"}); return r; }
-        return runExecCapture("zfs", {"get", "-j", "all", params[0]});
-    }
-    if (cmd == "--dump-zfs-get-json") {
-        if (params.size() < 2) { r.rc = 2; ponCodigo(r, "usage", {std::string(argv0) + " --dump-zfs-get-json <props> <dataset>"}); return r; }
-        return runExecCapture("zfs", {"get", "-j", params[0], params[1]});
-    }
-    if (cmd == "--dump-zfs-diff") {
-        if (params.size() < 2) { r.rc = 2; ponCodigo(r, "usage", {std::string(argv0) + " --dump-zfs-diff <snap1> <snap2>"}); return r; }
-        // -H: salida tabulada de verdad. Sin él, zfs imprime los renombrados como
-        // "viejo -> nuevo" en un solo campo, y el parseo de la GUI —escrito para
-        // campos separados por tabulador— se quedaba sin la ruta anterior.
-        return runExecCapture("zfs", {"diff", "-H", params[0], params[1]});
-    }
-    if (cmd == "--dump-zfs-allow") {
-        if (params.size() < 1) { r.rc = 2; ponCodigo(r, "usage", {std::string(argv0) + " --dump-zfs-allow <dataset>"}); return r; }
-        return runExecCapture("zfs", {"allow", params[0]});
-    }
-    // Los HOLDS de una instantánea: qué retenciones tiene puestas.
-    //
-    // La interfaz los lee mandando `zfs holds -H` por shell —de lo poco que quedaba—. Aquí
-    // es un verbo tipado como los demás.
-    //
-    // Admite VARIAS instantáneas en una llamada, y no un dataset.
-    //
-    // `zfs holds` solo acepta instantáneas —comprobado: con un dataset contesta «is not a
-    // snapshot», y `-r` tampoco lo cambia— así que pedir «los holds de este dataset» no
-    // existe como orden. Pero sí acepta una lista, y el cliente ya tiene los nombres de las
-    // instantáneas del listado del árbol: una llamada por dataset en vez de una por
-    // instantánea.
-    if (cmd == "--dump-zfs-holds") {
-        if (params.empty()) { r.rc = 2; ponCodigo(r, "usage", {std::string(argv0) + " --dump-zfs-holds <snapshot> [snapshot...]"}); return r; }
-        std::vector<std::string> a = {"holds", "-H"};
-        for (const auto& sn : params) { a.push_back(sn); }
-        return runExecCapture("zfs", a);
-    }
-    // Poner una retención. `zfs hold <tag> <snapshot>`: la etiqueta primero, igual que
-    // release. Verbo propio y no `--mutate-zfs-generic` por lo mismo que el otro: así el
-    // daemon ve los dos argumentos por separado y el registro se lee.
-    if (cmd == "--mutate-zfs-hold") {
-        if (params.size() < 2) { r.rc = 2; ponCodigo(r, "usage", {std::string(argv0) + " --mutate-zfs-hold <tag> <snapshot>"}); return r; }
-        return runExecCapture("zfs", {"hold", params[0], params[1]});
-    }
-    // Y soltar uno. `zfs release <tag> <snapshot>`: la etiqueta primero.
-    //
-    // No pasa por `--mutate-zfs-generic` aunque «release» esté en su lista: así el daemon
-    // ve los DOS argumentos por separado y no una carga en base64 que hay que decodificar
-    // para saber sobre qué actúa. Un verbo propio se lee en el registro.
-    if (cmd == "--mutate-zfs-release") {
-        if (params.size() < 2) { r.rc = 2; ponCodigo(r, "usage", {std::string(argv0) + " --mutate-zfs-release <tag> <snapshot>"}); return r; }
-        return runExecCapture("zfs", {"release", params[0], params[1]});
-    }
-
-    // Mover un dataset de sitio DENTRO de su pool.
-    //
-    // Es `zfs rename` a secas, no una copia: el dataset cambia de sitio en el árbol y los
-    // datos no se mueven, así que es instantáneo y no hay nada que destruir después. Lo
-    // que la interfaz llama «Mover aquí» es exactamente esto.
-    //
-    // Verbo propio y no `--mutate-zfs-generic` por lo mismo que hold y release: así el
-    // daemon ve los dos nombres por separado y el registro dice qué se movió y a dónde,
-    // en vez de una carga en base64 que hay que descifrar para saberlo.
-    if (cmd == "--mutate-zfs-rename") {
-        if (params.size() < 2) {
-            r.rc = 2;
-            ponCodigo(r, "usage", {std::string(argv0) + " --mutate-zfs-rename <origen> <destino> [r]"});
-            return r;
-        }
-        // Tercer parámetro opcional «r»: `rename -r`, que con un snapshot renombra el mismo en
-        // todos los descendientes. Lo usa la nivelación de una programación recursiva.
-        if (params.size() > 2 && params[2] == "r") {
-            return runExecCapture("zfs", {"rename", "-r", params[0], params[1]});
-        }
-        return runExecCapture("zfs", {"rename", params[0], params[1]});
-    }
-    if (cmd == "--mutate-gsa-run-once") {
-        if (params.empty()) { r.rc = 2; ponCodigo(r, "usage", {std::string(argv0) + " --mutate-gsa-run-once <dataset>"}); return r; }
-        return runGsaRunOnceCapture(params[0]);
-    }
-    if (cmd == "--dump-gsa-status") {
-        return runDumpGsaStatusCapture();
-    }
-
-    // Descartar una recepción a medias. `zfs recv -A` tira el estado suspenso y su
-    // testigo; a partir de ahí el destino vuelve a aceptar un flujo nuevo.
-    if (cmd == "--mutate-zfs-recv-abort") {
-        if (params.size() < 1) {
-            r.rc = 2;
-            ponCodigo(r, "usage", {std::string(argv0) + " --mutate-zfs-recv-abort <dataset>"});
-            return r;
-        }
-        return runExecCapture("zfs", {"recv", "-A", params[0]});
-    }
-
-    if (cmd == "--dump-zfs-allow-batch") {
-        if (params.empty()) { r.rc = 2; ponCodigo(r, "usage", {std::string(argv0) + " --dump-zfs-allow-batch <ds1> [ds2...]"}); return r; }
-        r.rc = 0;
-        for (const auto& ds : params) {
-            r.out += "__ZFSMGR_ALLOW_BEGIN__ " + ds + "\n";
-            ExecResult res = runExecCapture("zfs", {"allow", ds});
-            r.out += res.out;
-            if (!res.err.empty()) r.out += res.err;
-            r.out += "__ZFSMGR_ALLOW_RC__ " + ds + " " + std::to_string(res.rc) + "\n";
-            r.out += "__ZFSMGR_ALLOW_END__ " + ds + "\n";
-            if (res.rc != 0) r.rc = res.rc;
-        }
-        return r;
-    }
-    if (cmd == "--dump-zfs-get-gsa-raw-all-pools") return runDumpGsaRawAllPoolsCapture();
-    if (cmd == "--dump-zfs-get-gsa-raw-recursive") {
-        if (params.size() < 1) { r.rc = 2; ponCodigo(r, "usage", {std::string(argv0) + " --dump-zfs-get-gsa-raw-recursive <dataset>"}); return r; }
-        return runExecCapture(
-            "zfs",
-            {"get", "-H", "-o", "name,property,value,source", "-r",
-             "org.zfsmgr:schedule-enabled,org.zfsmgr:schedule-recursive,org.zfsmgr:schedule-hourly,org.zfsmgr:schedule-daily,org.zfsmgr:schedule-weekly,org.zfsmgr:schedule-monthly,org.zfsmgr:schedule-yearly,org.zfsmgr:schedule-level,org.zfsmgr:schedule-target",
-             params[0]});
-    }
-
-    if (cmd == "--mutate-zfs-snapshot") {
-        if (params.size() < 2) { r.rc = 2; ponCodigo(r, "usage", {std::string(argv0) + " --mutate-zfs-snapshot <target> <recursive>"}); return r; }
-        const bool recursive = (params[1] == "1" || toLower(params[1]) == "true" || toLower(params[1]) == "on");
-#ifdef HAVE_LIBZFS_CORE
-        if (!recursive) {
-            ExecResult lr = lzcSnapshotOne(params[0]);
-            if (lr.rc == 0) return lr;
-        }
-#endif
-        std::vector<std::string> a = {"snapshot"};
-        if (recursive) a.push_back("-r");
-        a.push_back(params[0]);
-        return runExecCapture("zfs", a);
-    }
-    if (cmd == "--mutate-zfs-destroy") {
-        if (params.size() < 3) { r.rc = 2; ponCodigo(r, "usage", {std::string(argv0) + " --mutate-zfs-destroy <target> <force> <scope>"}); return r; }
-        const bool force = (params[1] == "1" || toLower(params[1]) == "true" || toLower(params[1]) == "on");
-        const std::string& scope = params[2];
-        const bool isSnap = params[0].find('@') != std::string::npos;
-        const bool noScope = (scope != "R" && scope != "r");
-#ifdef HAVE_LIBZFS_CORE
-        // lzc_destroy_snaps handles single snapshots without scope/force cleanly
-        if (isSnap && noScope && !force) {
-            ExecResult lr = lzcDestroyOneSnap(params[0]);
-            if (lr.rc == 0) return lr;
-        }
-#endif
-        std::vector<std::string> a = {"destroy"};
-        if (force) a.push_back("-f");
-        if (scope == "R") a.push_back("-R");
-        else if (scope == "r") a.push_back("-r");
-        a.push_back(params[0]);
-        return runExecCapture("zfs", a);
-    }
-    if (cmd == "--mutate-zfs-rollback") {
-        if (params.size() < 3) { r.rc = 2; ponCodigo(r, "usage", {std::string(argv0) + " --mutate-zfs-rollback <snap> <force> <scope>"}); return r; }
-        const bool force = (params[1] == "1" || toLower(params[1]) == "true" || toLower(params[1]) == "on");
-        const std::string& scope = params[2];
-        const bool noScope = (scope != "R" && scope != "r");
-#ifdef HAVE_LIBZFS_CORE
-        if (!force && noScope) {
-            const auto atPos = params[0].find('@');
-            if (atPos != std::string::npos) {
-                ExecResult lr = lzcRollbackTo(params[0].substr(0, atPos), params[0]);
-                if (lr.rc == 0) return lr;
+            return runDumpToolAvailabilityCapture(p.params[0]);
+        });
+        t.pon({"--dump-zfs-version"}, [](const Peticion&) -> ExecResult {
+            ExecResult r;
+            r = runExecCapture("zfs", {"version"});
+            if (r.rc != 0 || trim(r.out).empty()) {
+                r = runExecCapture("zfs", {"--version"});
             }
-        }
-#endif
-        std::vector<std::string> a = {"rollback"};
-        if (force) a.push_back("-f");
-        if (scope == "R") a.push_back("-R");
-        else if (scope == "r") a.push_back("-r");
-        a.push_back(params[0]);
-        return runExecCapture("zfs", a);
-    }
-    if (cmd == "--dump-zfs-exists") {
-        if (params.size() < 1) { r.rc = 2; ponCodigo(r, "usage", {std::string(argv0) + " --dump-zfs-exists <dataset>"}); return r; }
+            if (r.rc != 0 || trim(r.out + "\n" + r.err).empty()) {
+                r = runExecCapture("zpool", {"--version"});
+            }
+            return r;
+        });
+        t.pon({"--dump-zfs-mount"}, [](const Peticion& p) -> ExecResult {
+            return runExecCapture("zfs", {"mount", "-j"});
+        });
+        t.pon({"--dump-block-devices"},
+              [](const Peticion& p) -> ExecResult { return runDumpBlockDevicesCapture(); });
+        t.pon({"--dump-zpool-list"}, [](const Peticion& p) -> ExecResult {
+            return runExecCapture("zpool", {"list", "-j"});
+        });
+        t.pon({"--dump-zpool-import-probe"}, [](const Peticion&) -> ExecResult {
+            ExecResult r;
+            ExecResult a = runExecCapture("zpool", {"import"});
+            ExecResult b = runExecCapture("zpool", {"import", "-s"});
+            r.rc = b.rc;
+            r.out = a.out + b.out;
+            if (const std::string ilegible = discoIlegible(); !ilegible.empty()) {
+                r.out += kMarcaDiscosIlegibles;
+                r.out += kMarcaDiscoIlegible + ilegible + "\n";
+                if (permisosCambiaronTrasArranque()) {
+                    r.out += kMarcaTccTrasArranque;
+                }
+            }
+            r.err = a.err + b.err;
+            return r;
+        });
+        t.pon({"--dump-zpool-guid-status-batch"},
+              [](const Peticion& p) -> ExecResult { return runDumpZpoolGuidStatusBatchCapture(); });
+        t.pon({"--dump-resolve-devices"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            r.rc = 0;
+            for (const std::string& n : p.params) {
+                r.out += n + "=" + resolveDeviceName(n) + "\n";
+            }
+            return r;
+        });
+        t.pon({"--mutate-zpool-labelclear"},
+              [](const Peticion& p) -> ExecResult { return runZpoolLabelclear(p.params); });
+        t.pon({"--dump-zpool-guid"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.size() < 1) {
+                r.rc = 2;
+                ponCodigo(r, "usage", {std::string(p.argv0) + " --dump-zpool-guid <pool>"});
+                return r;
+            }
+            return runExecCapture("zpool", {"get", "-H", "-o", "value", "guid", p.params[0]});
+        });
+        t.pon({"--dump-zpool-status"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.size() < 1) {
+                r.rc = 2;
+                ponCodigo(r, "usage", {std::string(p.argv0) + " --dump-zpool-status <pool>"});
+                return r;
+            }
+            return runExecCapture("zpool", {"status", "-v", p.params[0]});
+        });
+        t.pon({"--dump-zpool-status-p"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.size() < 1) {
+                r.rc = 2;
+                ponCodigo(r, "usage", {std::string(p.argv0) + " --dump-zpool-status-p <pool>"});
+                return r;
+            }
+            return runExecCapture("zpool", {"status", "-P", p.params[0]});
+        });
+        // La DDT: cuántas entradas tiene y cuánta memoria cuesta.
+        //
+        // Es un verbo aparte y no un indicador del de arriba porque sirve para otra cosa: aquel
+        // es el estado de los discos y este el coste de la deduplicación. Se mide: sobre una
+        // DDT de 1,15 M de entradas tarda 0,03 s, lo mismo que `zpool status` a secas, porque
+        // el histograma sale de contadores acumulados y no de recorrer la tabla.
+        //
+        // En Linux hay además `/proc/spl/kstat/zfs/<pool>/ddt_stats_*`, que no se usa: es solo
+        // de Linux, y esto tiene que contestar igual en las cuatro plataformas.
+        t.pon({"--dump-zpool-status-dedup"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.size() < 1) {
+                r.rc = 2;
+                ponCodigo(r, "usage", {std::string(p.argv0) + " --dump-zpool-status-dedup <pool>"});
+                return r;
+            }
+            return runExecCapture("zpool", {"status", "-D", p.params[0]});
+        });
+        t.pon({"--dump-zpool-history"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.size() < 1) {
+                r.rc = 2;
+                ponCodigo(r, "usage", {std::string(p.argv0) + " --dump-zpool-history <pool>"});
+                return r;
+            }
+            return runExecCapture("zpool", {"history", p.params[0]});
+        });
+        t.pon({"--dump-zpool-get-all"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.size() < 1) {
+                r.rc = 2;
+                ponCodigo(r, "usage", {std::string(p.argv0) + " --dump-zpool-get-all <pool>"});
+                return r;
+            }
+            return runExecCapture("zpool", {"get", "-j", "all", p.params[0]});
+        });
+        t.pon({"--dump-zfs-list-all"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.size() < 1) {
+                r.rc = 2;
+                ponCodigo(r, "usage", {std::string(p.argv0) + " --dump-zfs-list-all <dataset>"});
+                return r;
+            }
+            return conDispositivoDeVolumen(runExecCapture(
+                "zfs",
+                {"list", "-H", "-p", "-t", "filesystem,volume,snapshot", "-o",
+                 // `type` AL FINAL, y por eso es compatible: el cliente corta por tabuladores y
+                 // lee por índice, así que uno anterior a esto
+                 // sigue leyendo las diez primeras y la ignora.
+                 // Sin ella, un VOLUMEN no se distingue de un
+                 // sistema de ficheros: el tipo se adivinaba
+                 // mirando si el nombre llevaba «@», o sea que lo
+                 // único que se distinguía era la instantánea.
+                 "name,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,"
+                 "canmount,type",
+                 "-r", p.params[0]}));
+        });
+        // --- El contenido de un dataset, TIPADO.
+        //
+        // Hasta ahora esto se hacía mandando `sh -lc '<guion>'` por SSH, con la ruta metida
+        // dentro de una cadena de shell. Era el último camino de shell que quedaba: quien elige
+        // la ruta no debe poder elegir además lo que se ejecuta.
+        //
+        // La ruta se valida contra los PUNTOS DE MONTAJE reales. El daemon corre como root, así
+        // que sin eso «léeme un fichero» sería «léeme /etc/shadow». Estar bajo un punto de
+        // montaje de ZFS es lo que separa «el contenido que la aplicación enseña» de «cualquier
+        // cosa de la máquina».
+        t.pon({"--dump-path-list", "--dump-path-info"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.empty()) {
+                r.rc = 2;
+                r.err = std::string("usage: ") + p.argv0 + " " + p.cmd + " <path>\n";
+                return r;
+            }
+            return p.cmd == "--dump-path-list" ? listaRuta(p.params[0]) : describeRuta(p.params[0]);
+        });
+        t.pon({"--mutate-mount-ro-temp", "--mutate-unmount-ro-temp"},
+              [](const Peticion& p) -> ExecResult {
+                  ExecResult r;
+                  if (p.params.empty()) {
+                      r.rc = 2;
+                      r.err = std::string("usage: ") + p.argv0 + " " + p.cmd
+                              + (p.cmd == "--mutate-mount-ro-temp" ? " <dataset>\n" : " <dir>\n");
+                      return r;
+                  }
+                  return p.cmd == "--mutate-mount-ro-temp"
+                             ? montaSoloLecturaTemporal(p.params[0])
+                             : desmontaSoloLecturaTemporal(p.params[0]);
+              });
+        t.pon({"--dump-dir-list", "--dump-file"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.empty()) {
+                r.rc = 2;
+                r.err = std::string("usage: ") + p.argv0 + " " + p.cmd + " <path>\n";
+                return r;
+            }
+            if (!rutaDentroDeUnMountpoint(p.params[0])) {
+                r.rc = 13;
+                ponCodigo(r, "path_outside_zfs", {});
+                return r;
+            }
+            if (p.cmd == "--dump-dir-list") {
+                return listaDirectorio(p.params[0]);
+            }
+            const std::uintmax_t desde =
+                p.params.size() > 1 ? std::strtoull(p.params[1].c_str(), nullptr, 10) : 0;
+            const std::uintmax_t cuanto =
+                p.params.size() > 2 ? std::strtoull(p.params[2].c_str(), nullptr, 10) : 0;
+            return leeFichero(p.params[0], desde, cuanto);
+        });
+        t.pon({"--dump-zfs-guid-map"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.size() < 1) {
+                r.rc = 2;
+                ponCodigo(r, "usage", {std::string(p.argv0) + " --dump-zfs-guid-map <dataset>"});
+                return r;
+            }
+            return runExecCapture("zfs",
+                                  {"get", "-H", "-o", "name,value", "guid", "-r", p.params[0]});
+        });
+        // Las letras de unidad de un pool, CON su origen.
+        //
+        // El origen hace falta para distinguir la letra PUESTA en un dataset de la HEREDADA del
+        // pool: en Windows los descendientes heredan la del pool y se montan planos bajo esa
+        // unidad, así que dos datasets con la misma letra heredada es el funcionamiento normal.
+        // Sin el origen, cualquier pool con más de un dataset parecía tener letras duplicadas, y
+        // ese aviso llenaba el registro en cada refresco tapando los de verdad.
+        //
+        // El verbo existe en las dos plataformas aunque solo Windows tenga letras. Fuera de
+        // Windows `zfs` contesta que la propiedad no existe —en macOS, «invalid property
+        // 'driveletter'», comprobado— con código distinto de cero, y el cliente lo lee como «no
+        // hay letras». Un verbo que solo existiera en una plataforma obligaría a quien llama a
+        // saber en cuál está, y eso es justo lo que se está quitando de la aplicación.
+        t.pon({"--dump-zfs-driveletters"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.size() < 1) {
+                r.rc = 2;
+                ponCodigo(r, "usage", {std::string(p.argv0) + " --dump-zfs-driveletters <pool>"});
+                return r;
+            }
+            return runExecCapture(
+                "zfs", {"get", "-H", "-o", "name,value,source", "-r", "driveletter", p.params[0]});
+        });
+        t.pon({"--dump-zfs-list-children"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.size() < 1) {
+                r.rc = 2;
+                ponCodigo(r, "usage",
+                          {std::string(p.argv0) + " --dump-zfs-list-children <dataset>"});
+                return r;
+            }
+            return runExecCapture("zfs", {"list", "-H", "-o", "name", "-r", p.params[0]});
+        });
+        t.pon({"--dump-advanced-breakdown-list"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.size() < 1) {
+                r.rc = 2;
+                ponCodigo(r, "usage",
+                          {std::string(p.argv0) + " --dump-advanced-breakdown-list <dataset>"});
+                return r;
+            }
+            return runDumpAdvancedBreakdownListCapture(p.params[0]);
+        });
+        t.pon({"--dump-zfs-get-prop"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.size() < 2) {
+                r.rc = 2;
+                ponCodigo(r, "usage",
+                          {std::string(p.argv0) + " --dump-zfs-get-prop <prop> <dataset>"});
+                return r;
+            }
+            return runExecCapture("zfs", {"get", "-H", "-o", "value", p.params[0], p.params[1]});
+        });
+        t.pon({"--dump-zfs-get-all"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.size() < 1) {
+                r.rc = 2;
+                ponCodigo(r, "usage", {std::string(p.argv0) + " --dump-zfs-get-all <dataset>"});
+                return r;
+            }
+            return runExecCapture("zfs", {"get", "-j", "all", p.params[0]});
+        });
+        t.pon({"--dump-zfs-get-json"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.size() < 2) {
+                r.rc = 2;
+                ponCodigo(r, "usage",
+                          {std::string(p.argv0) + " --dump-zfs-get-json <props> <dataset>"});
+                return r;
+            }
+            return runExecCapture("zfs", {"get", "-j", p.params[0], p.params[1]});
+        });
+        t.pon({"--dump-zfs-diff"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.size() < 2) {
+                r.rc = 2;
+                ponCodigo(r, "usage", {std::string(p.argv0) + " --dump-zfs-diff <snap1> <snap2>"});
+                return r;
+            }
+            // -H: salida tabulada de verdad. Sin él, zfs imprime los renombrados como
+            // "viejo -> nuevo" en un solo campo, y el parseo de la GUI —escrito para
+            // campos separados por tabulador— se quedaba sin la ruta anterior.
+            return runExecCapture("zfs", {"diff", "-H", p.params[0], p.params[1]});
+        });
+        t.pon({"--dump-zfs-allow"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.size() < 1) {
+                r.rc = 2;
+                ponCodigo(r, "usage", {std::string(p.argv0) + " --dump-zfs-allow <dataset>"});
+                return r;
+            }
+            return runExecCapture("zfs", {"allow", p.params[0]});
+        });
+        // Los HOLDS de una instantánea: qué retenciones tiene puestas.
+        //
+        // La interfaz los lee mandando `zfs holds -H` por shell —de lo poco que quedaba—. Aquí
+        // es un verbo tipado como los demás.
+        //
+        // Admite VARIAS instantáneas en una llamada, y no un dataset.
+        //
+        // `zfs holds` solo acepta instantáneas —comprobado: con un dataset contesta «is not a
+        // snapshot», y `-r` tampoco lo cambia— así que pedir «los holds de este dataset» no
+        // existe como orden. Pero sí acepta una lista, y el cliente ya tiene los nombres de las
+        // instantáneas del listado del árbol: una llamada por dataset en vez de una por
+        // instantánea.
+        t.pon({"--dump-zfs-holds"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.empty()) {
+                r.rc = 2;
+                ponCodigo(r, "usage",
+                          {std::string(p.argv0) + " --dump-zfs-holds <snapshot> [snapshot...]"});
+                return r;
+            }
+            std::vector<std::string> a = {"holds", "-H"};
+            for (const auto& sn : p.params) {
+                a.push_back(sn);
+            }
+            return runExecCapture("zfs", a);
+        });
+        // Poner una retención. `zfs hold <tag> <snapshot>`: la etiqueta primero, igual que
+        // release. Verbo propio y no `--mutate-zfs-generic` por lo mismo que el otro: así el
+        // daemon ve los dos argumentos por separado y el registro se lee.
+        t.pon({"--mutate-zfs-hold"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.size() < 2) {
+                r.rc = 2;
+                ponCodigo(r, "usage",
+                          {std::string(p.argv0) + " --mutate-zfs-hold <tag> <snapshot>"});
+                return r;
+            }
+            return runExecCapture("zfs", {"hold", p.params[0], p.params[1]});
+        });
+        // Y soltar uno. `zfs release <tag> <snapshot>`: la etiqueta primero.
+        //
+        // No pasa por `--mutate-zfs-generic` aunque «release» esté en su lista: así el daemon
+        // ve los DOS argumentos por separado y no una carga en base64 que hay que decodificar
+        // para saber sobre qué actúa. Un verbo propio se lee en el registro.
+        t.pon({"--mutate-zfs-release"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.size() < 2) {
+                r.rc = 2;
+                ponCodigo(r, "usage",
+                          {std::string(p.argv0) + " --mutate-zfs-release <tag> <snapshot>"});
+                return r;
+            }
+            return runExecCapture("zfs", {"release", p.params[0], p.params[1]});
+        });
+
+        // Mover un dataset de sitio DENTRO de su pool.
+        //
+        // Es `zfs rename` a secas, no una copia: el dataset cambia de sitio en el árbol y los
+        // datos no se mueven, así que es instantáneo y no hay nada que destruir después. Lo
+        // que la interfaz llama «Mover aquí» es exactamente esto.
+        //
+        // Verbo propio y no `--mutate-zfs-generic` por lo mismo que hold y release: así el
+        // daemon ve los dos nombres por separado y el registro dice qué se movió y a dónde,
+        // en vez de una carga en base64 que hay que descifrar para saberlo.
+        t.pon({"--mutate-zfs-rename"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.size() < 2) {
+                r.rc = 2;
+                ponCodigo(r, "usage",
+                          {std::string(p.argv0) + " --mutate-zfs-rename <origen> <destino> [r]"});
+                return r;
+            }
+            // Tercer parámetro opcional «r»: `rename -r`, que con un snapshot renombra el mismo en
+            // todos los descendientes. Lo usa la nivelación de una programación recursiva.
+            if (p.params.size() > 2 && p.params[2] == "r") {
+                return runExecCapture("zfs", {"rename", "-r", p.params[0], p.params[1]});
+            }
+            return runExecCapture("zfs", {"rename", p.params[0], p.params[1]});
+        });
+        t.pon({"--mutate-gsa-run-once"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.empty()) {
+                r.rc = 2;
+                ponCodigo(r, "usage", {std::string(p.argv0) + " --mutate-gsa-run-once <dataset>"});
+                return r;
+            }
+            return runGsaRunOnceCapture(p.params[0]);
+        });
+        t.pon({"--dump-gsa-status"},
+              [](const Peticion&) -> ExecResult { return runDumpGsaStatusCapture(); });
+
+        // Descartar una recepción a medias. `zfs recv -A` tira el estado suspenso y su
+        // testigo; a partir de ahí el destino vuelve a aceptar un flujo nuevo.
+        t.pon({"--mutate-zfs-recv-abort"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.size() < 1) {
+                r.rc = 2;
+                ponCodigo(r, "usage",
+                          {std::string(p.argv0) + " --mutate-zfs-recv-abort <dataset>"});
+                return r;
+            }
+            return runExecCapture("zfs", {"recv", "-A", p.params[0]});
+        });
+
+        t.pon({"--dump-zfs-allow-batch"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.empty()) {
+                r.rc = 2;
+                ponCodigo(r, "usage",
+                          {std::string(p.argv0) + " --dump-zfs-allow-batch <ds1> [ds2...]"});
+                return r;
+            }
+            r.rc = 0;
+            for (const auto& ds : p.params) {
+                r.out += "__ZFSMGR_ALLOW_BEGIN__ " + ds + "\n";
+                ExecResult res = runExecCapture("zfs", {"allow", ds});
+                r.out += res.out;
+                if (!res.err.empty())
+                    r.out += res.err;
+                r.out += "__ZFSMGR_ALLOW_RC__ " + ds + " " + std::to_string(res.rc) + "\n";
+                r.out += "__ZFSMGR_ALLOW_END__ " + ds + "\n";
+                if (res.rc != 0)
+                    r.rc = res.rc;
+            }
+            return r;
+        });
+        t.pon({"--dump-zfs-get-gsa-raw-all-pools"},
+              [](const Peticion& p) -> ExecResult { return runDumpGsaRawAllPoolsCapture(); });
+        t.pon({"--dump-zfs-get-gsa-raw-recursive"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.size() < 1) {
+                r.rc = 2;
+                ponCodigo(r, "usage",
+                          {std::string(p.argv0) + " --dump-zfs-get-gsa-raw-recursive <dataset>"});
+                return r;
+            }
+            return runExecCapture(
+                "zfs", {"get", "-H", "-o", "name,property,value,source", "-r",
+                        "org.zfsmgr:schedule-enabled,org.zfsmgr:schedule-recursive,org.zfsmgr:"
+                        "schedule-hourly,org.zfsmgr:schedule-daily,org.zfsmgr:schedule-weekly,org."
+                        "zfsmgr:schedule-monthly,org.zfsmgr:schedule-yearly,org.zfsmgr:schedule-"
+                        "level,org.zfsmgr:schedule-target",
+                        p.params[0]});
+        });
+
+        t.pon({"--mutate-zfs-snapshot"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.size() < 2) {
+                r.rc = 2;
+                ponCodigo(r, "usage",
+                          {std::string(p.argv0) + " --mutate-zfs-snapshot <target> <recursive>"});
+                return r;
+            }
+            const bool recursive = (p.params[1] == "1" || toLower(p.params[1]) == "true"
+                                    || toLower(p.params[1]) == "on");
 #ifdef HAVE_LIBZFS_CORE
-        const bool exists = lzcExists(params[0]);
-        r.rc = exists ? 0 : 1;
-        r.out = exists ? "EXISTS=yes\n" : "EXISTS=no\n";
-        return r;
+            if (!recursive) {
+                ExecResult lr = lzcSnapshotOne(p.params[0]);
+                if (lr.rc == 0)
+                    return lr;
+            }
 #endif
-        ExecResult sub = runExecCapture("zfs", {"list", "-H", "-o", "name", params[0]});
-        r.rc = (sub.rc == 0) ? 0 : 1;
-        r.out = (sub.rc == 0) ? "EXISTS=yes\n" : "EXISTS=no\n";
-        return r;
-    }
-    if (cmd == "--mutate-zfs-clone") {
-        if (params.size() < 2) { r.rc = 2; ponCodigo(r, "usage", {std::string(argv0) + " --mutate-zfs-clone <origin-snap> <new-dataset>"}); return r; }
+            std::vector<std::string> a = {"snapshot"};
+            if (recursive)
+                a.push_back("-r");
+            a.push_back(p.params[0]);
+            return runExecCapture("zfs", a);
+        });
+        t.pon({"--mutate-zfs-destroy"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.size() < 3) {
+                r.rc = 2;
+                ponCodigo(
+                    r, "usage",
+                    {std::string(p.argv0) + " --mutate-zfs-destroy <target> <force> <scope>"});
+                return r;
+            }
+            const bool force = (p.params[1] == "1" || toLower(p.params[1]) == "true"
+                                || toLower(p.params[1]) == "on");
+            const std::string& scope = p.params[2];
+            const bool isSnap = p.params[0].find('@') != std::string::npos;
+            const bool noScope = (scope != "R" && scope != "r");
 #ifdef HAVE_LIBZFS_CORE
-        ExecResult lr = lzcClone(params[0], params[1]);
-        if (lr.rc == 0) return lr;
+            // lzc_destroy_snaps handles single snapshots without scope/force cleanly
+            if (isSnap && noScope && !force) {
+                ExecResult lr = lzcDestroyOneSnap(p.params[0]);
+                if (lr.rc == 0)
+                    return lr;
+            }
 #endif
-        return runExecCapture("zfs", {"clone", params[0], params[1]});
-    }
-    if (cmd == "--mutate-zfs-create") {
+            std::vector<std::string> a = {"destroy"};
+            if (force)
+                a.push_back("-f");
+            if (scope == "R")
+                a.push_back("-R");
+            else if (scope == "r")
+                a.push_back("-r");
+            a.push_back(p.params[0]);
+            return runExecCapture("zfs", a);
+        });
+        t.pon({"--mutate-zfs-rollback"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.size() < 3) {
+                r.rc = 2;
+                ponCodigo(r, "usage",
+                          {std::string(p.argv0) + " --mutate-zfs-rollback <snap> <force> <scope>"});
+                return r;
+            }
+            const bool force = (p.params[1] == "1" || toLower(p.params[1]) == "true"
+                                || toLower(p.params[1]) == "on");
+            const std::string& scope = p.params[2];
+            const bool noScope = (scope != "R" && scope != "r");
+#ifdef HAVE_LIBZFS_CORE
+            if (!force && noScope) {
+                const auto atPos = p.params[0].find('@');
+                if (atPos != std::string::npos) {
+                    ExecResult lr = lzcRollbackTo(p.params[0].substr(0, atPos), p.params[0]);
+                    if (lr.rc == 0)
+                        return lr;
+                }
+            }
+#endif
+            std::vector<std::string> a = {"rollback"};
+            if (force)
+                a.push_back("-f");
+            if (scope == "R")
+                a.push_back("-R");
+            else if (scope == "r")
+                a.push_back("-r");
+            a.push_back(p.params[0]);
+            return runExecCapture("zfs", a);
+        });
+        t.pon({"--dump-zfs-exists"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.size() < 1) {
+                r.rc = 2;
+                ponCodigo(r, "usage", {std::string(p.argv0) + " --dump-zfs-exists <dataset>"});
+                return r;
+            }
+#ifdef HAVE_LIBZFS_CORE
+            const bool exists = lzcExists(p.params[0]);
+            r.rc = exists ? 0 : 1;
+            r.out = exists ? "EXISTS=yes\n" : "EXISTS=no\n";
+            return r;
+#endif
+            ExecResult sub = runExecCapture("zfs", {"list", "-H", "-o", "name", p.params[0]});
+            r.rc = (sub.rc == 0) ? 0 : 1;
+            r.out = (sub.rc == 0) ? "EXISTS=yes\n" : "EXISTS=no\n";
+            return r;
+        });
+        t.pon({"--mutate-zfs-clone"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.size() < 2) {
+                r.rc = 2;
+                ponCodigo(
+                    r, "usage",
+                    {std::string(p.argv0) + " --mutate-zfs-clone <origin-snap> <new-dataset>"});
+                return r;
+            }
+#ifdef HAVE_LIBZFS_CORE
+            ExecResult lr = lzcClone(p.params[0], p.params[1]);
+            if (lr.rc == 0)
+                return lr;
+#endif
+            return runExecCapture("zfs", {"clone", p.params[0], p.params[1]});
+        });
+        t.pon({"--mutate-zfs-create"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
 #ifndef _WIN32
-        // La frase de cifrado viaja DENTRO de la carga —cifrada por mTLS— y se le pasa
-        // a `zfs` por una tubería, no como argumento. Antes esto era un script de shell
-        // (`printf '%s\\n%s\\n' 'FRASE' 'FRASE' | zfs create ...`) enviado por SSH: la
-        // frase quedaba en argv, visible en `ps` de las dos máquinas, y ningún patrón de
-        // enmascarado la tapaba ni en el registro ni en la confirmación.
-        if (params.size() < 2) {
-            r.rc = 2;
-            r.err = std::string("usage: ") + argv0
-                    + " --mutate-zfs-create <b64-json-argv> <b64-passphrase>\n";
-            return r;
-        }
-        std::string argvJson;
-        std::string passphrase;
-        if (!decodeBase64(params[0], argvJson) || !decodeBase64(params[1], passphrase)) {
-            ponFallo(r, 2, "internal", {"invalid base64 argument"}); return r;
-        }
-        std::vector<std::string> zfsArgs;
-        if (!parseJsonStringArray(argvJson, zfsArgs) || zfsArgs.empty()) {
-            ponFallo(r, 2, "internal", {"invalid argv payload"}); return r;
-        }
-        // El primer elemento decide la operación: solo create y snapshot, para que esto
-        // no acabe siendo otro `zfs` genérico con la puerta abierta.
-        const std::string op = toLower(trim(zfsArgs.front()));
-        if (op != "create" && op != "snapshot") {
-            r.rc = 2;
-            ponCodigo(r, "internal", {"unsupported op for --mutate-zfs-create: " + zfsArgs.front()});
-            return r;
-        }
-        ExecResult cr = passphrase.empty()
-                            ? runExecCapture("zfs", zfsArgs)
-                            // `zfs create -o keyformat=passphrase` la pide dos veces.
-                            : runExecCaptureWithStdin("zfs", zfsArgs,
-                                                      passphrase + "\n" + passphrase + "\n");
-        if (cr.rc != 0 || op != "create") {
+            // La frase de cifrado viaja DENTRO de la carga —cifrada por mTLS— y se le pasa
+            // a `zfs` por una tubería, no como argumento. Antes esto era un script de shell
+            // (`printf '%s\\n%s\\n' 'FRASE' 'FRASE' | zfs create ...`) enviado por SSH: la
+            // frase quedaba en argv, visible en `ps` de las dos máquinas, y ningún patrón de
+            // enmascarado la tapaba ni en el registro ni en la confirmación.
+            if (p.params.size() < 2) {
+                r.rc = 2;
+                r.err = std::string("usage: ") + p.argv0
+                        + " --mutate-zfs-create <b64-json-argv> <b64-passphrase>\n";
+                return r;
+            }
+            std::string argvJson;
+            std::string passphrase;
+            if (!decodeBase64(p.params[0], argvJson) || !decodeBase64(p.params[1], passphrase)) {
+                ponFallo(r, 2, "internal", {"invalid base64 argument"});
+                return r;
+            }
+            std::vector<std::string> zfsArgs;
+            if (!parseJsonStringArray(argvJson, zfsArgs) || zfsArgs.empty()) {
+                ponFallo(r, 2, "internal", {"invalid argv payload"});
+                return r;
+            }
+            // El primer elemento decide la operación: solo create y snapshot, para que esto
+            // no acabe siendo otro `zfs` genérico con la puerta abierta.
+            const std::string op = toLower(trim(zfsArgs.front()));
+            if (op != "create" && op != "snapshot") {
+                r.rc = 2;
+                ponCodigo(r, "internal",
+                          {"unsupported op for --mutate-zfs-create: " + zfsArgs.front()});
+                return r;
+            }
+            ExecResult cr = passphrase.empty()
+                                ? runExecCapture("zfs", zfsArgs)
+                                // `zfs create -o keyformat=passphrase` la pide dos veces.
+                                : runExecCaptureWithStdin("zfs", zfsArgs,
+                                                          passphrase + "\n" + passphrase + "\n");
+            if (cr.rc != 0 || op != "create") {
+                return cr;
+            }
+            // Decir DÓNDE quedó montado. Un dataset creado bajo un pool con mountpoint=none
+            // lo hereda y no se puede montar: "Desde Dir" lo creaba, la tubería de tar no
+            // tenía dónde escribir y se quedaba colgada moviendo cero bytes sin explicar
+            // nada. Con esto el cliente puede plantarse antes de arrancar la copia.
+            const std::string created = trim(zfsArgs.back());
+            (void)runExecCapture("zfs", {"set", "canmount=on", created});
+            (void)runExecCapture("zfs", {"mount", created});
+            const ExecResult mp = getDatasetMountpointCapture(created);
+            cr.out += "MOUNTPOINT=" + ((mp.rc == 0) ? trim(mp.out) : std::string()) + "\n";
             return cr;
-        }
-        // Decir DÓNDE quedó montado. Un dataset creado bajo un pool con mountpoint=none
-        // lo hereda y no se puede montar: "Desde Dir" lo creaba, la tubería de tar no
-        // tenía dónde escribir y se quedaba colgada moviendo cero bytes sin explicar
-        // nada. Con esto el cliente puede plantarse antes de arrancar la copia.
-        const std::string created = trim(zfsArgs.back());
-        (void)runExecCapture("zfs", {"set", "canmount=on", created});
-        (void)runExecCapture("zfs", {"mount", created});
-        const ExecResult mp = getDatasetMountpointCapture(created);
-        cr.out += "MOUNTPOINT=" + ((mp.rc == 0) ? trim(mp.out) : std::string()) + "\n";
-        return cr;
 #else
         ponFallo(r, 2, "not_on_windows", {}); return r;
 #endif
-    }
-    if (cmd == "--mutate-zfs-load-key") {
-        if (params.size() < 2) { r.rc = 2; ponCodigo(r, "usage", {std::string(argv0) + " --mutate-zfs-load-key <dataset-b64> <passphrase-b64>"}); return r; }
-        std::string dataset, passphrase;
-        if (!decodeBase64(params[0], dataset) || !decodeBase64(params[1], passphrase)) {
-            ponFallo(r, 2, "internal", {"invalid base64 argument"}); return r;
-        }
-        dataset = trim(dataset);
-        if (dataset.empty()) { r.rc = 2; ponCodigo(r, "empty_dataset", {}); return r; }
-        return runExecCaptureWithStdin("zfs", {"load-key", dataset}, passphrase + "\n");
-    }
-    // Las credenciales de los pares, que las escribe el cliente.
-    //
-    // Llega en base64 por lo mismo que la frase de paso: dentro van CLAVES PRIVADAS, y un
-    // argumento se ve en `ps`. El fichero queda 600 y de root, igual que el material TLS
-    // de al lado; con permisos más abiertos, cualquier usuario de la máquina podría
-    // hacerse pasar por ella ante las demás.
-    if (cmd == "--mutate-set-peers") {
-        if (params.size() < 1) {
-            r.rc = 2;
-            ponCodigo(r, "usage", {std::string(argv0) + " --mutate-set-peers <json-b64>"});
-            return r;
-        }
-        std::string contenido;
-        if (!decodeBase64(params[0], contenido)) {
-            ponFallo(r, 2, "internal", {"invalid base64 argument"}); return r;
-        }
-        zfsmgr::base::json::Value comprobacion;
-        std::string errJson;
-        if (!zfsmgr::base::json::parse(contenido, comprobacion, &errJson)) {
-            ponFallo(r, 2, "peers_bad_json", {errJson}); return r;
-        }
-        const std::string tmp = std::string(kPeersPath) + ".tmp";
-        {
-            std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
-            if (!f.is_open()) {
-                ponFallo(r, 1, "cannot_write", {tmp}); return r;
+        });
+        t.pon({"--mutate-zfs-load-key"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.size() < 2) {
+                r.rc = 2;
+                ponCodigo(r, "usage",
+                          {std::string(p.argv0)
+                           + " --mutate-zfs-load-key <dataset-b64> <passphrase-b64>"});
+                return r;
             }
-            f << contenido;
-        }
+            std::string dataset, passphrase;
+            if (!decodeBase64(p.params[0], dataset) || !decodeBase64(p.params[1], passphrase)) {
+                ponFallo(r, 2, "internal", {"invalid base64 argument"});
+                return r;
+            }
+            dataset = trim(dataset);
+            if (dataset.empty()) {
+                r.rc = 2;
+                ponCodigo(r, "empty_dataset", {});
+                return r;
+            }
+            return runExecCaptureWithStdin("zfs", {"load-key", dataset}, passphrase + "\n");
+        });
+        // Las credenciales de los pares, que las escribe el cliente.
+        //
+        // Llega en base64 por lo mismo que la frase de paso: dentro van CLAVES PRIVADAS, y un
+        // argumento se ve en `ps`. El fichero queda 600 y de root, igual que el material TLS
+        // de al lado; con permisos más abiertos, cualquier usuario de la máquina podría
+        // hacerse pasar por ella ante las demás.
+        t.pon({"--mutate-set-peers"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.size() < 1) {
+                r.rc = 2;
+                ponCodigo(r, "usage", {std::string(p.argv0) + " --mutate-set-peers <json-b64>"});
+                return r;
+            }
+            std::string contenido;
+            if (!decodeBase64(p.params[0], contenido)) {
+                ponFallo(r, 2, "internal", {"invalid base64 argument"});
+                return r;
+            }
+            zfsmgr::base::json::Value comprobacion;
+            std::string errJson;
+            if (!zfsmgr::base::json::parse(contenido, comprobacion, &errJson)) {
+                ponFallo(r, 2, "peers_bad_json", {errJson});
+                return r;
+            }
+            const std::string tmp = std::string(kPeersPath) + ".tmp";
+            {
+                std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
+                if (!f.is_open()) {
+                    ponFallo(r, 1, "cannot_write", {tmp});
+                    return r;
+                }
+                f << contenido;
+            }
 #ifndef _WIN32
-        ::chmod(tmp.c_str(), 0600);
+            ::chmod(tmp.c_str(), 0600);
 #endif
-        std::error_code ec;
-        std::filesystem::rename(tmp, kPeersPath, ec);
-        if (ec) {
-            std::filesystem::remove(tmp, ec);
-            ponFallo(r, 1, "cannot_put_in_place", {kPeersPath}); return r;
-        }
-        r.rc = 0;
-        r.out = std::string("PEERS=") + kPeersPath + "\n";
-        daemonLog("INFO", "peers updated by the client");
-        return r;
-    }
-    // En qué dirección escucha el daemon. Hace falta para que otro daemon pueda pedirle que
-    // reciba una nivelación: por omisión solo atiende en 127.0.0.1, y ahí solo llega el
-    // cliente porque abre un túnel SSH — de madrugada no hay quien lo abra.
-    //
-    // Solo se admite un COMODÍN. La aplicación llega al daemon por un túnel contra
-    // 127.0.0.1, así que atarlo a una sola dirección de la LAN le cortaría el acceso a la
-    // máquina entera; y este servidor abre un socket, no una lista.
-    //
-    // El puerto queda entonces alcanzable desde la red, protegido por mTLS con el
-    // certificado de cliente FIJADO. No es una categoría nueva de exposición: el puerto de
-    // transfer ya escucha en 0.0.0.0 con un testigo de un solo uso.
-    if (cmd == "--mutate-set-bind") {
-        if (params.size() < 1) {
-            r.rc = 2;
-            ponCodigo(r, "usage", {std::string(argv0) + " --mutate-set-bind <0.0.0.0|::|127.0.0.1>"});
-            return r;
-        }
-        const std::string dir = trim(params[0]);
-        if (dir != "0.0.0.0" && dir != "::" && dir != "127.0.0.1") {
-            r.rc = 2;
-            ponCodigo(r, "bind_not_allowed", {});
-            return r;
-        }
-        std::ifstream in(kDefaultAgentConfigPath);
-        if (!in.is_open()) {
-            r.rc = 1;
-            ponCodigo(r, "cannot_read", {kDefaultAgentConfigPath});
-            return r;
-        }
-        std::vector<std::string> lineas;
-        std::string l;
-        bool puesta = false;
-        while (std::getline(in, l)) {
-            if (l.rfind("AGENT_BIND=", 0) == 0) {
-                lineas.push_back("AGENT_BIND='" + dir + "'");
-                puesta = true;
-            } else {
-                lineas.push_back(l);
+            std::error_code ec;
+            std::filesystem::rename(tmp, kPeersPath, ec);
+            if (ec) {
+                std::filesystem::remove(tmp, ec);
+                ponFallo(r, 1, "cannot_put_in_place", {kPeersPath});
+                return r;
             }
-        }
-        in.close();
-        if (!puesta) {
-            lineas.push_back("AGENT_BIND='" + dir + "'");
-        }
-        const std::string tmp = std::string(kDefaultAgentConfigPath) + ".tmp";
-        {
-            std::ofstream out(tmp, std::ios::trunc);
-            if (!out.is_open()) {
-                ponFallo(r, 1, "cannot_write", {tmp}); return r;
-            }
-            for (const std::string& x : lineas) {
-                out << x << "\n";
-            }
-        }
-#ifndef _WIN32
-        ::chmod(tmp.c_str(), 0600);
-#endif
-        std::error_code ec;
-        std::filesystem::rename(tmp, kDefaultAgentConfigPath, ec);
-        if (ec) {
-            std::filesystem::remove(tmp, ec);
-            r.rc = 1;
-            ponCodigo(r, "cannot_put_in_place", {kDefaultAgentConfigPath});
-            return r;
-        }
-        daemonLog("INFO", "AGENT_BIND changed to " + dir + "; restarting to apply it");
-        r.rc = 0;
-        r.out = "BIND=" + dir + "\nRESTARTING=1\n";
-        // Se responde ANTES de salir, y se sale en otro hilo: el gestor de servicios lo
-        // levanta —`Restart=always`— con la dirección nueva. Salir aquí mismo dejaría al
-        // cliente sin respuesta y con cara de que ha fallado.
-        std::thread([]() {
-            std::this_thread::sleep_for(std::chrono::milliseconds(700));
-            g_stop.store(true);
-            std::this_thread::sleep_for(std::chrono::milliseconds(300));
-            std::_Exit(0);
-        }).detach();
-        return r;
-    }
-    if (cmd == "--dump-peers") {
-        // SOLO los nombres y a donde apuntan: los certificados y la clave privada no salen
-        // de la maquina ni para mirarlos.
-        std::ifstream f(kPeersPath);
-        if (!f.is_open()) {
             r.rc = 0;
+            r.out = std::string("PEERS=") + kPeersPath + "\n";
+            daemonLog("INFO", "peers updated by the client");
             return r;
-        }
-        std::ostringstream ss;
-        ss << f.rdbuf();
-        zfsmgr::base::json::Value raiz;
-        std::string errJson;
-        if (!zfsmgr::base::json::parse(ss.str(), raiz, &errJson)) {
-            ponFallo(r, 1, "peers_bad_json", {errJson}); return r;
-        }
-        std::ostringstream out;
-        // Con quién se identifica esta máquina, PRIMERO y en su propia línea.
+        });
+        // En qué dirección escucha el daemon. Hace falta para que otro daemon pueda pedirle que
+        // reciba una nivelación: por omisión solo atiende en 127.0.0.1, y ahí solo llega el
+        // cliente porque abre un túnel SSH — de madrugada no hay quien lo abra.
         //
-        // Antes no salía, y su ausencia es el fallo silencioso de este fichero: sin `self`,
-        // una nivelación GSA contra un dataset de esta misma máquina no reconoce el destino
-        // como propio, se va por el camino remoto y registra «no hay credenciales del par»
-        // —siendo el par uno mismo—. La rama local no se ejecuta jamás.
+        // Solo se admite un COMODÍN. La aplicación llega al daemon por un túnel contra
+        // 127.0.0.1, así que atarlo a una sola dirección de la LAN le cortaría el acceso a la
+        // máquina entera; y este servidor abre un socket, no una lista.
         //
-        // Sin esta línea no había forma de diagnosticarlo desde fuera: el cliente listaba los
-        // pares y todo parecía correcto. Ahora se ve, y se ve vacío cuando falta.
-        out << "SELF\t" << trim(raiz["self"].toString()) << "\n";
-        // El uid que se le entregó Y el que la máquina lee de sí misma. Los dos, porque lo
-        // que importa es si COINCIDEN: si no, esta configuración se escribió mirando a otra
-        // máquina —un perfil copiado de otro equipo— y hasta ahora eso no se veía.
-        out << "SELF_UID\t" << trim(raiz["self_uid"].toString()) << "\n";
-        out << "REAL_UID\t" << trim(detectMachineUuid()) << "\n";
-        for (const auto& v : raiz["peers"].toArray()) {
-            out << trim(v["id"].toString()) << "\t" << trim(v["host"].toString()) << "\t"
-                << v["port"].toInt(0) << "\t" << trim(v["uid"].toString()) << "\n";
-        }
-        r.rc = 0;
-        r.out = out.str();
-        return r;
-    }
-    if (cmd == "--mutate-zfs-change-key") {
-        if (params.size() < 3) { r.rc = 2; ponCodigo(r, "usage", {std::string(argv0) + " --mutate-zfs-change-key <dataset-b64> <passphrase-b64> <flags-b64>"}); return r; }
-        std::string dataset, passphrase, flagsStr;
-        if (!decodeBase64(params[0], dataset) || !decodeBase64(params[1], passphrase) || !decodeBase64(params[2], flagsStr)) {
-            ponFallo(r, 2, "internal", {"invalid base64 argument"}); return r;
-        }
-        dataset = trim(dataset);
-        flagsStr = trim(flagsStr);
-        if (dataset.empty()) { r.rc = 2; ponCodigo(r, "empty_dataset", {}); return r; }
-        std::vector<std::string> changeArgs = {"change-key"};
-        {
-            std::istringstream iss(flagsStr);
-            std::string tok;
-            while (iss >> tok) changeArgs.push_back(tok);
-        }
-        changeArgs.push_back(dataset);
-
-        {
-            const std::string motivo = motivoParaNoCambiarClave(dataset, flagsStr);
-            if (!motivo.empty()) {
-                ExecResult neg;
-                neg.rc = 2;
-                neg.err = motivo;
-                return neg;
+        // El puerto queda entonces alcanzable desde la red, protegido por mTLS con el
+        // certificado de cliente FIJADO. No es una categoría nueva de exposición: el puerto de
+        // transfer ya escucha en 0.0.0.0 con un testigo de un solo uso.
+        t.pon({"--mutate-set-bind"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.size() < 1) {
+                r.rc = 2;
+                ponCodigo(r, "usage",
+                          {std::string(p.argv0) + " --mutate-set-bind <0.0.0.0|::|127.0.0.1>"});
+                return r;
             }
-        }
-        return runExecCaptureWithStdin("zfs", changeArgs, passphrase + "\n" + passphrase + "\n");
-    }
-    if (cmd == "--mutate-zfs-generic") {
-        if (params.size() < 1) { r.rc = 2; ponCodigo(r, "usage", {std::string(argv0) + " --mutate-zfs-generic <payload-b64>"}); return r; }
-        return runGenericMutationCapture("zfs", params[0]);
-    }
-    if (cmd == "--mutate-advanced-breakdown") {
-        if (params.size() < 3) {
-            r.rc = 2;
-            r.err = std::string("usage: ") + argv0
+            const std::string dir = trim(p.params[0]);
+            if (dir != "0.0.0.0" && dir != "::" && dir != "127.0.0.1") {
+                r.rc = 2;
+                ponCodigo(r, "bind_not_allowed", {});
+                return r;
+            }
+            std::ifstream in(kDefaultAgentConfigPath);
+            if (!in.is_open()) {
+                r.rc = 1;
+                ponCodigo(r, "cannot_read", {kDefaultAgentConfigPath});
+                return r;
+            }
+            std::vector<std::string> lineas;
+            std::string l;
+            bool puesta = false;
+            while (std::getline(in, l)) {
+                if (l.rfind("AGENT_BIND=", 0) == 0) {
+                    lineas.push_back("AGENT_BIND='" + dir + "'");
+                    puesta = true;
+                } else {
+                    lineas.push_back(l);
+                }
+            }
+            in.close();
+            if (!puesta) {
+                lineas.push_back("AGENT_BIND='" + dir + "'");
+            }
+            const std::string tmp = std::string(kDefaultAgentConfigPath) + ".tmp";
+            {
+                std::ofstream out(tmp, std::ios::trunc);
+                if (!out.is_open()) {
+                    ponFallo(r, 1, "cannot_write", {tmp});
+                    return r;
+                }
+                for (const std::string& x : lineas) {
+                    out << x << "\n";
+                }
+            }
+#ifndef _WIN32
+            ::chmod(tmp.c_str(), 0600);
+#endif
+            std::error_code ec;
+            std::filesystem::rename(tmp, kDefaultAgentConfigPath, ec);
+            if (ec) {
+                std::filesystem::remove(tmp, ec);
+                r.rc = 1;
+                ponCodigo(r, "cannot_put_in_place", {kDefaultAgentConfigPath});
+                return r;
+            }
+            daemonLog("INFO", "AGENT_BIND changed to " + dir + "; restarting to apply it");
+            r.rc = 0;
+            r.out = "BIND=" + dir + "\nRESTARTING=1\n";
+            // Se responde ANTES de salir, y se sale en otro hilo: el gestor de servicios lo
+            // levanta —`Restart=always`— con la dirección nueva. Salir aquí mismo dejaría al
+            // cliente sin respuesta y con cara de que ha fallado.
+            std::thread([]() {
+                std::this_thread::sleep_for(std::chrono::milliseconds(700));
+                g_stop.store(true);
+                std::this_thread::sleep_for(std::chrono::milliseconds(300));
+                std::_Exit(0);
+            }).detach();
+            return r;
+        });
+        t.pon({"--dump-peers"}, [](const Peticion&) -> ExecResult {
+            ExecResult r;
+            // SOLO los nombres y a donde apuntan: los certificados y la clave privada no salen
+            // de la maquina ni para mirarlos.
+            std::ifstream f(kPeersPath);
+            if (!f.is_open()) {
+                r.rc = 0;
+                return r;
+            }
+            std::ostringstream ss;
+            ss << f.rdbuf();
+            zfsmgr::base::json::Value raiz;
+            std::string errJson;
+            if (!zfsmgr::base::json::parse(ss.str(), raiz, &errJson)) {
+                ponFallo(r, 1, "peers_bad_json", {errJson});
+                return r;
+            }
+            std::ostringstream out;
+            // Con quién se identifica esta máquina, PRIMERO y en su propia línea.
+            //
+            // Antes no salía, y su ausencia es el fallo silencioso de este fichero: sin `self`,
+            // una nivelación GSA contra un dataset de esta misma máquina no reconoce el destino
+            // como propio, se va por el camino remoto y registra «no hay credenciales del par»
+            // —siendo el par uno mismo—. La rama local no se ejecuta jamás.
+            //
+            // Sin esta línea no había forma de diagnosticarlo desde fuera: el cliente listaba los
+            // pares y todo parecía correcto. Ahora se ve, y se ve vacío cuando falta.
+            out << "SELF\t" << trim(raiz["self"].toString()) << "\n";
+            // El uid que se le entregó Y el que la máquina lee de sí misma. Los dos, porque lo
+            // que importa es si COINCIDEN: si no, esta configuración se escribió mirando a otra
+            // máquina —un perfil copiado de otro equipo— y hasta ahora eso no se veía.
+            out << "SELF_UID\t" << trim(raiz["self_uid"].toString()) << "\n";
+            out << "REAL_UID\t" << trim(detectMachineUuid()) << "\n";
+            for (const auto& v : raiz["peers"].toArray()) {
+                out << trim(v["id"].toString()) << "\t" << trim(v["host"].toString()) << "\t"
+                    << v["port"].toInt(0) << "\t" << trim(v["uid"].toString()) << "\n";
+            }
+            r.rc = 0;
+            r.out = out.str();
+            return r;
+        });
+        t.pon({"--mutate-zfs-change-key"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.size() < 3) {
+                r.rc = 2;
+                ponCodigo(
+                    r, "usage",
+                    {std::string(p.argv0)
+                     + " --mutate-zfs-change-key <dataset-b64> <passphrase-b64> <flags-b64>"});
+                return r;
+            }
+            std::string dataset, passphrase, flagsStr;
+            if (!decodeBase64(p.params[0], dataset) || !decodeBase64(p.params[1], passphrase)
+                || !decodeBase64(p.params[2], flagsStr)) {
+                ponFallo(r, 2, "internal", {"invalid base64 argument"});
+                return r;
+            }
+            dataset = trim(dataset);
+            flagsStr = trim(flagsStr);
+            if (dataset.empty()) {
+                r.rc = 2;
+                ponCodigo(r, "empty_dataset", {});
+                return r;
+            }
+            std::vector<std::string> changeArgs = {"change-key"};
+            {
+                std::istringstream iss(flagsStr);
+                std::string tok;
+                while (iss >> tok)
+                    changeArgs.push_back(tok);
+            }
+            changeArgs.push_back(dataset);
+
+            {
+                const std::string motivo = motivoParaNoCambiarClave(dataset, flagsStr);
+                if (!motivo.empty()) {
+                    ExecResult neg;
+                    neg.rc = 2;
+                    neg.err = motivo;
+                    return neg;
+                }
+            }
+            return runExecCaptureWithStdin("zfs", changeArgs,
+                                           passphrase + "\n" + passphrase + "\n");
+        });
+        t.pon({"--mutate-zfs-generic"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.size() < 1) {
+                r.rc = 2;
+                ponCodigo(r, "usage",
+                          {std::string(p.argv0) + " --mutate-zfs-generic <payload-b64>"});
+                return r;
+            }
+            return runGenericMutationCapture("zfs", p.params[0]);
+        });
+        t.pon({"--mutate-advanced-breakdown"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.size() < 3) {
+                r.rc = 2;
+                r.err = std::string("usage: ") + p.argv0
                     + " --mutate-advanced-breakdown <dataset> <dir> <nombre> "
                       "[<dir> <nombre>...]\n";
-            return r;
-        }
-        return runMutateAdvancedBreakdownCapture(params);
-    }
-    if (cmd == "--mutate-advanced-assemble") {
-        if (params.size() < 2) {
-            r.rc = 2;
-            ponCodigo(r, "usage", {std::string(argv0) + " --mutate-advanced-assemble <dataset> <child> [child...]"});
-            return r;
-        }
-        return runMutateAdvancedAssembleCapture(params);
-    }
+                return r;
+            }
+            return runMutateAdvancedBreakdownCapture(p.params);
+        });
+        t.pon({"--mutate-advanced-assemble"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.size() < 2) {
+                r.rc = 2;
+                ponCodigo(r, "usage",
+                          {std::string(p.argv0)
+                           + " --mutate-advanced-assemble <dataset> <child> [child...]"});
+                return r;
+            }
+            return runMutateAdvancedAssembleCapture(p.params);
+        });
 #ifndef _WIN32
-    // todir usa AltMountGuard, que solo existe en Unix. En Windows la GUI no pasa
-    // por el agente para esta acción: usa su propio script de PowerShell.
-    if (cmd == "--mutate-advanced-todir") {
-        if (params.size() < 3) {
-            r.rc = 2;
-            ponCodigo(r, "usage", {std::string(argv0) + " --mutate-advanced-todir <dataset> <dst-dir> <delete-source-0|1>"});
-            return r;
-        }
-        return runMutateAdvancedToDirCapture(params);
-    }
+        // todir usa AltMountGuard, que solo existe en Unix. En Windows la GUI no pasa
+        // por el agente para esta acción: usa su propio script de PowerShell.
+        t.pon({"--mutate-advanced-todir"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.size() < 3) {
+                r.rc = 2;
+                ponCodigo(r, "usage",
+                          {std::string(p.argv0)
+                           + " --mutate-advanced-todir <dataset> <dst-dir> <delete-source-0|1>"});
+                return r;
+            }
+            return runMutateAdvancedToDirCapture(p.params);
+        });
 #endif
-    if (cmd == "--mutate-zpool-generic") {
-        if (params.size() < 1) { r.rc = 2; ponCodigo(r, "usage", {std::string(argv0) + " --mutate-zpool-generic <payload-b64>"}); return r; }
-        return runGenericMutationCapture("zpool", params[0]);
-    }
-    if (cmd == "--mutate-zfs-allow-batch") {
-        if (params.size() < 1) { r.rc = 2; ponCodigo(r, "usage", {std::string(argv0) + " --mutate-zfs-allow-batch <payload-b64>"}); return r; }
-        return runZfsAllowBatchCapture(params[0]);
-    }
-    if (cmd == "--mutate-copy-local") {
-        if (params.size() < 1) { r.rc = 2; ponCodigo(r, "usage", {std::string(argv0) + " --mutate-copy-local <payload-b64>"}); return r; }
-        return runCopyLocalCapture(params[0]);
-    }
-    // --mutate-shell-generic is deliberately NOT served over RPC: it runs an arbitrary
-    // shell as root, so exposing it here would let any client holding the mTLS
-    // certificate bypass every typed --mutate-* whitelist. The GUI only ever invokes
-    // it as a CLI command over SSH+sudo (see daemonizeShellMutationArgs), where the
-    // caller already has root and it grants no extra privilege. The CLI handler in
-    // main() stays for those flows.
+        t.pon({"--mutate-zpool-generic"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.size() < 1) {
+                r.rc = 2;
+                ponCodigo(r, "usage",
+                          {std::string(p.argv0) + " --mutate-zpool-generic <payload-b64>"});
+                return r;
+            }
+            return runGenericMutationCapture("zpool", p.params[0]);
+        });
+        t.pon({"--mutate-zfs-allow-batch"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.size() < 1) {
+                r.rc = 2;
+                ponCodigo(r, "usage",
+                          {std::string(p.argv0) + " --mutate-zfs-allow-batch <payload-b64>"});
+                return r;
+            }
+            return runZfsAllowBatchCapture(p.params[0]);
+        });
+        t.pon({"--mutate-copy-local"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.size() < 1) {
+                r.rc = 2;
+                ponCodigo(r, "usage",
+                          {std::string(p.argv0) + " --mutate-copy-local <payload-b64>"});
+                return r;
+            }
+            return runCopyLocalCapture(p.params[0]);
+        });
+        // --mutate-shell-generic is deliberately NOT served over RPC: it runs an arbitrary
+        // shell as root, so exposing it here would let any client holding the mTLS
+        // certificate bypass every typed --mutate-* whitelist. The GUI only ever invokes
+        // it as a CLI command over SSH+sudo (see daemonizeShellMutationArgs), where the
+        // caller already has root and it grants no extra privilege. The CLI handler in
+        // main() stays for those flows.
 
-    // Copia de árboles sin rsync, en las dos plataformas.
-    //
-    // Los DOS verbos van juntos a propósito: la verificación no es un extra sino la red
-    // que sostiene Desglosar, Ensamblar y Hacia Dir, que borran el origen. Exponer la
-    // copia sin con qué comprobarla sería exponer justo la mitad peligrosa.
-    if (cmd == "--mutate-copy-tree" || cmd == "--dump-copy-tree-pending") {
-        if (params.size() < 2) {
-            r.rc = 2;
-            r.err = std::string("usage: ") + argv0 + " " + cmd
+        // Copia de árboles sin rsync, en las dos plataformas.
+        //
+        // Los DOS verbos van juntos a propósito: la verificación no es un extra sino la red
+        // que sostiene Desglosar, Ensamblar y Hacia Dir, que borran el origen. Exponer la
+        // copia sin con qué comprobarla sería exponer justo la mitad peligrosa.
+        t.pon({"--mutate-copy-tree", "--dump-copy-tree-pending"},
+              [](const Peticion& p) -> ExecResult {
+                  ExecResult r;
+                  if (p.params.size() < 2) {
+                      r.rc = 2;
+                      r.err = std::string("usage: ") + p.argv0 + " " + p.cmd
                     + " <src> <dst> [--one-file-system] [--delete] [--dry-run]"
                       " [--no-skip-unchanged] [--exclude=<name>]...\n";
-            return r;
-        }
-        zfsmgr::copytree::Options opt;
-        for (std::size_t i = 2; i < params.size(); ++i) {
-            const std::string& a = params[i];
-            if (a == "--one-file-system") {
-                opt.oneFileSystem = true;
-            } else if (a == "--delete") {
-                // Borra del destino lo que no está en el origen. Solo para sincronizar.
-                opt.deleteExtraneous = true;
-            } else if (a == "--dry-run") {
-                opt.dryRun = true;
-            } else if (a == "--no-skip-unchanged") {
-                // Rehacer la copia entera aunque ya coincida. Por omisión se salta lo
-                // igual, que es lo que hace rsync.
-                opt.skipUnchanged = false;
-            } else if (a.rfind("--exclude=", 0) == 0) {
-                const std::string name = trim(a.substr(10));
-                if (!name.empty()) {
-                    opt.excludes.push_back(name);
-                }
-            } else {
-                ponFallo(r, 2, "internal", {"unknown argument: " + a}); return r;
-            }
-        }
-        if (cmd == "--dump-copy-tree-pending") {
-            const long long pending =
-                zfsmgr::copytree::countPending(params[0], params[1], opt);
-            if (pending < 0) {
-                // NO se responde 0: el llamante borra el origen cuando ve un cero, así
-                // que «no se pudo comprobar» tiene que llegar como fallo.
-                ponFallo(r, 1, "copy_verify_failed", {}); return r;
-            }
-            r.rc = 0;
-            r.out = "PENDING=" + std::to_string(pending) + "\n";
-            return r;
-        }
-        const zfsmgr::copytree::Result cr =
-            zfsmgr::copytree::copyTree(params[0], params[1], opt);
-        if (!cr.ok) {
-            r.rc = 1; r.err = cr.error + "\n"; return r;
-        }
-        r.rc = 0;
-        r.out = "FILES=" + std::to_string(cr.filesCopied)
-                + "\nDIRS=" + std::to_string(cr.dirsCreated)
-                + "\nSYMLINKS=" + std::to_string(cr.symlinksCopied)
-                + "\nHARDLINKS=" + std::to_string(cr.hardLinksRecreated)
-                + "\nSKIPPED=" + std::to_string(cr.filesSkipped)
-                + "\nDELETED=" + std::to_string(cr.entriesDeleted)
-                + "\nBYTES=" + std::to_string(cr.bytesWritten) + "\n";
-        return r;
-    }
+                      return r;
+                  }
+                  zfsmgr::copytree::Options opt;
+                  for (std::size_t i = 2; i < p.params.size(); ++i) {
+                      const std::string& a = p.params[i];
+                      if (a == "--one-file-system") {
+                          opt.oneFileSystem = true;
+                      } else if (a == "--delete") {
+                          // Borra del destino lo que no está en el origen. Solo para sincronizar.
+                          opt.deleteExtraneous = true;
+                      } else if (a == "--dry-run") {
+                          opt.dryRun = true;
+                      } else if (a == "--no-skip-unchanged") {
+                          // Rehacer la copia entera aunque ya coincida. Por omisión se salta lo
+                          // igual, que es lo que hace rsync.
+                          opt.skipUnchanged = false;
+                      } else if (a.rfind("--exclude=", 0) == 0) {
+                          const std::string name = trim(a.substr(10));
+                          if (!name.empty()) {
+                              opt.excludes.push_back(name);
+                          }
+                      } else {
+                          ponFallo(r, 2, "internal", {"unknown argument: " + a});
+                          return r;
+                      }
+                  }
+                  if (p.cmd == "--dump-copy-tree-pending") {
+                      const long long pending =
+                          zfsmgr::copytree::countPending(p.params[0], p.params[1], opt);
+                      if (pending < 0) {
+                          // NO se responde 0: el llamante borra el origen cuando ve un cero, así
+                          // que «no se pudo comprobar» tiene que llegar como fallo.
+                          ponFallo(r, 1, "copy_verify_failed", {});
+                          return r;
+                      }
+                      r.rc = 0;
+                      r.out = "PENDING=" + std::to_string(pending) + "\n";
+                      return r;
+                  }
+                  const zfsmgr::copytree::Result cr =
+                      zfsmgr::copytree::copyTree(p.params[0], p.params[1], opt);
+                  if (!cr.ok) {
+                      r.rc = 1;
+                      r.err = cr.error + "\n";
+                      return r;
+                  }
+                  r.rc = 0;
+                  r.out = "FILES=" + std::to_string(cr.filesCopied)
+                          + "\nDIRS=" + std::to_string(cr.dirsCreated)
+                          + "\nSYMLINKS=" + std::to_string(cr.symlinksCopied)
+                          + "\nHARDLINKS=" + std::to_string(cr.hardLinksRecreated)
+                          + "\nSKIPPED=" + std::to_string(cr.filesSkipped)
+                          + "\nDELETED=" + std::to_string(cr.entriesDeleted)
+                          + "\nBYTES=" + std::to_string(cr.bytesWritten) + "\n";
+                  return r;
+              });
 
-    // Recibir y emitir funcionan ya en Windows (fases 1 y 2): el daemon bombea entre el
-    // socket y una tubería propia, en vez de entregarle el descriptor del socket a `zfs`.
-    if (cmd == "--zfs-send-to-peer") {
-        return runZfsSendToPeerCapture(params);
-    }
-    // El árbol de ficheros por el mismo transporte que el flujo de ZFS. Es lo que le da a
-    // Windows una sincronización con borrado y con pasada en seco, que por el respaldo de
-    // tar no tenía. Ver el bloque grande de arriba.
-    // Va por RPC —al contrario que `--mutate-advanced-fromdir`, que es solo de terminal—
-    // porque no lee nada por la entrada estándar: prepara el destino y dice dónde quedó.
-    if (cmd == "--mutate-advanced-fromdir-prepare") {
-        return runMutateAdvancedFromDirPrepareCapture(params);
-    }
-    if (cmd == "--mutate-prepare-dir") {
-        return runPrepareDirCapture(params);
-    }
-    if (cmd == "--tree-recv-listen") {
-        if (params.empty()) {
-            r.rc = 2;
-            ponCodigo(r, "usage", {std::string(argv0) + " --tree-recv-listen <dir>"});
-            return r;
-        }
-        return runTreeRecvListenCapture(params[0]);
-    }
-    if (cmd == "--tree-send-to-peer") {
-        return runTreeSendToPeerCapture(params);
-    }
+        // Recibir y emitir funcionan ya en Windows (fases 1 y 2): el daemon bombea entre el
+        // socket y una tubería propia, en vez de entregarle el descriptor del socket a `zfs`.
+        t.pon({"--zfs-send-to-peer"},
+              [](const Peticion& p) -> ExecResult { return runZfsSendToPeerCapture(p.params); });
+        // El árbol de ficheros por el mismo transporte que el flujo de ZFS. Es lo que le da a
+        // Windows una sincronización con borrado y con pasada en seco, que por el respaldo de
+        // tar no tenía. Ver el bloque grande de arriba.
+        // Va por RPC —al contrario que `--mutate-advanced-fromdir`, que es solo de terminal—
+        // porque no lee nada por la entrada estándar: prepara el destino y dice dónde quedó.
+        t.pon({"--mutate-advanced-fromdir-prepare"}, [](const Peticion& p) -> ExecResult {
+            return runMutateAdvancedFromDirPrepareCapture(p.params);
+        });
+        t.pon({"--mutate-prepare-dir"},
+              [](const Peticion& p) -> ExecResult { return runPrepareDirCapture(p.params); });
+        t.pon({"--tree-recv-listen"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.empty()) {
+                r.rc = 2;
+                ponCodigo(r, "usage", {std::string(p.argv0) + " --tree-recv-listen <dir>"});
+                return r;
+            }
+            return runTreeRecvListenCapture(p.params[0]);
+        });
+        t.pon({"--tree-send-to-peer"},
+              [](const Peticion& p) -> ExecResult { return runTreeSendToPeerCapture(p.params); });
 
-    if (cmd == "--zfs-recv-listen") {
-        // params: dataset [force=0|1]
-        if (params.empty()) { r.rc = 2; ponCodigo(r, "usage", {std::string(argv0) + " --zfs-recv-listen <dataset> [force=1]"}); return r; }
-        const bool force = params.size() > 1 && (params[1] == "1" || toLower(params[1]) == "true");
-        return runZfsRecvListenCapture(params[0], force);
-    }
-    if (cmd == "--file-recv-listen") {
-        // params: fichero [sobrescribir=0|1 [compresión]]
-        if (params.empty()) { r.rc = 2; ponCodigo(r, "usage", {std::string(argv0) + " --file-recv-listen <file> [overwrite=1 [gzip|lz4|zstd[:level]]]"}); return r; }
-        const bool sobrescribir = params.size() > 1 && (params[1] == "1" || toLower(params[1]) == "true");
-        return runFileRecvListenCapture(params[0], sobrescribir, false,
-                                        params.size() > 2 ? params[2] : std::string());
-    }
+        t.pon({"--zfs-recv-listen"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            // p.params: dataset [force=0|1]
+            if (p.params.empty()) {
+                r.rc = 2;
+                ponCodigo(r, "usage",
+                          {std::string(p.argv0) + " --zfs-recv-listen <dataset> [force=1]"});
+                return r;
+            }
+            const bool force =
+                p.params.size() > 1 && (p.params[1] == "1" || toLower(p.params[1]) == "true");
+            return runZfsRecvListenCapture(p.params[0], force);
+        });
+        t.pon({"--file-recv-listen"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            // p.params: fichero [sobrescribir=0|1 [compresión]]
+            if (p.params.empty()) {
+                r.rc = 2;
+                ponCodigo(r, "usage",
+                          {std::string(p.argv0)
+                           + " --file-recv-listen <file> [overwrite=1 [gzip|lz4|zstd[:level]]]"});
+                return r;
+            }
+            const bool sobrescribir =
+                p.params.size() > 1 && (p.params[1] == "1" || toLower(p.params[1]) == "true");
+            return runFileRecvListenCapture(p.params[0], sobrescribir, false,
+                                            p.params.size() > 2 ? p.params[2] : std::string());
+        });
 
 #ifndef _WIN32
-    if (cmd == "--zfs-pipe-local") {
-        if (params.size() < 1) { r.rc = 2; ponCodigo(r, "usage", {std::string(argv0) + " --zfs-pipe-local <payload-b64>"}); return r; }
-        return runZfsPipeLocalCapture(params[0]);
-    }
-    if (cmd == "--repair-alt-mountpoints") {
-        // Fully typed and argument-free apart from the apply switch: it only ever acts
-        // on datasets carrying our own savedmountpoint property, so it is safe to
-        // serve over RPC.
-        const bool apply = !params.empty() && toLower(trim(params[0])) == "apply";
-        return runRepairAltMountpointsCapture(apply);
-    }
+        t.pon({"--zfs-pipe-local"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.size() < 1) {
+                r.rc = 2;
+                ponCodigo(r, "usage", {std::string(p.argv0) + " --zfs-pipe-local <payload-b64>"});
+                return r;
+            }
+            return runZfsPipeLocalCapture(p.params[0]);
+        });
+        t.pon({"--repair-alt-mountpoints"}, [](const Peticion& p) -> ExecResult {
+            // Fully typed and argument-free apart from the apply switch: it only ever acts
+            // on datasets carrying our own savedmountpoint property, so it is safe to
+            // serve over RPC.
+            const bool apply = !p.params.empty() && toLower(trim(p.params[0])) == "apply";
+            return runRepairAltMountpointsCapture(apply);
+        });
 #endif
+        t.soloPorRpc({"--mutate-zfs-load-key", "--mutate-zfs-change-key"});
+        return t;
+    }();
+    return tabla;
+}
 
-    r.rc = 2;
-    r = fallo(2, "unknown_command", {cmd});
-    return r;
+ExecResult executeAgentCommandCapture(const std::string& cmd,
+                                      const std::vector<std::string>& params, const char* argv0) {
+    if (const Verbo* v = tablaDeVerbos().busca(cmd)) {
+        return v->haz(Peticion{cmd, params, argv0});
+    }
+    return fallo(2, "unknown_command", {cmd});
 }
 
 std::string jsonEscape(const std::string& s);
@@ -12649,9 +12840,6 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
-    if (cmd == "--dump-refresh-basics") {
-        return runDumpRefreshBasics();
-    }
     // Solo CLI a propósito: es lo que se ejecuta ANTES de que exista el canal TLS,
     // así que servirlo por RPC no tendría sentido.
     if (cmd == "--ensure-tls") {
@@ -12663,304 +12851,6 @@ int main(int argc, char* argv[]) {
             std::cerr << e.err;
         }
         return e.rc;
-    }
-#ifndef _WIN32
-    if (cmd == "--dump-tool-availability") {
-        if (args.size() < 3) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-        const ExecResult e = runDumpToolAvailabilityCapture(args[2]);
-        if (!e.out.empty()) {
-            std::cout << e.out;
-        }
-        if (!e.err.empty()) {
-            std::cerr << e.err;
-        }
-        return e.rc;
-    }
-#endif
-    if (cmd == "--dump-zfs-version") {
-        ExecResult e = runExecCapture("zfs", {"version"});
-        if (e.rc != 0 || trim(e.out).empty()) {
-            e = runExecCapture("zfs", {"--version"});
-        }
-        if (e.rc != 0 || trim(e.out + "\n" + e.err).empty()) {
-            e = runExecCapture("zpool", {"--version"});
-        }
-        if (!e.out.empty()) {
-            std::cout << e.out;
-        }
-        if (!e.err.empty()) {
-            std::cerr << e.err;
-        }
-        return e.rc;
-    }
-    if (cmd == "--dump-zfs-mount") {
-        return runExecStreaming("zfs", {"mount", "-j"});
-    }
-    if (cmd == "--dump-block-devices") {
-        const ExecResult d = runDumpBlockDevicesCapture();
-        if (!d.out.empty()) std::cout << d.out;
-        if (!d.err.empty()) std::cerr << d.err;
-        return d.rc;
-    }
-    if (cmd == "--dump-zpool-list") {
-        return runExecStreaming("zpool", {"list", "-j"});
-    }
-    if (cmd == "--dump-zpool-import-probe") {
-        const ExecResult a = runExecCapture("zpool", {"import"});
-        const ExecResult b = runExecCapture("zpool", {"import", "-s"});
-        if (!a.out.empty()) {
-            std::cout << a.out;
-        }
-        if (!b.out.empty()) {
-            std::cout << b.out;
-        }
-        if (const std::string ilegible = discoIlegible(); !ilegible.empty()) {
-            std::cout << kMarcaDiscosIlegibles;
-            std::cout << kMarcaDiscoIlegible << ilegible << "\n";
-            if (permisosCambiaronTrasArranque()) {
-                std::cout << kMarcaTccTrasArranque;
-            }
-        }
-        if (!a.err.empty()) {
-            std::cerr << a.err;
-        }
-        if (!b.err.empty()) {
-            std::cerr << b.err;
-        }
-        return b.rc;
-    }
-    if (cmd == "--dump-zpool-guid-status-batch") {
-        return runDumpZpoolGuidStatusBatch();
-    }
-    // Los holds, también por línea de órdenes: es como se llega al agente cuando todavía no
-    // hay daemon escuchando, y como se prueban a mano. Sin esta rama, el verbo existe por
-    // RPC y contesta «usage» por la otra puerta, que es la clase de asimetría que cuesta
-    // media tarde encontrar.
-    if (cmd == "--dump-zfs-holds") {
-        if (args.size() < 3) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-        std::vector<std::string> a = {"holds", "-H"};
-        for (std::size_t i = 2; i < args.size(); ++i) { a.push_back(args[i]); }
-        return runExecStreaming("zfs", a);
-    }
-    if (cmd == "--mutate-zfs-hold") {
-        if (args.size() < 4) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-        return runExecStreaming("zfs", {"hold", args[2], args[3]});
-    }
-    if (cmd == "--mutate-zfs-rename") {
-        if (args.size() < 4) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-        return runExecStreaming("zfs", {"rename", args[2], args[3]});
-    }
-    if (cmd == "--mutate-zfs-release") {
-        if (args.size() < 4) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-        return runExecStreaming("zfs", {"release", args[2], args[3]});
-    }
-    // Descartar una recepción a medias. Se delega en el despachador del RPC, como
-    // `--mutate-copy-tree`, para no tener dos versiones de la misma orden: el verbo hay
-    // que declararlo en LOS DOS sitios y esto al menos deja una sola implementación.
-    if (cmd == "--mutate-zfs-recv-abort") {
-        if (args.size() < 3) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-        const std::vector<std::string> params(args.begin() + 2, args.end());
-        const ExecResult e = executeAgentCommandCapture(cmd, params, args[0].c_str());
-        if (!e.out.empty()) std::cout << e.out;
-        if (!e.err.empty()) std::cerr << e.err;
-        return e.rc;
-    }
-    if (cmd == "--dump-resolve-devices" || cmd == "--mutate-zpool-labelclear") {
-        const ExecResult e = executeAgentCommandCapture(
-            cmd, std::vector<std::string>(args.begin() + 2, args.end()), args[0].c_str());
-        if (!e.out.empty()) { std::cout << e.out; }
-        if (!e.err.empty()) { std::cerr << e.err; }
-        return e.rc;
-    }
-    if (cmd == "--dump-zpool-guid") {
-        if (args.size() < 3) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-        return runExecStreaming("zpool", {"get", "-H", "-o", "value", "guid", args[2]});
-    }
-    if (cmd == "--dump-zpool-status") {
-        if (args.size() < 3) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-        return runExecStreaming("zpool", {"status", "-v", args[2]});
-    }
-    if (cmd == "--dump-zpool-status-dedup") {
-        if (args.size() < 3) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-        return runExecStreaming("zpool", {"status", "-D", args[2]});
-    }
-    if (cmd == "--dump-zpool-status-p") {
-        if (args.size() < 3) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-        return runExecStreaming("zpool", {"status", "-P", args[2]});
-    }
-    if (cmd == "--dump-zpool-history") {
-        if (args.size() < 3) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-        return runExecStreaming("zpool", {"history", args[2]});
-    }
-    if (cmd == "--dump-zpool-get-all") {
-        if (args.size() < 3) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-        return runExecStreaming("zpool", {"get", "-j", "all", args[2]});
-    }
-    if (cmd == "--dump-zfs-list-all") {
-        if (args.size() < 3) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-        // Por el OTRO despachador —el del RPC— esto pasa por `conDispositivoDeVolumen`, que
-        // añade la columna del dispositivo. Aquí iba en streaming y se la saltaba, así que
-        // el mismo verbo contestaba distinto según por dónde se pidiera. Son DOS
-        // despachadores y es la cuarta vez que olvidar uno cuesta un fallo.
-        const ExecResult lst = conDispositivoDeVolumen(runExecCapture(
-            "zfs", {"list", "-H", "-p", "-t", "filesystem,volume,snapshot", "-o",
-                    "name,guid,used,compressratio,encryption,creation,referenced,mounted,mountpoint,canmount,type",
-                    "-r", args[2]}));
-        if (!lst.out.empty()) std::cout << lst.out;
-        if (!lst.err.empty()) std::cerr << lst.err;
-        return lst.rc;
-    }
-    // Los mismos dos verbos, también por línea de órdenes: es como se llega al agente
-    // cuando todavía no hay daemon escuchando, y como se prueban a mano.
-    if (cmd == "--dump-path-list" || cmd == "--dump-path-info") {
-        if (args.size() < 3) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-        const ExecResult r = cmd == "--dump-path-list" ? listaRuta(args[2]) : describeRuta(args[2]);
-        std::cout << r.out;
-        std::cerr << r.err;
-        return r.rc;
-    }
-    if (cmd == "--mutate-mount-ro-temp" || cmd == "--mutate-unmount-ro-temp") {
-        if (args.size() < 3) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-        const ExecResult r = cmd == "--mutate-mount-ro-temp" ? montaSoloLecturaTemporal(args[2])
-                                                             : desmontaSoloLecturaTemporal(args[2]);
-        std::cout << r.out;
-        std::cerr << r.err;
-        return r.rc;
-    }
-    if (cmd == "--dump-dir-list" || cmd == "--dump-file") {
-        if (args.size() < 3) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-        if (!rutaDentroDeUnMountpoint(args[2])) {
-            std::cerr << "the path is not inside any ZFS mountpoint\n";
-            return 13;
-        }
-        const ExecResult r =
-            (cmd == "--dump-dir-list")
-                ? listaDirectorio(args[2])
-                : leeFichero(args[2],
-                             args.size() > 3 ? std::strtoull(args[3].c_str(), nullptr, 10) : 0,
-                             args.size() > 4 ? std::strtoull(args[4].c_str(), nullptr, 10) : 0);
-        std::cout << r.out;
-        std::cerr << r.err;
-        return r.rc;
-    }
-    if (cmd == "--dump-zfs-guid-map") {
-        if (args.size() < 3) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-        return runExecStreaming("zfs", {"get", "-H", "-o", "name,value", "guid", "-r", args[2]});
-    }
-    if (cmd == "--dump-zfs-driveletters") {
-        if (args.size() < 3) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-        return runExecStreaming("zfs", {"get", "-H", "-o", "name,value,source", "-r",
-                                        "driveletter", args[2]});
-    }
-    if (cmd == "--dump-zfs-list-children") {
-        if (args.size() < 3) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-        return runExecStreaming("zfs", {"list", "-H", "-o", "name", "-r", args[2]});
-    }
-    if (cmd == "--dump-advanced-breakdown-list") {
-        if (args.size() < 3) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-        const ExecResult e = runDumpAdvancedBreakdownListCapture(args[2]);
-        if (!e.out.empty()) {
-            std::cout << e.out;
-        }
-        if (!e.err.empty()) {
-            std::cerr << e.err;
-        }
-        return e.rc;
-    }
-    if (cmd == "--dump-zfs-get-prop") {
-        if (args.size() < 4) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-        return runExecStreaming("zfs", {"get", "-H", "-o", "value", args[2], args[3]});
-    }
-    if (cmd == "--dump-zfs-get-all") {
-        if (args.size() < 3) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-        return runExecStreaming("zfs", {"get", "-j", "all", args[2]});
-    }
-    if (cmd == "--dump-zfs-get-json") {
-        if (args.size() < 4) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-        return runExecStreaming("zfs", {"get", "-j", args[2], args[3]});
-    }
-    if (cmd == "--dump-zfs-get-gsa-raw-all-pools") {
-        return runDumpGsaRawAllPools();
-    }
-    if (cmd == "--dump-zfs-get-gsa-raw-recursive") {
-        if (args.size() < 3) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-        return runExecStreaming(
-            "zfs",
-            {"get", "-H", "-o", "name,property,value,source", "-r",
-             "org.zfsmgr:schedule-enabled,org.zfsmgr:schedule-recursive,org.zfsmgr:schedule-hourly,org.zfsmgr:schedule-daily,org.zfsmgr:schedule-weekly,org.zfsmgr:schedule-monthly,org.zfsmgr:schedule-yearly,org.zfsmgr:schedule-level,org.zfsmgr:schedule-target",
-             args[2]});
     }
     if (cmd == "--dump-daemon-log") {
         long long offset = 0;
@@ -12983,240 +12873,7 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
-    if (cmd == "--dump-zfs-exists") {
-        if (args.size() < 3) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-#ifdef HAVE_LIBZFS_CORE
-        const bool exists = lzcExists(args[2]);
-        std::cout << (exists ? "EXISTS=yes\n" : "EXISTS=no\n");
-        return exists ? 0 : 1;
-#endif
-        const ExecResult sub = runExecCapture("zfs", {"list", "-H", "-o", "name", args[2]});
-        std::cout << (sub.rc == 0 ? "EXISTS=yes\n" : "EXISTS=no\n");
-        return sub.rc == 0 ? 0 : 1;
-    }
-    if (cmd == "--mutate-zfs-snapshot") {
-        if (args.size() < 4) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-        const bool recursive = (args[3] == "1" || toLower(args[3]) == "true" || toLower(args[3]) == "on");
-#ifdef HAVE_LIBZFS_CORE
-        if (!recursive) {
-            const ExecResult lr = lzcSnapshotOne(args[2]);
-            if (lr.rc == 0) return 0;
-        }
-#endif
-        std::vector<std::string> a = {"snapshot"};
-        if (recursive) {
-            a.push_back("-r");
-        }
-        a.push_back(args[2]);
-        return runExecStreaming("zfs", a);
-    }
-    if (cmd == "--mutate-zfs-destroy") {
-        if (args.size() < 5) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-        const bool force = (args[3] == "1" || toLower(args[3]) == "true" || toLower(args[3]) == "on");
-        const std::string& scope = args[4];
-        const bool isSnap = args[2].find('@') != std::string::npos;
-        const bool noScope = (scope != "R" && scope != "r");
-#ifdef HAVE_LIBZFS_CORE
-        if (isSnap && noScope && !force) {
-            const ExecResult lr = lzcDestroyOneSnap(args[2]);
-            if (lr.rc == 0) return 0;
-        }
-#endif
-        std::vector<std::string> a = {"destroy"};
-        if (force) {
-            a.push_back("-f");
-        }
-        if (scope == "R") {
-            a.push_back("-R");
-        } else if (scope == "r") {
-            a.push_back("-r");
-        }
-        a.push_back(args[2]);
-        return runExecStreaming("zfs", a);
-    }
-    if (cmd == "--mutate-zfs-rollback") {
-        if (args.size() < 5) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-        const bool force = (args[3] == "1" || toLower(args[3]) == "true" || toLower(args[3]) == "on");
-        const std::string& scope = args[4];
-        const bool noScope = (scope != "R" && scope != "r");
-#ifdef HAVE_LIBZFS_CORE
-        if (!force && noScope) {
-            const auto atPos = args[2].find('@');
-            if (atPos != std::string::npos) {
-                const ExecResult lr = lzcRollbackTo(args[2].substr(0, atPos), args[2]);
-                if (lr.rc == 0) return 0;
-            }
-        }
-#endif
-        std::vector<std::string> a = {"rollback"};
-        if (force) {
-            a.push_back("-f");
-        }
-        if (scope == "R") {
-            a.push_back("-R");
-        } else if (scope == "r") {
-            a.push_back("-r");
-        }
-        a.push_back(args[2]);
-        return runExecStreaming("zfs", a);
-    }
-    if (cmd == "--mutate-zfs-clone") {
-        if (args.size() < 4) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-#ifdef HAVE_LIBZFS_CORE
-        const ExecResult lr = lzcClone(args[2], args[3]);
-        if (lr.rc == 0) return 0;
-#endif
-        return runExecStreaming("zfs", {"clone", args[2], args[3]});
-    }
-    if (cmd == "--mutate-zfs-load-key") {
-        if (args.size() < 4) { printUsage(args[0].c_str()); return 2; }
-        std::string dataset, passphrase;
-        if (!decodeBase64(args[2], dataset) || !decodeBase64(args[3], passphrase)) {
-            std::cerr << "invalid base64 argument\n"; return 2;
-        }
-        dataset = trim(dataset);
-        if (dataset.empty()) { std::cerr << "empty dataset\n"; return 2; }
-        const ExecResult e = runExecCaptureWithStdin("zfs", {"load-key", dataset}, passphrase + "\n");
-        if (!e.out.empty()) std::cout << e.out;
-        if (!e.err.empty()) std::cerr << e.err;
-        return e.rc;
-    }
-    if (cmd == "--mutate-zfs-change-key") {
-        if (args.size() < 5) { printUsage(args[0].c_str()); return 2; }
-        std::string dataset, passphrase, flagsStr;
-        if (!decodeBase64(args[2], dataset) || !decodeBase64(args[3], passphrase) || !decodeBase64(args[4], flagsStr)) {
-            std::cerr << "invalid base64 argument\n"; return 2;
-        }
-        dataset = trim(dataset);
-        flagsStr = trim(flagsStr);
-        if (dataset.empty()) { std::cerr << "empty dataset\n"; return 2; }
-        std::vector<std::string> changeArgs = {"change-key"};
-        {
-            std::istringstream iss(flagsStr);
-            std::string tok;
-            while (iss >> tok) changeArgs.push_back(tok);
-        }
-        changeArgs.push_back(dataset);
-        {
-            const std::string motivo = motivoParaNoCambiarClave(dataset, flagsStr);
-            if (!motivo.empty()) { std::cerr << motivo; return 2; }
-        }
-        const ExecResult e = runExecCaptureWithStdin("zfs", changeArgs, passphrase + "\n" + passphrase + "\n");
-        if (!e.out.empty()) std::cout << e.out;
-        if (!e.err.empty()) std::cerr << e.err;
-        return e.rc;
-    }
-    if (cmd == "--mutate-zfs-create") {
-        // También por CLI: cuando no hay daemon, runAgentCommand cae a SSH y ejecuta el
-        // agente por línea de órdenes. Sin esta rama, crear un dataset desde "Desde Dir"
-        // fallaría en esos equipos. Para datasets CIFRADOS la interfaz no deja llegar
-        // aquí —la frase acabaría en argv—, así que este camino es solo para los que no
-        // llevan secreto.
-        if (args.size() < 4) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-        const std::vector<std::string> params(args.begin() + 2, args.end());
-        const ExecResult e = executeAgentCommandCapture("--mutate-zfs-create", params, args[0].c_str());
-        if (!e.out.empty()) {
-            std::cout << e.out;
-        }
-        if (!e.err.empty()) {
-            std::cerr << e.err;
-        }
-        return e.rc;
-    }
-    if (cmd == "--mutate-zfs-generic") {
-        if (args.size() < 3) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-        return runGenericMutation("zfs", args[2]);
-    }
-    if (cmd == "--mutate-advanced-breakdown") {
-        if (args.size() < 5) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-        const std::vector<std::string> params(args.begin() + 2, args.end());
-        const ExecResult e = runMutateAdvancedBreakdownCapture(params);
-        if (!e.out.empty()) {
-            std::cout << e.out;
-        }
-        if (!e.err.empty()) {
-            std::cerr << e.err;
-        }
-        return e.rc;
-    }
-    if (cmd == "--mutate-advanced-assemble") {
-        if (args.size() < 4) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-        const std::vector<std::string> params(args.begin() + 2, args.end());
-        const ExecResult e = runMutateAdvancedAssembleCapture(params);
-        if (!e.out.empty()) {
-            std::cout << e.out;
-        }
-        if (!e.err.empty()) {
-            std::cerr << e.err;
-        }
-        return e.rc;
-    }
 #ifndef _WIN32
-    if (cmd == "--mutate-advanced-todir") {
-        if (args.size() < 5) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-        const std::vector<std::string> params(args.begin() + 2, args.end());
-        const ExecResult e = runMutateAdvancedToDirCapture(params);
-        if (!e.out.empty()) {
-            std::cout << e.out;
-        }
-        if (!e.err.empty()) {
-            std::cerr << e.err;
-        }
-        return e.rc;
-    }
-#endif
-    if (cmd == "--mutate-zpool-generic") {
-        if (args.size() < 3) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-        return runGenericMutation("zpool", args[2]);
-    }
-    if (cmd == "--mutate-zfs-allow-batch") {
-        if (args.size() < 3) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-        return runZfsAllowBatch(args[2]);
-    }
-#ifndef _WIN32
-    if (cmd == "--repair-alt-mountpoints") {
-        const bool apply = args.size() > 2 && toLower(trim(args[2])) == "apply";
-        const ExecResult e = runRepairAltMountpointsCapture(apply);
-        if (!e.out.empty()) std::cout << e.out;
-        if (!e.err.empty()) std::cerr << e.err;
-        return e.rc;
-    }
     if (cmd == "--mutate-sync-temp-tar-source") {
         if (args.size() < 3) {
             printUsage(args[0].c_str());
@@ -13239,16 +12896,6 @@ int main(int argc, char* argv[]) {
         return runMutateAdvancedFromDir(std::vector<std::string>(args.begin() + 2, args.end()));
     }
 #endif
-    if (cmd == "--mutate-copy-local") {
-        if (args.size() < 3) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-        const ExecResult cl = runCopyLocalCapture(args[2]);
-        if (!cl.out.empty()) std::cout << cl.out;
-        if (!cl.err.empty()) std::cerr << cl.err;
-        return cl.rc;
-    }
     if (cmd == "--mutate-shell-generic") {
         if (args.size() < 3) {
             printUsage(args[0].c_str());
@@ -13257,67 +12904,6 @@ int main(int argc, char* argv[]) {
         return runMutateShellGeneric(args[2]);
     }
 
-#ifndef _WIN32
-    if (cmd == "--zfs-pipe-local") {
-        if (args.size() < 3) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-        const ExecResult e = runZfsPipeLocalCapture(args[2]);
-        if (!e.out.empty()) std::cout << e.out;
-        if (!e.err.empty()) std::cerr << e.err;
-        return e.rc;
-    }
-#endif
-    if (cmd == "--zfs-send-to-peer") {
-        if (args.size() < 6) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-        const std::vector<std::string> params(args.begin() + 2, args.end());
-        const ExecResult e = runZfsSendToPeerCapture(params);
-        if (!e.out.empty()) std::cout << e.out;
-        if (!e.err.empty()) std::cerr << e.err;
-        return e.rc;
-    }
-    // Copia de árboles por línea de comandos. Se delega en el mismo despachador que
-    // atiende el RPC para que no haya dos versiones de la misma orden.
-    if (cmd == "--mutate-copy-tree" || cmd == "--dump-copy-tree-pending") {
-        if (args.size() < 4) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-        const std::vector<std::string> params(args.begin() + 2, args.end());
-        const ExecResult e = executeAgentCommandCapture(cmd, params, args[0].c_str());
-        if (!e.out.empty()) std::cout << e.out;
-        if (!e.err.empty()) std::cerr << e.err;
-        return e.rc;
-    }
-    if (cmd == "--mutate-advanced-fromdir-prepare") {
-        if (args.size() < 3) {
-            printUsage(args[0].c_str());
-            return 2;
-        }
-        const ExecResult pr = runMutateAdvancedFromDirPrepareCapture(
-            std::vector<std::string>(args.begin() + 2, args.end()));
-        std::cout << pr.out;
-        std::cerr << pr.err;
-        return pr.rc;
-    }
-    // Recibir por línea de comandos, sin daemon de por medio. Emite PORT y TOKEN y NO
-    // vuelve hasta que la transfer termina: soltar el proceso mataría el hilo que
-    // recibe. Sirve para diagnosticar el camino de datos aislado del RPC.
-    // Por línea de órdenes los argumentos vienen en `args` con el programa delante; el otro
-    // despachador —el del RPC— los recibe ya troceados en `params`. Son DOS, y olvidar uno
-    // deja un verbo que el agente anuncia y no atiende: ya pasó con
-    // `--mutate-zfs-recv-abort`, que estaba solo en el de RPC y no existía desde el CLI.
-    if (cmd == "--mutate-prepare-dir") {
-        const ExecResult pd =
-            runPrepareDirCapture(std::vector<std::string>(args.begin() + 2, args.end()));
-        if (!pd.out.empty()) std::cout << pd.out;
-        if (!pd.err.empty()) std::cerr << pd.err;
-        return pd.rc;
-    }
     if (cmd == "--tree-recv-listen") {
         if (args.size() < 3) {
             printUsage(args[0].c_str());
@@ -13326,13 +12912,6 @@ int main(int argc, char* argv[]) {
         // En la rama de terminal se espera EN LÍNEA: quien la usa a mano quiere ver el
         // resultado, no que el proceso se muera dejando un hilo suelto detrás.
         const ExecResult e = runTreeRecvListenCapture(args[2], /*waitInline=*/true);
-        if (!e.err.empty()) { std::cerr << e.err; }
-        return e.rc;
-    }
-    if (cmd == "--tree-send-to-peer") {
-        const ExecResult e =
-            runTreeSendToPeerCapture(std::vector<std::string>(args.begin() + 2, args.end()));
-        if (!e.out.empty()) { std::cout << e.out; }
         if (!e.err.empty()) { std::cerr << e.err; }
         return e.rc;
     }
@@ -13358,6 +12937,24 @@ int main(int argc, char* argv[]) {
         return e.rc;
     }
 
+    // Todo lo demás, por la MISMA tabla que el RPC.
+    if (const Verbo* v = tablaDeVerbos().busca(cmd)) {
+        if (v->soloRpc) {
+            std::cerr << cmd
+                      << " carries a secret and is only served over the daemon's mTLS "
+                         "channel, never on the command line\n";
+            return 2;
+        }
+        const std::vector<std::string> params(args.begin() + 2, args.end());
+        const ExecResult e = v->haz(Peticion{cmd, params, args[0].c_str()});
+        if (!e.out.empty()) {
+            std::cout << e.out;
+        }
+        if (!e.err.empty()) {
+            std::cerr << e.err;
+        }
+        return e.rc;
+    }
     printUsage(args[0].c_str());
     return 2;
 }
