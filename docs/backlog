@@ -135,3 +135,40 @@ Listado de cambios.
    Pruebas: los tres formatos en los dos sentidos con md5 del dataset recibido, un fichero
    comprimido CORTADO que tiene que fallar con su motivo (el descompresor lo detecta antes que
    `zfs recv`), y un fichero de un formato con la extensión de otro.
+
+11. [ABIERTO 2026-10-12] Barra de estado en el terminal del CLI, en vez de ncurses.
+   Se valoró ncurses y se descarta: no existe en Windows (el mismo motivo por el que el editor
+   de línea se escribió a mano en vez de usar readline), se adueña de la pantalla —se pierden
+   el historial de desplazamiento y el copiar/pegar de las tablas—, choca con todo lo que hoy
+   se escribe con printf y no vale en guiones ni tuberías.
+   La propuesta: reservar la última línea (o las dos últimas) con una región de desplazamiento
+   VT (`ESC[1;<filas-1>r`), sin dependencias, en Linux, macOS, FreeBSD y Windows 10+. Ahí iría
+   el progreso de los trabajos en curso y el aviso del estado de las programaciones al
+   arrancar, que hoy se pinta encima del indicador.
+   Lo que hay que hacer:
+   	- Una pieza `src/cli/barra.{h,cpp}` que fije la región y la RESTAURE al salir, también con
+   	  Ctrl-C o una señal; que reaccione a SIGWINCH (en Windows, al evento de tamaño de la
+   	  consola); y un mutex compartido con `LectorDeLinea` para que dos hilos no intercalen
+   	  secuencias.
+   	- Sin terminal o con TERM=dumb no existe. `--no-status-bar`, y se apaga sola con menos de
+   	  10 filas.
+   	- Riesgo: tmux antiguos y consolas serie gestionan mal la región, y un cuelgue a medio
+   	  pintar deja el terminal con la región puesta (se arregla con `reset`).
+   La cola de avisos (`encolaAviso` en linea.h) ya está pensada para esto: quien produce el
+   aviso no cambia, solo dónde se pinta.
+   De paso, en Windows: hoy el aviso del arranque no se pinta a mitad de línea sino al pintar
+   el siguiente indicador, porque la consola deja teclas en el búfer de stdio y esperar al
+   manejador no lo vería.
+
+12. [ABIERTO 2026-10-12] La nivelación del planificador (GSA) no es un trabajo.
+   El daemon la hace por su cuenta (`gsaNivela` en daemon_main.cpp) llamando directamente a
+   `runZfsSendToPeerCapture` sin pasar por la cola de trabajos, así que no aparece en `jobs`:
+   no se ve su progreso, ni cuántos bytes lleva, ni se puede cancelar. Una primera nivelación
+   de un dataset grande puede tardar horas sin ninguna señal más que el registro.
+   Lo que habría que hacer: registrarla como trabajo del daemon (con su id, bytes y estado,
+   como un `send` lanzado desde el CLI), que `schedule status` la enseñe «en curso» y que
+   `job cancel` la pare dejando el estado en rojo con el motivo «cancelada».
+   Cuidado con dos cosas: la pasada del planificador está serializada (`g_gsaPasada`), así que
+   una nivelación larga hoy retrasa los snapshots de los demás datasets; y una recepción
+   cortada deja un testigo de reanudación en el destino que la siguiente pasada debería
+   aprovechar (`zfs send -t`) en vez de empezar de cero.
