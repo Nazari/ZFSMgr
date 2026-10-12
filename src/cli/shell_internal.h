@@ -370,17 +370,16 @@ std::string horaLocal(long long epoch);
 std::string motivoDeFallo(const std::string& conexion, const B::gsa::DatasetState& d,
                           long long ultimaPasada);
 bool cmdScheduleStatus(Estado& e, const LineaAnalizada& linea);
-// La comprobación del ARRANQUE: el estado de las programaciones de todas las conexiones, en
-// segundo plano, y una línea que lo resume. Que una nivelación lleve días fallando solo se veía
-// leyendo el registro del daemon, y nadie lo lee.
+// The STARTUP check: the state of every connection's schedules, in the background, and one
+// line that sums it up. Otherwise a levelling failing for days only shows in the agent's log.
 //
-// Cada conexión en su propio hilo y con su PROPIA sesión de transporte: así no se pisan los
-// túneles de la sesión del intérprete, y una máquina apagada no retrasa a las demás. Los
-// mensajes del transporte de estas sesiones se callan —el aviso de un túnel que no abre
-// saldría en mitad de la línea que se está escribiendo—: lo que importa ya va en el resumen.
+// Each connection in its own thread with its OWN transport session, so the interpreter's
+// tunnels are left alone and a machine that is off does not delay the others. Those sessions
+// are muted and never prompt (crearSesionDeFondo): anything they printed or asked would land
+// in the middle of the line being typed; what matters goes in the summary.
 //
-// El resultado se deja en la cola de avisos del editor de línea (`encolaAviso`), que es quien
-// sabe pintarlo sin partir lo tecleado.
+// The result goes to the line editor's notice queue (`encolaAviso`), which knows how to print
+// it without breaking what is being typed.
 class ComprobacionDeArranque {
 public:
     ComprobacionDeArranque(const Sesion& ses, const Conexiones& conns) {
@@ -401,12 +400,7 @@ public:
             std::vector<std::thread> hilos;
             for (std::size_t i = 0; i < perfiles.size(); ++i) {
                 hilos.emplace_back([&estados, &perfiles, &dirConfig, &maestra, i]() {
-                    auto propia = crearSesion(dirConfig, maestra, /*verboso=*/false);
-                    propia->transporte.sink = [](B::TransportSession::Level, const std::string&,
-                                                 const std::string&) {};
-                    propia->transporte.warningSink = [](B::TransportSession::Level,
-                                                        const std::string&,
-                                                        const B::transport::WarningNote&) {};
+                    auto propia = crearSesionDeFondo(dirConfig, maestra);
                     estados[i] = estadoDeProgramaciones(*propia, perfiles[i], 10000);
                 });
             }
@@ -536,11 +530,7 @@ private:
     };
 
     void hilo(std::size_t i) {
-        auto ses = crearSesion(m_dirConfig, m_maestra, /*verboso=*/false);
-        ses->transporte.sink = [](B::TransportSession::Level, const std::string&,
-                                  const std::string&) {};
-        ses->transporte.warningSink = [](B::TransportSession::Level, const std::string&,
-                                         const B::transport::WarningNote&) {};
+        auto ses = crearSesionDeFondo(m_dirConfig, m_maestra);
         const B::ConnectionProfile& p = m_perfiles[i];
         auto proxTrabajos = std::chrono::steady_clock::now();
         auto proxProg = proxTrabajos;

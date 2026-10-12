@@ -59,7 +59,12 @@
 #include <chrono>
 #include <thread>
 #ifndef _WIN32
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <openssl/ssl.h>
 #include <signal.h>
+#include <sys/socket.h>
+#include <unistd.h>
 #endif
 #include <cstdio>
 #include <filesystem>
@@ -485,7 +490,7 @@ void caso21() {
             visto = m;
         };
         ses.warning(TransportSession::Level::Warn, "local", {BTr::Warning::LocalTlsNeedsSudo, {}, {}});
-        igual(visto, "tls-local-sin-sudo", "sin traductor sale la etiqueta, no el silencio");
+        igual(visto, "local-tls-needs-sudo", "sin traductor sale la etiqueta, no el silencio");
         ses.warning(TransportSession::Level::Warn, "local",
                   {BTr::Warning::TunnelNotAcceptingTimedOut, {}, "5000"});
         igual(visto, "tunel-espera-agotada: 5000", "y el detalle se conserva");
@@ -494,7 +499,7 @@ void caso21() {
             visto = std::string("traducido:") + BTr::labelOf(a.warning);
         };
         ses.warning(TransportSession::Level::Warn, "local", {BTr::Warning::NoSshpass, {}, {}});
-        igual(visto, "traducido:sin-sshpass", "con traductor puesto, manda el traductor");
+        igual(visto, "traducido:no-sshpass", "con traductor puesto, manda el traductor");
     }
     // Y las decisiones tipificadas sobre los fallos: lo que antes se leia de una frase.
     {
@@ -1752,6 +1757,7 @@ void caso33() {
 }
 
 void caso34() {
+#ifndef _WIN32  // the test server below uses POSIX sockets
     // --- una respuesta LENTA no se da por perdida
     //
     // El plazo de CONEXION no puede seguir siendo el plazo de LECTURA. `conecta()` lo pone
@@ -1788,16 +1794,47 @@ void caso34() {
         std::atomic<bool> atendio{false};
         // El servidor tarda 1200 ms en contestar: cuatro veces el plazo de conexion que se
         // le pone abajo al cliente.
+        // A one-connection TLS server, only for this test: it reads the request, waits 1200 ms
+        // and answers. (It used to be the web client's HTTPS server, which is gone.)
         std::thread hilo([&] {
-            std::string errS;
-            TS::serve("127.0.0.1", puerto, cert, clave,
-                      [&](const std::string&, std::string& resp) {
-                          std::this_thread::sleep_for(std::chrono::milliseconds(1200));
-                          atendio = true;
-                          resp = "{\"rc\":0}\n";
-                          return true;
-                      },
-                      [&] { return vivo.load(); }, errS);
+            SSL_CTX* ctx = SSL_CTX_new(TLS_server_method());
+            const int escucha = ::socket(AF_INET, SOCK_STREAM, 0);
+            int uno = 1;
+            ::setsockopt(escucha, SOL_SOCKET, SO_REUSEADDR, &uno, sizeof(uno));
+            sockaddr_in dir4{};
+            dir4.sin_family = AF_INET;
+            dir4.sin_port = htons(static_cast<unsigned short>(puerto));
+            dir4.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+            if (ctx == nullptr || escucha < 0
+                || SSL_CTX_use_certificate_file(ctx, cert.c_str(), SSL_FILETYPE_PEM) != 1
+                || SSL_CTX_use_PrivateKey_file(ctx, clave.c_str(), SSL_FILETYPE_PEM) != 1
+                || ::bind(escucha, reinterpret_cast<sockaddr*>(&dir4), sizeof(dir4)) != 0
+                || ::listen(escucha, 1) != 0) {
+                return;
+            }
+            const int cliente = ::accept(escucha, nullptr, nullptr);
+            SSL* ssl = SSL_new(ctx);
+            SSL_set_fd(ssl, cliente);
+            if (SSL_accept(ssl) == 1) {
+                std::string peticion;
+                char buf[512];
+                while (peticion.find("\r\n\r\n") == std::string::npos) {
+                    const int n = SSL_read(ssl, buf, sizeof(buf));
+                    if (n <= 0) {
+                        break;
+                    }
+                    peticion.append(buf, static_cast<std::size_t>(n));
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(1200));
+                atendio = true;
+                const std::string resp = "{\"rc\":0}\n";
+                SSL_write(ssl, resp.data(), static_cast<int>(resp.size()));
+            }
+            SSL_shutdown(ssl);
+            SSL_free(ssl);
+            ::close(cliente);
+            ::close(escucha);
+            SSL_CTX_free(ctx);
         });
         // A que el socket este escuchando de verdad.
         std::this_thread::sleep_for(std::chrono::milliseconds(400));
@@ -1820,8 +1857,8 @@ void caso34() {
         std::string resp;
         std::string errT;
         const auto t0 = std::chrono::steady_clock::now();
-        // `sirve()` espera una peticion con forma de HTTP —hasta la linea en blanco—, asi
-        // que la de la prueba la lleva. Lo que se mide es el PLAZO, no el protocolo.
+        // The test server reads up to the blank line, so the request carries one. What is
+        // measured is the TIMEOUT, not the protocol.
         const bool ok = TC::tlsRequestLine(cfg, "GET / HTTP/1.1\r\nHost: x\r\n\r\n", resp, errT);
         const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                             std::chrono::steady_clock::now() - t0)
@@ -1831,20 +1868,11 @@ void caso34() {
         comprobar(ms > 1000, "tls-lento: se esperaron de verdad los 1200 ms, no se corto a los 300");
         comprobar(atendio.load(), "tls-lento: el servidor llego a atender");
 
-        // El apagado: `sirve()` mira `sigueVivo` ENTRE conexiones, asi que hay que darle
-        // una mas para que salga del accept(). Si aun asi no saliera, se le suelta el hilo
-        // en vez de colgar la suite entera: lo que se estaba probando ya esta medido.
         vivo = false;
-        {
-            TC::TlsClientConfig fin = cfg;
-            fin.ioTimeoutMs = 5000;
-            std::string r2;
-            std::string e2;
-            TC::tlsRequestLine(fin, "GET / HTTP/1.1\r\nHost: x\r\n\r\n", r2, e2);
-        }
         hilo.join();
         std::filesystem::remove_all(dir);
     }
+#endif
 }
 
 void caso35() {
@@ -1998,9 +2026,10 @@ void caso37() {
         // el servicio muere y el cliente cree que la maquina esta atendida.
         comprobar(lin.find("systemctl enable") != std::string::npos,
                   "daemoninstall: linux lo deja habilitado para el proximo arranque");
-        comprobar(mac.find("launchd no dejo el agente corriendo tras instalar") != std::string::npos,
+        comprobar(mac.find("launchd did not leave the agent running after installing")
+                      != std::string::npos,
                   "daemoninstall: macos falla si launchd no lo deja activo");
-        comprobar(bsd.find("no permanece activo tras el arranque") != std::string::npos,
+        comprobar(bsd.find("does not stay active after starting") != std::string::npos,
                   "daemoninstall: freebsd falla si no permanece activo");
         // Y FreeBSD mira las dependencias ANTES: sin OpenSSL el daemon no arranca y el
         // motivo real queda en un error del cargador que no dice que falta.
@@ -4470,11 +4499,10 @@ void caso53() {
                   "sshHostKeyChanged no confunde una autenticación fallida");
         comprobar(!helpers::sshHostKeyChanged("", donde), "sshHostKeyChanged con vacío no afirma nada");
     }
-
-#ifndef _WIN32
 }
 
 void caso54() {
+#ifndef _WIN32
     // --- SIGPIPE: el proceso sobrevive; sus hijos, no.
     {
         ignoreSigpipeExceptInChildren();

@@ -514,7 +514,8 @@ bool agente(Estado& e, const ZfsmUrl& destino, const std::vector<std::string>& a
         if (errorDeOrden) {
             *errorDeOrden = detalle;
         } else {
-            std::fprintf(stderr, "%s\n", detalle.empty() ? "la orden falló" : detalle.c_str());
+            std::fprintf(stderr, "%s\n",
+                         detalle.empty() ? TC("t_orden_fallo", "la orden falló") : detalle.c_str());
         }
         e.ultimoRc = rc;
         return false;

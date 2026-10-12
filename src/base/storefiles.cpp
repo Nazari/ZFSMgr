@@ -1,5 +1,6 @@
 #include "storefiles.h"
 
+#include "i18n.h"
 #include "secretcipher.h"
 #include "strutil.h"
 
@@ -305,7 +306,8 @@ std::string nombreDe(const json::Value& conexion) {
     if (!n.empty()) {
         return n;
     }
-    return conexion["id"].isString() ? conexion["id"].toString() : std::string("(sin nombre)");
+    return conexion["id"].isString() ? conexion["id"].toString()
+                                     : i18n::tr("t_conexion_sin_nombre", "(sin nombre)");
 }
 
 // Un campo: se abre con la vieja —si estaba cifrado— y se cierra con la nueva. Un campo en

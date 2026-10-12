@@ -538,23 +538,26 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
          }},
         {"upgrade",
          [](Estado& s, const LineaAnalizada& l) {
-             return cmdPoolSimple(s, l, "upgrade", "upgrade",
-                                  "Se va a subir la versión del pool, y eso NO se puede deshacer");
+             return cmdPoolSimple(
+                 s, l, "upgrade", "upgrade",
+                 TC("t_aviso_pool_upgrade",
+                    "Se va a subir la versión del pool, y eso NO se puede deshacer"));
          }},
         {"reguid",
          [](Estado& s, const LineaAnalizada& l) {
-             return cmdPoolSimple(s, l, "reguid", "reguid",
-                                  "Se va a cambiar el identificador único del pool");
+             return cmdPoolSimple(
+                 s, l, "reguid", "reguid",
+                 TC("t_aviso_pool_reguid", "Se va a cambiar el identificador único del pool"));
          }},
         // `clear` PREGUNTA. No borra datos, pero borra la cuenta de errores del pool, y se
         // teclea queriendo limpiar el terminal —dos veces en una misma sesión de pruebas—.
         // Perder eso sin haberlo pedido es perder justo lo que uno estaba mirando.
         {"clear",
          [](Estado& s, const LineaAnalizada& l) {
-             return cmdPoolSimple(
-                 s, l, "clear", "clear",
-                 "Se van a poner a cero los errores contados del pool (para limpiar "
-                 "la PANTALLA la orden es «cls»)");
+             return cmdPoolSimple(s, l, "clear", "clear",
+                                  TC("t_aviso_pool_clear",
+                                     "Se van a poner a cero los errores contados del pool (para "
+                                     "limpiar la PANTALLA la orden es «cls»)"));
          }},
         // Las dos vacían la lista de importables del tabulador: lo que era importable ya no
         // lo es, y al revés.
@@ -562,7 +565,8 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
          [](Estado& s, const LineaAnalizada& l) {
              s.importablesCache.clear();
              return cmdPoolSimple(s, l, "export", "export",
-                                  "Se va a exportar el pool y dejará de estar disponible");
+                                  TC("t_aviso_pool_export",
+                                     "Se va a exportar el pool y dejará de estar disponible"));
          }},
         {"import",
          [](Estado& s, const LineaAnalizada& l) {

@@ -199,13 +199,13 @@ std::vector<std::string> destinationSubdirs(const std::vector<FromDirSource>& or
         // ese origen se iría a la raíz mientras los demás van a su subdirectorio, y dos así
         // se pisarían.
         if (base.empty()) {
-            base = maquina.empty() ? std::string("origen") : maquina;
+            base = maquina.empty() ? std::string("source") : maquina;
         } else if (cuantosConEseNombre[nombres[i]] > 1 && !maquina.empty()) {
             base = maquina + "-" + base;
         }
         base = nombreUsable(base);
         if (base.empty()) {
-            base = "origen";
+            base = "source";
         }
         // Y el desempate final, que es el que faltaba: anteponer la máquina no separa dos
         // directorios del MISMO equipo con el mismo nombre.

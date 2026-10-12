@@ -40,17 +40,12 @@ struct Entry {
     std::vector<std::string> permissions;   // «create», «mount», «@basic»…
 };
 
-const char* keyOf(Scope a);
-
 // The exact TITLE `zfs allow` writes for that section, and the exact word it uses for the
 // grantee. These are not for reading: they are for machine output —the shell's tsv and
 // json— which already used those texts and which a script may be comparing against.
 // Replacing those strings with prettier ones would break the script silently.
 const char* zfsSectionTitle(Scope a);
 const char* zfsToken(Who q);
-const char* keyOf(Who q);
-std::string labelOf(Scope a);
-std::string labelOf(Who q);
 
 // What `zfs allow <dataset>` says, turned into entries. Empty output —a dataset with nothing
 // delegated— returns an empty list and is NOT an error.

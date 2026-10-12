@@ -217,7 +217,7 @@ struct TransportSession {
                     std::uint16_t daemonPort, std::string* errorOut) const {
         if (!tlsPersister) {
             if (errorOut) {
-                *errorOut = "no hay dónde guardar el material TLS";
+                *errorOut = "there is nowhere to store the TLS material";
             }
             return false;
         }

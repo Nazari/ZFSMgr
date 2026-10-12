@@ -3248,7 +3248,7 @@ void runZfsSendToPeerAsync(const std::string& jobId) {
     if (it->second.state == JobState::Cancelled) {
         it->second.finishedAtUtc = utcNowIsoString();
         persistJobsLocked();
-        daemonLog("INFO", "job " + jobId + " cancelado");
+        daemonLog("INFO", "job " + jobId + " cancelled");
         return;
     }
     // Salir con 0 no basta para decir que se copió algo. Un envío COMPLETO que no movió

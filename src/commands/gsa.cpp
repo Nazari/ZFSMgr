@@ -190,7 +190,7 @@ bool isValidSet(const std::vector<Entry>& delMismoPool, Reason& porQue) {
 std::string labelOf(Failure f) {
     switch (f) {
         case Failure::None_:
-            return "sin fallo";
+            return {};
         case Failure::RetentionNotAnInteger:
             return i18n::tr("t_cmd_gsa_retencion_es_entero_mayor", "la retención no es un entero mayor o igual que 0");
         case Failure::EnabledWithNoRetention:
@@ -204,7 +204,7 @@ std::string labelOf(Failure f) {
         case Failure::ClashesWithRecursive:
             return i18n::tr("t_cmd_gsa_ya_hay_programacion_recursiva", "ya hay una programación recursiva que lo cubre");
     }
-    return "sin fallo";
+    return {};
 }
 
 std::string snapshotClass(const std::string& nombre) {

@@ -2,6 +2,7 @@
 #include "transportrpc.h"
 
 #include "helpers.h"
+#include "i18n.h"
 #include "json.h"
 #include "processes.h"
 #include "strutil.h"
@@ -368,7 +369,7 @@ HostResolution resolveHostAddresses(const std::string& host) {
     HostResolution r;
     const std::string h = trim(host);
     if (h.empty()) {
-        r.error = "nombre vacío";
+        r.error = "empty name";
         return r;
     }
     addrinfo pistas{};
@@ -594,7 +595,7 @@ bool tryAgentRpcOverSsh(TransportSession& ses,
             });
             if (intentoOk) {
                 ses.logConn(Nivel::Info, p.id,
-                            quien + " $ [daemon-rpc:esperó-túnel] " + queOrden + " ("
+                            quien + " $ [daemon-rpc:waited-for-tunnel] " + queOrden + " ("
                                 + std::to_string((intento + 1) * 100) + " ms)");
             }
         }
@@ -626,13 +627,17 @@ bool tryAgentRpcOverSsh(TransportSession& ses,
         // no aborta el trabajo remoto, así que caer al camino de SSH aquí ejecutaría la
         // misma orden destructiva por segunda vez, quizá solapada con la primera. Se
         // fracasa en voz alta.
-        ses.logConn(Nivel::Error, p.id,
-                    quien + " $ [daemon-rpc:sin-fallback] " + queOrden + " -> " + motivoLog
-                        + " (la orden ya llegó al daemon; no se reintenta para no duplicarla)");
+        ses.logConn(
+            Nivel::Error, p.id,
+            quien + " $ [daemon-rpc:no-fallback] " + queOrden + " -> " + motivoLog
+                + " (the command already reached the daemon; not retried so it is not run twice)");
         out.clear();
-        err = "La orden se envió al daemon pero no se recibió respuesta (" + motivoLog
-              + ").\nPuede seguir ejecutándose en el equipo remoto, así que ZFSMgr no la "
-                "reintenta automáticamente.\nCompruebe el estado antes de repetirla.";
+        err =
+            format(i18n::tr("t_rpc_sin_respuesta",
+                            "La orden se envió al daemon pero no se recibió respuesta (%1).\n"
+                            "Puede seguir ejecutándose en el equipo remoto, así que ZFSMgr no la "
+                            "reintenta automáticamente.\nCompruebe el estado antes de repetirla."),
+                   {motivoLog});
         rc = 124;
         return true;
     }
@@ -764,7 +769,7 @@ bool runSsh(TransportSession& ses,
         }
         ses.callsForTest.push_back(
             TransportSession::AgentCallForTest{{}, trim(remoteCmd), stdinPayload});
-        err = "transporte de prueba: no se ejecuta shell";
+        err = "test transport: no shell is run";
         rc = 127;
         return false;
     }
@@ -823,7 +828,7 @@ bool runSsh(TransportSession& ses,
         out = res.out;
         err = res.err;
         if (res.rc == 127 && !vig.porInactividad) {
-            err = "No se pudo iniciar " + program;
+            err = "could not start " + program;
             ses.logConn(Nivel::Normal, p.id, err);
             return false;
         }
@@ -974,7 +979,7 @@ bool runSsh(TransportSession& ses,
         aOut = res.out;
         aErr = res.err;
         if (res.rc == 127 && !vig.porInactividad) {
-            aErr = "No se pudo iniciar " + program;
+            aErr = "could not start " + program;
             ses.logConn(Nivel::Normal, p.id, aErr);
             return false;
         }
@@ -1011,7 +1016,7 @@ bool runSsh(TransportSession& ses,
                 msg += r.error;
                 ses.log(Nivel::Warn, p.name + ": " + msg);
             } else {
-                msg += r.addresses.empty() ? std::string("sin direcciones") : join(r.addresses, ", ");
+                msg += r.addresses.empty() ? std::string("no addresses") : join(r.addresses, ", ");
                 ses.log(Nivel::Info, p.name + ": " + msg);
             }
             ses.logConn(Nivel::Normal, p.id, msg);

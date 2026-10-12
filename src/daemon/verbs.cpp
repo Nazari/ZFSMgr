@@ -395,7 +395,7 @@ const TablaDeVerbos& tablaDeVerbos() {
             if (p.params.size() < 2) {
                 r.rc = 2;
                 ponCodigo(r, "usage",
-                          {std::string(p.argv0) + " --mutate-zfs-rename <origen> <destino> [r]"});
+                          {std::string(p.argv0) + " --mutate-zfs-rename <source> <target> [r]"});
                 return r;
             }
             // Tercer parámetro opcional «r»: `rename -r`, que con un snapshot renombra el mismo en

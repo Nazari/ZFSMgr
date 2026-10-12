@@ -20,12 +20,18 @@ const char* keyOf(Route c) {
 const char* keyOf(Failure f) {
     switch (f) {
         case Failure::None_:               return "";
-        case Failure::SameObject:         return "mismo-objeto";
-        case Failure::SourceIsNotSnapshot: return "origen-no-instantanea";
-        case Failure::TargetIsNotDataset:    return "destino-no-dataset";
-        case Failure::WindowsEndpoint:        return "extremo-windows";
-        case Failure::NoJobSupport:           return "sin-trabajos";
-        case Failure::ZfsTooOld:     return "zfs-viejo";
+        case Failure::SameObject:
+            return "same-object";
+        case Failure::SourceIsNotSnapshot:
+            return "source-not-snapshot";
+        case Failure::TargetIsNotDataset:
+            return "target-not-dataset";
+        case Failure::WindowsEndpoint:
+            return "windows-endpoint";
+        case Failure::NoJobSupport:
+            return "no-jobs";
+        case Failure::ZfsTooOld:
+            return "zfs-too-old";
     }
     return "";
 }

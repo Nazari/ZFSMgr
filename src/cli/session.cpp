@@ -217,8 +217,11 @@ std::unique_ptr<Sesion> crearSesion(const std::string& dirConfig,
 
     // Por el TERMINAL, nunca por argumento ni por variable de entorno: las dos cosas
     // quedan visibles en `ps` para cualquier usuario de la máquina.
-    s->transporte.credentialProvider = [](const std::string& motivo, std::string& usuario,
-                                          std::string& clave) {
+    s->transporte.credentialProvider = [raw](const std::string& motivo, std::string& usuario,
+                                             std::string& clave) {
+        if (!raw->interactiva) {
+            return false;
+        }
         std::fprintf(stderr, "%s\n", motivo.c_str());
         std::string err;
         if (!preguntarPorTerminal(T("t_p_usuario_dp", "Usuario: "), usuario, err)) {
@@ -253,6 +256,9 @@ std::unique_ptr<Sesion> crearSesion(const std::string& dirConfig,
                 raw->sudoResuelto = true;
                 return true;
             }
+        }
+        if (!raw->interactiva) {
+            return false;
         }
         std::string err;
         std::string clave;
@@ -304,6 +310,16 @@ std::unique_ptr<Sesion> crearSesion(const std::string& dirConfig,
 
     // Sin ventana no hay nada que dejar respirar, y sin hilos no hay a dónde desviar el
     // montaje de túneles: los dos enganches se quedan sin poner a propósito.
+    return s;
+}
+
+std::unique_ptr<Sesion> crearSesionDeFondo(const std::string& dirConfig,
+                                           const std::string& maestra) {
+    auto s = crearSesion(dirConfig, maestra, /*verboso=*/false);
+    s->interactiva = false;
+    s->transporte.sink = [](B::TransportSession::Level, const std::string&, const std::string&) {};
+    s->transporte.warningSink = [](B::TransportSession::Level, const std::string&,
+                                   const B::transport::WarningNote&) {};
     return s;
 }
 

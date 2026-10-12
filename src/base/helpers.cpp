@@ -1,6 +1,7 @@
 #include "helpers.h"
 
 #include "daemonpayload.h"
+#include "i18n.h"
 #include "json.h"
 #include "strutil.h"
 
@@ -145,26 +146,28 @@ std::string buildWindowsMountPrecheckCommand(const std::string& datasetName, con
     replaceAll(dsPs, "\'", ("''"));
     std::string mpPs = trim(effectiveMountpoint);
     replaceAll(mpPs, "\'", ("''"));
-    return format("$ds='%1'; "
-               "$mp='%2'; "
-               "if ([string]::IsNullOrWhiteSpace($mp) -or $mp -eq '-' -or $mp -eq 'none') { "
-               "  throw ('mountpoint efectivo no resuelto para ' + $ds) "
-               "}; "
-               "$exists = Test-Path -LiteralPath $mp; "
-               "$mapped = $false; "
-               "foreach ($line in @(zfs mount 2>$null)) { "
-               "  if ($line -match '^\\s*(\\S+)\\s+(.+)$') { "
-               "    $d = $Matches[1].Trim(); "
-               "    $m = $Matches[2].Trim(); "
-               "    if ([string]::Equals($m, $mp, [System.StringComparison]::OrdinalIgnoreCase)) { "
-               "      if ($d -eq $ds) { $mapped = $true }; "
-               "      break; "
-               "    } "
-               "  } "
-               "}; "
-               "if ($exists -and -not $mapped) { "
-               "  throw ('mountpoint ocupado por ruta existente no-ZFS: ' + $mp) "
-               "}", {dsPs, mpPs});
+    return format(
+        "$ds='%1'; "
+        "$mp='%2'; "
+        "if ([string]::IsNullOrWhiteSpace($mp) -or $mp -eq '-' -or $mp -eq 'none') { "
+        "  throw ('effective mountpoint not resolved for ' + $ds) "
+        "}; "
+        "$exists = Test-Path -LiteralPath $mp; "
+        "$mapped = $false; "
+        "foreach ($line in @(zfs mount 2>$null)) { "
+        "  if ($line -match '^\\s*(\\S+)\\s+(.+)$') { "
+        "    $d = $Matches[1].Trim(); "
+        "    $m = $Matches[2].Trim(); "
+        "    if ([string]::Equals($m, $mp, [System.StringComparison]::OrdinalIgnoreCase)) { "
+        "      if ($d -eq $ds) { $mapped = $true }; "
+        "      break; "
+        "    } "
+        "  } "
+        "}; "
+        "if ($exists -and -not $mapped) { "
+        "  throw ('mountpoint taken by an existing non-ZFS path: ' + $mp) "
+        "}",
+        {dsPs, mpPs});
 }
 
 std::string streamProgressPipeFilter() {
@@ -609,13 +612,17 @@ std::string normalizeDriveLetterValue(const std::string& raw) {
 std::string sshHostKeyProblemHint(const std::string& sshStderr) {
     if (contains(sshStderr, "REMOTE HOST IDENTIFICATION HAS CHANGED")
         || contains(sshStderr, "Host key verification failed")) {
-        return "La clave del host SSH no coincide con la registrada en ~/.ssh/known_hosts. "
-               "Si reinstaló o reemplazó esa máquina, elimine su línea de ese fichero "
-               "(ssh-keygen -R <host>) y vuelva a conectar. Si no ha cambiado nada, "
-               "no continúe: alguien podría estar suplantando al host.";
+        return i18n::tr(
+            "t_ssh_clave_host_cambiada",
+            "La clave del host SSH no coincide con la registrada en ~/.ssh/known_hosts. "
+            "Si reinstaló o reemplazó esa máquina, elimine su línea de ese fichero "
+            "(ssh-keygen -R <host>) y vuelva a conectar. Si no ha cambiado nada, "
+            "no continúe: alguien podría estar suplantando al host.");
     }
     if (contains(sshStderr, "Bad configuration option: stricthostkeychecking")) {
-        return "Su cliente SSH es demasiado antiguo para 'accept-new' (necesita OpenSSH 7.6 o superior).";
+        return i18n::tr("t_ssh_cliente_antiguo",
+                        "Su cliente SSH es demasiado antiguo para 'accept-new' (necesita OpenSSH "
+                        "7.6 o superior).");
     }
     return std::string();
 }
@@ -1282,17 +1289,24 @@ std::string textoDeSoporteOpenZfs(const OpenZfsLectura& l) {
         case OpenZfsSoporte::Ok:
             return {};
         case OpenZfsSoporte::DemasiadoAntigua:
-            return "esa máquina tiene OpenZFS " + l.version + " y hace falta " + minima
-                   + " o posterior. Actualice OpenZFS allí y vuelva a intentarlo.";
+            return format(i18n::tr("t_openzfs_antigua",
+                                   "esa máquina tiene OpenZFS %1 y hace falta %2 o posterior. "
+                                   "Actualice OpenZFS allí y vuelva a intentarlo."),
+                          {l.version, minima});
         case OpenZfsSoporte::SinCargar:
-            return "esa máquina tiene OpenZFS instalado pero el módulo NO está cargado, así "
-                   "que no se puede comprobar su versión ni serviría de nada instalar aquí: "
-                   "sin módulo no hay un solo pool que ver. Cárguelo y vuelva a intentarlo"
-                   + (l.detalle.empty() ? std::string() : " (dijo: " + l.detalle + ")") + ".";
+            return i18n::tr(
+                       "t_openzfs_sin_modulo",
+                       "esa máquina tiene OpenZFS instalado pero el módulo NO está cargado, así "
+                       "que no se puede comprobar su versión ni serviría de nada instalar aquí: "
+                       "sin módulo no hay un solo pool que ver. Cárguelo y vuelva a intentarlo")
+                   + (l.detalle.empty() ? std::string() : " (" + l.detalle + ")") + ".";
         case OpenZfsSoporte::NoHay:
-            return "esa máquina no tiene OpenZFS, y hace falta " + minima + " o posterior. "
-                   "Un agente ahí arrancaría y contestaría que todo va bien sin ver un solo "
-                   "pool, que es la peor forma de no funcionar.";
+            return format(
+                i18n::tr("t_openzfs_no_hay",
+                         "esa máquina no tiene OpenZFS, y hace falta %1 o posterior. "
+                         "Un agente ahí arrancaría y contestaría que todo va bien sin ver "
+                         "un solo pool, que es la peor forma de no funcionar."),
+                {minima});
     }
     return {};
 }

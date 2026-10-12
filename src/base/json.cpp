@@ -54,7 +54,7 @@ public:
         }
         saltaBlancos();
         if (m_i != m_t.size()) {
-            err = "sobra texto tras el valor JSON";
+            err = "text left over after the JSON value";
             return false;
         }
         return true;
@@ -82,7 +82,7 @@ private:
 
     bool cadena(std::string& out, std::string& err) {
         if (m_i >= m_t.size() || m_t[m_i] != '"') {
-            err = "se esperaba una cadena";
+            err = "a string was expected";
             return false;
         }
         ++m_i;
@@ -94,7 +94,7 @@ private:
                 return true;
             }
             if (c < 0x20) {
-                err = "carácter de control sin escapar dentro de una cadena";
+                err = "unescaped control character inside a string";
                 return false;
             }
             if (c != '\\') {
@@ -104,7 +104,7 @@ private:
             }
             ++m_i;
             if (m_i >= m_t.size()) {
-                err = "escape a medias al final del texto";
+                err = "escape cut short at the end of the text";
                 return false;
             }
             const char e = m_t[m_i++];
@@ -139,17 +139,17 @@ private:
                     break;
                 }
                 default:
-                    err = std::string("escape desconocido: \\") + e;
+                    err = std::string("unknown escape: \\") + e;
                     return false;
             }
         }
-        err = "cadena sin cerrar";
+        err = "unterminated string";
         return false;
     }
 
     bool hex4(unsigned& out, std::string& err) {
         if (m_i + 4 > m_t.size()) {
-            err = "escape \\u incompleto";
+            err = "incomplete \\u escape";
             return false;
         }
         out = 0;
@@ -160,7 +160,7 @@ private:
             else if (c >= 'a' && c <= 'f') { d = static_cast<unsigned>(c - 'a' + 10); }
             else if (c >= 'A' && c <= 'F') { d = static_cast<unsigned>(c - 'A' + 10); }
             else {
-                err = "dígito no hexadecimal en un escape \\u";
+                err = "non-hexadecimal digit in a \\u escape";
                 return false;
             }
             out = (out << 4) | d;
@@ -175,7 +175,7 @@ private:
             ++m_i;
         }
         if (m_i >= m_t.size() || !std::isdigit(static_cast<unsigned char>(m_t[m_i]))) {
-            err = "número mal formado";
+            err = "malformed number";
             return false;
         }
         // JSON no admite ceros a la izquierda.
@@ -191,7 +191,7 @@ private:
             esEntero = false;
             ++m_i;
             if (m_i >= m_t.size() || !std::isdigit(static_cast<unsigned char>(m_t[m_i]))) {
-                err = "faltan dígitos tras el punto decimal";
+                err = "digits missing after the decimal point";
                 return false;
             }
             while (m_i < m_t.size() && std::isdigit(static_cast<unsigned char>(m_t[m_i]))) {
@@ -205,7 +205,7 @@ private:
                 ++m_i;
             }
             if (m_i >= m_t.size() || !std::isdigit(static_cast<unsigned char>(m_t[m_i]))) {
-                err = "faltan dígitos en el exponente";
+                err = "digits missing in the exponent";
                 return false;
             }
             while (m_i < m_t.size() && std::isdigit(static_cast<unsigned char>(m_t[m_i]))) {
@@ -230,7 +230,7 @@ private:
 
     bool valor(Value& out, std::string& err) {
         if (m_i >= m_t.size()) {
-            err = "texto JSON vacío";
+            err = "empty JSON text";
             return false;
         }
         const char c = m_t[m_i];
@@ -245,17 +245,26 @@ private:
             return true;
         }
         if (c == 't') {
-            if (!literal("true")) { err = "se esperaba true"; return false; }
+            if (!literal("true")) {
+                err = "true was expected";
+                return false;
+            }
             out = Value(true);
             return true;
         }
         if (c == 'f') {
-            if (!literal("false")) { err = "se esperaba false"; return false; }
+            if (!literal("false")) {
+                err = "false was expected";
+                return false;
+            }
             out = Value(false);
             return true;
         }
         if (c == 'n') {
-            if (!literal("null")) { err = "se esperaba null"; return false; }
+            if (!literal("null")) {
+                err = "null was expected";
+                return false;
+            }
             out = Value();
             return true;
         }
@@ -279,7 +288,7 @@ private:
             }
             saltaBlancos();
             if (m_i >= m_t.size() || m_t[m_i] != ':') {
-                err = "falta ':' tras la clave";
+                err = "':' missing after the key";
                 return false;
             }
             ++m_i;
@@ -309,7 +318,7 @@ private:
                 out = Value(std::move(obj));
                 return true;
             }
-            err = "se esperaba ',' o '}' en un objeto";
+            err = "',' or '}' expected in an object";
             return false;
         }
     }
@@ -340,7 +349,7 @@ private:
                 out = Value(std::move(arr));
                 return true;
             }
-            err = "se esperaba ',' o ']' en un array";
+            err = "',' or ']' expected in an array";
             return false;
         }
     }

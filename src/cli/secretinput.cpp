@@ -54,7 +54,8 @@ bool leerSecretoDeDescriptor(int fd, std::string& out, std::string& error) {
         const ssize_t n = ::read(fd, buf, sizeof(buf));
 #endif
         if (n < 0) {
-            error = std::string("no se pudo leer del descriptor: ") + std::strerror(errno);
+            error = T("t_secreto_fd_ilegible", "no se pudo leer del descriptor: ")
+                    + std::strerror(errno);
             limpia(out);
             out.clear();
             return false;

@@ -74,7 +74,7 @@ bool cmdPoolSimple(Estado& e, const LineaAnalizada& linea, const char* verbo, co
     if (!zpoolGeneric(e, destino, argv)) {
         return false;
     }
-    std::fprintf(stderr, "%s: %s hecho\n", destino.pool.c_str(), op);
+    std::fprintf(stderr, TC("t_pool_op_hecha", "%s: %s hecho\n"), destino.pool.c_str(), op);
     return true;
 }
 

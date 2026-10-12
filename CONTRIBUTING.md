@@ -5,6 +5,9 @@
 **Code is written in English**: identifiers, comments, commit messages, log lines and the
 agent's messages. Text a user reads goes through the translation catalogs (`i18n/*.json`) and
 is shown in the user's language.
+`scripts/revisa_castellano.py` lists Spanish literals in `src/` that bypass the catalogs; the
+CI runs it, and the few that must stay Spanish (what `sudo` prints, for instance) are listed in
+it with the reason.
 
 Much of the existing code still has Spanish identifiers and comments. It is **not** translated
 in one go —that would be a huge diff that hides real changes and ruins `git blame`—: **what you

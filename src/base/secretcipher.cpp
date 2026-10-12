@@ -107,19 +107,19 @@ bool SecretCipher::encryptEncv1(const std::string& plaintext,
     output.clear();
     error.clear();
     if (masterPassword.empty()) {
-        error = "Password maestro vacío";
+        error = "empty master password";
         return false;
     }
 
     std::string sal(kSalLen, '\0');
     if (RAND_bytes(reinterpret_cast<unsigned char*>(sal.data()), static_cast<int>(sal.size())) != 1) {
-        error = "No se pudo generar salt";
+        error = "could not generate the salt";
         return false;
     }
 
     Zona clave(kClaveLen);
     if (!derivaClave(masterPassword, sal, clave)) {
-        error = "PBKDF2 falló";
+        error = "PBKDF2 failed";
         return false;
     }
     const std::string claveFirma = clave.s.substr(0, 16);
@@ -127,13 +127,13 @@ bool SecretCipher::encryptEncv1(const std::string& plaintext,
 
     std::string iv(kIvLen, '\0');
     if (RAND_bytes(reinterpret_cast<unsigned char*>(iv.data()), static_cast<int>(iv.size())) != 1) {
-        error = "No se pudo generar IV";
+        error = "could not generate the IV";
         return false;
     }
 
     EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
     if (!ctx) {
-        error = "No se pudo crear contexto AES";
+        error = "could not create the AES context";
         return false;
     }
     std::string cifrado(plaintext.size() + 32, '\0');
@@ -154,7 +154,7 @@ bool SecretCipher::encryptEncv1(const std::string& plaintext,
     }
     EVP_CIPHER_CTX_free(ctx);
     if (!ok) {
-        error = "No se pudo cifrar token";
+        error = "could not encrypt the token";
         return false;
     }
     cifrado.resize(static_cast<std::size_t>(n1 + n2));
@@ -186,24 +186,24 @@ bool SecretCipher::decryptEncv1(const std::string& input,
 
     const std::vector<std::string> partes = split(input, "$", false);
     if (partes.size() != 3 || partes[0] != "encv1") {
-        error = "Formato encv1 inválido";
+        error = "invalid encv1 format";
         return false;
     }
 
     std::string sal;
     std::string token;
     if (!deBase64Url(partes[1], sal) || !deBase64Url(partes[2], token)) {
-        error = "Salt/token inválidos";
+        error = "invalid salt/token";
         return false;
     }
     if (sal.empty() || token.size() < (1 + 8 + kIvLen + 16 + kFirmaLen)) {
-        error = "Salt/token inválidos";
+        error = "invalid salt/token";
         return false;
     }
 
     Zona clave(kClaveLen);
     if (!derivaClave(masterPassword, sal, clave)) {
-        error = "PBKDF2 falló";
+        error = "PBKDF2 failed";
         return false;
     }
     const std::string claveFirma = clave.s.substr(0, 16);
@@ -214,25 +214,25 @@ bool SecretCipher::decryptEncv1(const std::string& input,
     const std::string msg = token.substr(0, token.size() - kFirmaLen);
     const std::string firma = token.substr(token.size() - kFirmaLen);
     if (!igualTiempoConstante(firma, hmacSha256(claveFirma, msg))) {
-        error = "Firma inválida (password maestro incorrecto)";
+        error = "invalid signature (wrong master password)";
         return false;
     }
 
     if (static_cast<unsigned char>(token[0]) != kVersionFernet) {
-        error = "Versión Fernet no soportada";
+        error = "unsupported Fernet version";
         return false;
     }
 
     const std::string iv = token.substr(9, kIvLen);
     const std::string cifrado = token.substr(25, token.size() - 25 - kFirmaLen);
     if (cifrado.empty() || (cifrado.size() % 16) != 0) {
-        error = "Ciphertext inválido";
+        error = "invalid ciphertext";
         return false;
     }
 
     EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
     if (!ctx) {
-        error = "No se pudo crear contexto AES";
+        error = "could not create the AES context";
         return false;
     }
     Zona plano(cifrado.size() + 16);
@@ -253,7 +253,7 @@ bool SecretCipher::decryptEncv1(const std::string& input,
     }
     EVP_CIPHER_CTX_free(ctx);
     if (!ok) {
-        error = "No se pudo descifrar token";
+        error = "could not decrypt the token";
         return false;
     }
 

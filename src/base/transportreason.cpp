@@ -112,42 +112,69 @@ bool deservesPenalty(Failure f) {
 const char* labelOf(Failure f) {
     switch (f) {
         case Failure::None_: return "";
-        case Failure::TunnelBusy: return "tunel-ocupado";
-        case Failure::OffTheTunnelThread: return "fuera-del-hilo";
-        case Failure::EmptyArguments: return "argumentos-vacios";
-        case Failure::ConnectionNotSsh: return "conexion-no-ssh";
-        case Failure::Cooling: return "en-espera";
-        case Failure::MaterialCannotBeRead: return "tls-no-se-lee";
-        case Failure::HostKeyChanged: return "ssh-clave-cambiada";
-        case Failure::MaterialIncomplete: return "tls-incompleto";
-        case Failure::ClientKeyUnavailable: return "tls-sin-clave-cliente";
-        case Failure::InvalidCertificates: return "tls-certificados-invalidos";
-        case Failure::InvalidClientKey: return "tls-clave-cliente-invalida";
-        case Failure::TunnelCannotBeBuilt: return "tunel-no-se-monta";
-        case Failure::ConnectionRefused: return "conexion-rechazada";
-        case Failure::CertificateMismatch: return "tls-certificado-no-coincide";
-        case Failure::SendFailed: return "envio-fallido";
-        case Failure::TunnelCutWhileWaiting: return "tunel-cortado";
+        case Failure::TunnelBusy:
+            return "tunnel-busy";
+        case Failure::OffTheTunnelThread:
+            return "off-the-tunnel-thread";
+        case Failure::EmptyArguments:
+            return "empty-arguments";
+        case Failure::ConnectionNotSsh:
+            return "connection-not-ssh";
+        case Failure::Cooling:
+            return "cooling";
+        case Failure::MaterialCannotBeRead:
+            return "tls-unreadable";
+        case Failure::HostKeyChanged:
+            return "ssh-host-key-changed";
+        case Failure::MaterialIncomplete:
+            return "tls-incomplete";
+        case Failure::ClientKeyUnavailable:
+            return "tls-no-client-key";
+        case Failure::InvalidCertificates:
+            return "tls-invalid-certificates";
+        case Failure::InvalidClientKey:
+            return "tls-invalid-client-key";
+        case Failure::TunnelCannotBeBuilt:
+            return "tunnel-cannot-be-built";
+        case Failure::ConnectionRefused:
+            return "connection-refused";
+        case Failure::CertificateMismatch:
+            return "tls-certificate-mismatch";
+        case Failure::SendFailed:
+            return "send-failed";
+        case Failure::TunnelCutWhileWaiting:
+            return "tunnel-cut";
         case Failure::HandshakeFailed: return "tls-handshake";
-        case Failure::InvalidAnswer: return "respuesta-no-valida";
-        case Failure::Unspecified: return "sin-motivo";
+        case Failure::InvalidAnswer:
+            return "invalid-answer";
+        case Failure::Unspecified:
+            return "unspecified";
     }
-    return "sin-motivo";
+    return "unspecified";
 }
 
 
 const char* labelOf(Warning a) {
     switch (a) {
         case Warning::None_: return "";
-        case Warning::LocalTlsUnreadable: return "tls-local-no-legible";
-        case Warning::LocalTlsNeedsSudo: return "tls-local-sin-sudo";
-        case Warning::LocalTlsCannotBeRead: return "tls-local-no-se-lee";
-        case Warning::LocalTlsIncomplete: return "tls-local-incompleto";
-        case Warning::SshHostUnverified: return "host-ssh-no-verificado";
-        case Warning::NoSshpass: return "sin-sshpass";
-        case Warning::MultiplexingFailed: return "multiplexado-fallo";
-        case Warning::MultiplexingDisabled: return "multiplexado-desactivado";
-        case Warning::TunnelNotAcceptingSshDied: return "tunel-ssh-murio";
+        case Warning::LocalTlsUnreadable:
+            return "local-tls-unreadable";
+        case Warning::LocalTlsNeedsSudo:
+            return "local-tls-needs-sudo";
+        case Warning::LocalTlsCannotBeRead:
+            return "local-tls-cannot-be-read";
+        case Warning::LocalTlsIncomplete:
+            return "local-tls-incomplete";
+        case Warning::SshHostUnverified:
+            return "ssh-host-unverified";
+        case Warning::NoSshpass:
+            return "no-sshpass";
+        case Warning::MultiplexingFailed:
+            return "multiplexing-failed";
+        case Warning::MultiplexingDisabled:
+            return "multiplexing-disabled";
+        case Warning::TunnelNotAcceptingSshDied:
+            return "tunnel-ssh-died";
         case Warning::TunnelNotAcceptingTimedOut: return "tunel-espera-agotada";
     }
     return "";

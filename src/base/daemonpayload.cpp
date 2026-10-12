@@ -54,45 +54,51 @@ std::string windowsNativeInstallCommand() {
     // Después se ejecuta --ensure-tls, que genera el material TLS con el OpenSSL que
     // el propio agente enlaza: en Windows no hay openssl en el PATH (solo aparece si
     // está Git instalado, que no es garantía).
-    return format(std::string(
-        // SIN $ErrorActionPreference='Parar': con él, cualquier salida por stderr de un
-        // comando nativo se convierte en excepción, y schtasks /End y /Delete escriben
-        // ahí cuando la tarea todavía no existe —que es el caso normal en la primera
-        // instalación—. Se comprueban explícitamente los pasos que sí importan.
-        "$dir='%1'; $bin='%2'; $task='%3'; $up='%4'; "
-        "if (-not (Test-Path -LiteralPath $up)) { Write-Error 'no llegó el binario'; exit 1 } "
-        "New-Item -ItemType Directory -Force -Path $dir | Out-Null; "
-        "cmd /c \"schtasks /End /TN $task >nul 2>&1\" | Out-Null; "
-        "cmd /c \"schtasks /Delete /F /TN $task >nul 2>&1\" | Out-Null; "
-        "Get-Process zfsmgr-agent,zfsmgr_agent -ErrorAction SilentlyContinue | Stop-Process -Force; "
-        "Start-Sleep -Milliseconds 500; "
-        "Move-Item -Force -LiteralPath $up -Destination $bin; "
-        "if (-not (Test-Path -LiteralPath $bin)) { Write-Output 'ZFSMGR_WIN_AGENT_MOVE_FAIL'; exit 1 } "
-        "& $bin --ensure-tls | Out-Null; "
-        "if ($LASTEXITCODE -ne 0) { Write-Output 'ZFSMGR_WIN_AGENT_TLS_FAIL'; exit 1 } "
-        // [char]34 en vez de comillas escapadas: este texto atraviesa el literal de
-        // C++, el envoltorio de shell y el -Command de PowerShell, y en cada capa se
-        // reinterpretan los escapes. Así no depende de ninguna.
-        // Regla de cortafuegos para el propio binario.
-        //
-        // Hace falta para RECIBIR una transfer: el agente abre un puerto efímero y
-        // el emisor se conecta a él. Sin regla, Windows rechaza esa conexión y la copia
-        // expira sin explicación —comprobado: el cortafuegos viene activo en los tres
-        // perfiles y sin ninguna regla nuestra—.
-        //
-        // Va acotada al PROGRAMA, no a un puerto: los puertos son efímeros y distintos
-        // en cada transfer, así que abrir un rango sería peor y menos preciso.
-        // Se borra y se recrea para que apunte al binario actual si cambió de sitio, y
-        // no interrumpe la instalación si falla: sin ella el agente sirve igual para
-        // todo lo demás.
-        "Remove-NetFirewallRule -Name 'ZFSMgr-Agent' -ErrorAction SilentlyContinue; "
-        "New-NetFirewallRule -Name 'ZFSMgr-Agent' -DisplayName 'ZFSMgr Agent (transferencias ZFS)' "
-        "-Direction Inbound -Action Allow -Program $bin -Profile Any "
-        "-ErrorAction SilentlyContinue | Out-Null; "
-        "$q=[char]34; $action=$q + $bin + $q + ' --serve'; "
-        "schtasks /Create /SC ONSTART /RL HIGHEST /RU SYSTEM /TN $task /TR $action /F | Out-Null; "
-        "schtasks /Run /TN $task | Out-Null; "
-        "Write-Output 'ZFSMGR_WIN_AGENT_OK'; exit 0"),
+    return format(
+        std::string(
+            // SIN $ErrorActionPreference='Parar': con él, cualquier salida por stderr de un
+            // comando nativo se convierte en excepción, y schtasks /End y /Delete escriben
+            // ahí cuando la tarea todavía no existe —que es el caso normal en la primera
+            // instalación—. Se comprueban explícitamente los pasos que sí importan.
+            "$dir='%1'; $bin='%2'; $task='%3'; $up='%4'; "
+            "if (-not (Test-Path -LiteralPath $up)) { Write-Error 'the binary did not arrive'; "
+            "exit 1 } "
+            "New-Item -ItemType Directory -Force -Path $dir | Out-Null; "
+            "cmd /c \"schtasks /End /TN $task >nul 2>&1\" | Out-Null; "
+            "cmd /c \"schtasks /Delete /F /TN $task >nul 2>&1\" | Out-Null; "
+            "Get-Process zfsmgr-agent,zfsmgr_agent -ErrorAction SilentlyContinue | Stop-Process "
+            "-Force; "
+            "Start-Sleep -Milliseconds 500; "
+            "Move-Item -Force -LiteralPath $up -Destination $bin; "
+            "if (-not (Test-Path -LiteralPath $bin)) { Write-Output 'ZFSMGR_WIN_AGENT_MOVE_FAIL'; "
+            "exit 1 } "
+            "& $bin --ensure-tls | Out-Null; "
+            "if ($LASTEXITCODE -ne 0) { Write-Output 'ZFSMGR_WIN_AGENT_TLS_FAIL'; exit 1 } "
+            // [char]34 en vez de comillas escapadas: este texto atraviesa el literal de
+            // C++, el envoltorio de shell y el -Command de PowerShell, y en cada capa se
+            // reinterpretan los escapes. Así no depende de ninguna.
+            // Regla de cortafuegos para el propio binario.
+            //
+            // Hace falta para RECIBIR una transfer: el agente abre un puerto efímero y
+            // el emisor se conecta a él. Sin regla, Windows rechaza esa conexión y la copia
+            // expira sin explicación —comprobado: el cortafuegos viene activo en los tres
+            // perfiles y sin ninguna regla nuestra—.
+            //
+            // Va acotada al PROGRAMA, no a un puerto: los puertos son efímeros y distintos
+            // en cada transfer, así que abrir un rango sería peor y menos preciso.
+            // Se borra y se recrea para que apunte al binario actual si cambió de sitio, y
+            // no interrumpe la instalación si falla: sin ella el agente sirve igual para
+            // todo lo demás.
+            "Remove-NetFirewallRule -Name 'ZFSMgr-Agent' -ErrorAction SilentlyContinue; "
+            "New-NetFirewallRule -Name 'ZFSMgr-Agent' -DisplayName 'ZFSMgr Agent (transferencias "
+            "ZFS)' "
+            "-Direction Inbound -Action Allow -Program $bin -Profile Any "
+            "-ErrorAction SilentlyContinue | Out-Null; "
+            "$q=[char]34; $action=$q + $bin + $q + ' --serve'; "
+            "schtasks /Create /SC ONSTART /RL HIGHEST /RU SYSTEM /TN $task /TR $action /F | "
+            "Out-Null; "
+            "schtasks /Run /TN $task | Out-Null; "
+            "Write-Output 'ZFSMGR_WIN_AGENT_OK'; exit 0"),
         {windowsDirPath(), windowsBinPath(), windowsTaskName(), windowsUploadPath()});
 }
 

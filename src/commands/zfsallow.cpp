@@ -5,17 +5,6 @@
 
 namespace zfsmgr::base::zfsallow {
 
-const char* keyOf(Scope a) {
-    switch (a) {
-        case Scope::Local:               return "local";
-        case Scope::Descendants:       return "descendientes";
-        case Scope::LocalAndDescendants: return "ambos";
-        case Scope::OnCreate:             return "alcrear";
-        case Scope::Set:            return "conjunto";
-    }
-    return "ambos";
-}
-
 const char* zfsSectionTitle(Scope a) {
     switch (a) {
         case Scope::Local:               return "Local permissions";
@@ -35,37 +24,6 @@ const char* zfsToken(Who q) {
         case Who::Set: return "set";
     }
     return "";
-}
-
-const char* keyOf(Who q) {
-    switch (q) {
-        case Who::User:  return "usuario";
-        case Who::Group:    return "grupo";
-        case Who::Everyone:    return "todos";
-        case Who::Set: return "conjunto";
-    }
-    return "usuario";
-}
-
-std::string labelOf(Scope a) {
-    switch (a) {
-        case Scope::Local:               return "solo aquí";
-        case Scope::Descendants:       return i18n::tr("t_cmd_zfsallow_solo_descendientes", "solo en los descendientes");
-        case Scope::LocalAndDescendants: return i18n::tr("t_cmd_zfsallow_aqui_descendientes", "aquí y en los descendientes");
-        case Scope::OnCreate:             return i18n::tr("t_cmd_zfsallow_al_crear_descendiente", "al crear un descendiente");
-        case Scope::Set:            return "conjunto de permisos";
-    }
-    return {};
-}
-
-std::string labelOf(Who q) {
-    switch (q) {
-        case Who::User:  return "usuario";
-        case Who::Group:    return "grupo";
-        case Who::Everyone:    return "todos";
-        case Who::Set: return "conjunto";
-    }
-    return {};
 }
 
 std::vector<Entry> parse(const std::string& salida) {

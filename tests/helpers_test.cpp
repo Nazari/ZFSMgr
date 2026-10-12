@@ -256,7 +256,7 @@ int main() {
         }
         const QString precheck = buildWindowsMountPrecheckCommand("pool/a", "Z:\\Data");
         if (!precheck.contains("$ds='pool/a'") || !precheck.contains("$mp='Z:\\Data'")
-            || !precheck.contains("mountpoint ocupado por ruta existente no-ZFS")) {
+            || !precheck.contains("mountpoint taken by an existing non-ZFS path")) {
             return fail("buildWindowsMountPrecheckCommand mismatch");
         }
     }

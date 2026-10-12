@@ -85,6 +85,9 @@ struct Sesion {
     // Se arrancó con --no-secrets: los campos cifrados no se han podido abrir y valen
     // vacío. **Con esto puesto NO se escribe la configuración**, ver guardarConexion.
     bool sinSecretos{false};
+    // False for the background checks: they may use a stored password, but never ask at the
+    // terminal. A prompt from another thread lands in the middle of the line being typed.
+    bool interactiva{true};
 
     // Las credenciales de sudo de ESTA máquina, una vez resueltas.
     //
@@ -102,6 +105,11 @@ std::unique_ptr<Sesion> crearSesion(const std::string& dirConfig,
                                     const std::string& maestra,
                                     bool verboso,
                                     bool sinSecretos = false);
+
+// A session for checks that run behind the interpreter: its transport messages are muted
+// (what matters goes in their summary) and it never prompts.
+std::unique_ptr<Sesion> crearSesionDeFondo(const std::string& dirConfig,
+                                           const std::string& maestra);
 
 // --- Cambiar la configuración, no solo leerla.
 

@@ -36,7 +36,7 @@ std::string leeFicheroEntero(const std::string& ruta) {
 std::string labelOf(Failure f) {
     switch (f) {
         case Failure::None_:
-            return "sin fallo";
+            return {};
         case Failure::UnreadableBinary:
             return i18n::tr("t_cmd_daemoninstall_binario_daemon_puede_leer", "el binario del daemon no se puede leer o está vacío");
         case Failure::UploadFailed:
@@ -46,7 +46,7 @@ std::string labelOf(Failure f) {
         case Failure::UnsupportedOpenZfs:
             return i18n::tr("t_cmd_daemoninstall_esa_maquina_tiene_version", "esa máquina no tiene una versión de OpenZFS con la que esto funcione");
     }
-    return "sin fallo";
+    return {};
 }
 
 std::string platformOf(const ConnectionProfile& p) {
@@ -190,7 +190,7 @@ std::string installScript(const std::string& plataforma, const std::string& vers
                  "  i=$((i+1)); sleep 1; "
                  "done; "
                  "if [ -z \"$pid\" ]; then "
-                 "  echo \"launchd no dejo el agente corriendo tras instalar; bootstrap dijo: $err\" >&2; "
+                 "  echo \"launchd did not leave the agent running after installing; bootstrap said: $err\" >&2; "
                  "  exit 1; fi";
     }
     if (plataforma == "freebsd") {
@@ -199,8 +199,8 @@ std::string installScript(const std::string& plataforma, const std::string& vers
                // un error del cargador que no dice qué falta.
                + "ldd_missing=$(ldd " + bin + " 2>&1 | grep 'not found' || true); "
                  "if [ -n \"$ldd_missing\" ]; then "
-                 "  printf 'ERROR: el daemon tiene dependencias sin resolver:\\n%s\\n' \"$ldd_missing\" >&2; "
-                 "  printf 'Instala OpenSSL con: pkg install openssl\\n' >&2; exit 1; fi; "
+                 "  printf 'ERROR: the daemon has unresolved dependencies:\\n%s\\n' \"$ldd_missing\" >&2; "
+                 "  printf 'Install OpenSSL with: pkg install openssl\\n' >&2; exit 1; fi; "
                + escribeConf
                + "cat > " + DP::freeBsdRcPath() + " <<'EOF_AGENT_RC'\n" + DP::freeBsdRcScript()
                + "\nEOF_AGENT_RC\n" + tls + "; "
@@ -219,7 +219,7 @@ std::string installScript(const std::string& plataforma, const std::string& vers
                  "  pkill -9 -x zfsmgr-agent 2>/dev/null; rm -f /var/run/zfsmgr_agent.pid; sleep 1; }; "
                  "service zfsmgr_agent start; sleep 2; "
                  "if ! service zfsmgr_agent onestatus >/dev/null 2>&1; then "
-                 "  printf 'ERROR: el daemon no permanece activo tras el arranque\\n' >&2; exit 1; fi";
+                 "  printf 'ERROR: the daemon does not stay active after starting\\n' >&2; exit 1; fi";
     }
     return "if ! command -v systemctl >/dev/null 2>&1; then echo 'systemd not available' >&2; "
            "exit 1; fi; mkdir -p /usr/local/libexec /etc/zfsmgr; "
@@ -401,17 +401,17 @@ std::string tarArchive(const std::vector<std::pair<std::string, std::string>>& e
     for (const auto& e : entradas) {
         const std::string& nombre = e.first;
         if (nombre.empty() || nombre.size() > 99) {
-            error = "nombre que no cabe en el tar: " + nombre;
+            error = "name that does not fit in the tar: " + nombre;
             return {};
         }
         const std::string datos = leeFicheroEntero(e.second);
         std::error_code ec;
         if (datos.empty() && std::filesystem::file_size(e.second, ec) != 0) {
-            error = "no se pudo leer " + e.second;
+            error = "could not read " + e.second;
             return {};
         }
         if (ec) {
-            error = "no se pudo leer " + e.second;
+            error = "could not read " + e.second;
             return {};
         }
         // La cabecera ustar: 512 bytes, números en octal y terminados en NUL.
