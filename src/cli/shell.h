@@ -25,7 +25,10 @@ namespace zfsmgr::cli {
 // `urlInicial` vacía empieza en la RAÍZ (`zfsm://`), donde `ls` lista las conexiones. No se
 // arranca ya en `zfsm://Local`: hacía creer que esa máquina era el punto de partida
 // obligado, y este cliente gobierna varias.
+//
+// `compruebaProgramaciones`: con terminal, comprobar en segundo plano el estado de las
+// programaciones de todas las conexiones y avisar en una línea (`--no-schedule-check` lo quita).
 int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial = {},
-                  bool asumirSi = false);
+                  bool asumirSi = false, bool compruebaProgramaciones = true);
 
 }  // namespace zfsmgr::cli

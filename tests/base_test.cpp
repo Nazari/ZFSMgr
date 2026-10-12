@@ -3526,6 +3526,151 @@ int main() {
         comprobar(G::isValidSet({{"tank/datos", rec}, {"tank/datosviejos", base}}, m),
                   "gsa: el prefijo no basta, hace falta la barra");
 
+        // --- El destino como URL: solo la URL; el formato viejo, deprecado.
+        {
+            std::string guardado;
+            comprobar(G::targetFromUrl("zfsm://unib/sback/copia", guardado, m)
+                          && guardado == "unib::sback/copia",
+                      "gsa: la URL de un dataset se guarda como «conexión::dataset»");
+            comprobar(!G::targetFromUrl("unib::sback/copia", guardado, m)
+                          && m.failure == G::Failure::LegacyTargetFormat
+                          && m.detail == "zfsm://unib/sback/copia",
+                      "gsa: «::» ya no se admite, y se dice cómo escribirlo");
+            comprobar(!G::targetFromUrl("zfsm://unib", guardado, m)
+                          && m.failure == G::Failure::MalformedTarget,
+                      "gsa: una conexión sola no es un destino");
+            comprobar(!G::targetFromUrl("zfsm://unib/sback@ayer", guardado, m),
+                      "gsa: un snapshot no es un destino");
+            comprobar(!G::targetFromUrl("zfsm://unib/sback#content/x", guardado, m),
+                      "gsa: una sección no es un destino");
+            comprobar(!G::targetFromUrl("zfsm://unib/sback/*", guardado, m),
+                      "gsa: un patrón no es un destino");
+            comprobar(!G::targetFromUrl("sback/copia", guardado, m)
+                          && m.failure == G::Failure::MalformedTarget,
+                      "gsa: un nombre suelto tampoco");
+        }
+
+        // --- Qué mandar al nivelar, por guid.
+        {
+            using S = G::SnapRef;
+            using K = G::LevelPlan::Kind;
+            const std::vector<S> origen{{"GSA-daily-20261001-000000", "1"},
+                                        {"manual", "2"},
+                                        {"GSA-daily-20261003-000000", "3"},
+                                        {"GSA-daily-20261004-000000", "4"}};
+            auto p = G::planLevel(origen, {}, false);
+            comprobar(p.kind == K::Full, "nivelar: sin destino, envío completo");
+
+            p = G::planLevel(origen, {{"GSA-daily-20261001-000000", "1"}}, true);
+            comprobar(p.kind == K::Incremental && p.base == "GSA-daily-20261001-000000",
+                      "nivelar: incremental desde el último común");
+
+            p = G::planLevel(origen, {{"GSA-daily-20261001-000000", "1"},
+                                      {"GSA-daily-20261004-000000", "4"}}, true);
+            comprobar(p.kind == K::UpToDate, "nivelar: con el último ya allí, no hay nada que mandar");
+
+            // Renombrado en el origen (periodo sin cambios): mismo guid, otro nombre.
+            p = G::planLevel(origen, {{"GSA-daily-20261002-000000", "3"}}, true);
+            comprobar(p.kind == K::Incremental && p.base == "GSA-daily-20261003-000000",
+                      "nivelar: la base se reconoce por guid aunque cambie el nombre");
+            comprobar(p.renameOnTarget.size() == 1
+                          && p.renameOnTarget[0].first == "GSA-daily-20261002-000000"
+                          && p.renameOnTarget[0].second == "GSA-daily-20261003-000000",
+                      "nivelar: y el destino toma el nombre del origen");
+
+            // Poda del destino: solo GSA, solo lo que el origen ya no tiene, nunca la base.
+            p = G::planLevel(origen, {{"GSA-daily-20260930-000000", "0"},
+                                      {"suyo", "9"},
+                                      {"GSA-daily-20261003-000000", "3"}}, true);
+            comprobar(p.kind == K::Incremental && p.pruneOnTarget.size() == 1
+                          && p.pruneOnTarget[0] == "GSA-daily-20260930-000000",
+                      "nivelar: se poda en destino el GSA que el origen ya no tiene, no el manual");
+
+            // Lo que el destino tiene por detrás de la base: recv -F lo destruiría.
+            p = G::planLevel(origen, {{"GSA-daily-20261001-000000", "1"},
+                                      {"cosa-del-destino", "77"}}, true);
+            comprobar(p.kind == K::Conflict && p.conflicting.size() == 1
+                          && p.conflicting[0] == "cosa-del-destino",
+                      "nivelar: un snapshot propio del destino tras la base es un conflicto");
+            p = G::planLevel(origen, {{"ajeno", "88"}}, true);
+            comprobar(p.kind == K::Conflict, "nivelar: un destino sin nada en común es un conflicto");
+            p = G::planLevel(origen, {}, true);
+            comprobar(p.kind == K::Conflict && p.conflicting.empty(),
+                      "nivelar: un destino que existe sin snapshots también");
+        }
+
+        // --- La poda por clase, con la base protegida.
+        {
+            const std::vector<std::string> n{"GSA-daily-20261003-000000", "GSA-daily-20261001-000000",
+                                             "GSA-hourly-20261001-010000", "manual",
+                                             "GSA-daily-20261002-000000", "GSA-daily-roto"};
+            auto p = G::planPrune(n, "daily", 1, "");
+            comprobar(p.destroy.size() == 2 && p.destroy[0] == "GSA-daily-20261001-000000"
+                          && p.destroy[1] == "GSA-daily-20261002-000000" && !p.keptBase,
+                      "podar: los más viejos POR EL NOMBRE, solo de esa clase");
+            p = G::planPrune(n, "daily", 1, "GSA-daily-20261001-000000");
+            comprobar(p.destroy.size() == 1 && p.destroy[0] == "GSA-daily-20261002-000000"
+                          && p.keptBase,
+                      "podar: la base de la nivelación no se borra, y se dice");
+            comprobar(G::planPrune(n, "daily", 3, "").destroy.empty(),
+                      "podar: dentro de la retención no se borra nada");
+            comprobar(G::planPrune(n, "daily", 0, "").destroy.empty(),
+                      "podar: retención 0 es «clase sin programar», no «bórralas todas»");
+            igual(G::newestOfClass(n, "daily"), "GSA-daily-20261003-000000",
+                  "gsa: el más nuevo de la clase, por el nombre");
+            igual(G::newestOfClass(n, "weekly"), "", "gsa: sin ninguno de la clase, vacío");
+        }
+
+        // --- El estado y el veredicto del arranque.
+        {
+            G::ConnectionState c;
+            std::string err;
+            comprobar(G::parseState(R"({"last_pass":1000,"now":1100,"datasets":{
+                "tank/a":{"destination":"unib::b/a","level":true,
+                          "snapshot":{"name":"GSA-daily-x","time":990,"ok":true},
+                          "level_result":{"time":995,"ok":false,"error":"no se pudo conectar"}},
+                "tank/b":{"snapshot":{"ok":true}}}})", c, err),
+                      "estado: se lee", err);
+            comprobar(c.datasets.size() == 2 && !c.stale, "estado: dos datasets, el hilo vive");
+            comprobar(c.datasets[0].failedStep == "level"
+                          && c.datasets[0].error == "no se pudo conectar",
+                      "estado: el fallo de nivelación, con su motivo");
+            comprobar(c.datasets[1].failedStep.empty(), "estado: el otro en verde");
+
+            std::vector<std::pair<std::string, G::DatasetState>> mal;
+            std::vector<const G::ConnectionState*> sin;
+            c.connection = "fc16";
+            comprobar(G::summarize({c}, mal, sin) == G::Verdict::WithErrors && mal.size() == 1
+                          && mal[0].first == "fc16",
+                      "veredicto: con un fallo");
+
+            G::ConnectionState vacia;
+            comprobar(G::parseState(R"({"last_pass":0,"now":5,"datasets":{}})", vacia, err),
+                      "estado: sin programaciones se lee");
+            comprobar(!vacia.stale, "estado: sin programaciones no hay hilo que vigilar");
+            G::ConnectionState caida;
+            caida.connection = "unib";
+            caida.whyNotChecked = "apagada";
+            comprobar(G::summarize({vacia, caida}, mal, sin) == G::Verdict::NoSchedules
+                          && sin.size() == 1,
+                      "veredicto: sin programaciones, y la que no contestó aparte");
+
+            G::ConnectionState verde;
+            comprobar(G::parseState(R"({"last_pass":1000,"now":1100,"datasets":{"t/a":{}}})",
+                                    verde, err),
+                      "estado: uno sin incidencias");
+            comprobar(G::summarize({verde}, mal, sin) == G::Verdict::AllGreen, "veredicto: en verde");
+
+            G::ConnectionState parada;
+            comprobar(G::parseState(R"({"last_pass":1000,"now":5000,"datasets":{"t/a":{}}})",
+                                    parada, err),
+                      "estado: hilo parado se lee");
+            comprobar(parada.stale && G::summarize({parada}, mal, sin) == G::Verdict::WithErrors
+                          && mal[0].second.failedStep == "scheduler",
+                      "veredicto: un planificador que no pasa es un fallo");
+            comprobar(!G::parseState("no es json", parada, err), "estado: basura no se lee");
+        }
+
         // --- Cómo se enseñan: manuales primero, programadas agrupadas por clase.
         //
         // Punto 6 del backlog. La regla estaba escrita dentro del bucle que pinta el árbol,

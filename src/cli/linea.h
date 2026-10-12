@@ -31,6 +31,12 @@ using Completador =
     std::function<std::vector<std::string>(const std::string& linea, std::size_t cursor,
                                            std::size_t& desdeByte, bool& puedeSeguir)>;
 
+// Un aviso de OTRO hilo para el terminal: el estado de las programaciones que se comprueba al
+// arrancar. No se escribe directamente porque partiría por la mitad lo que se está tecleando:
+// lo pinta `LectorDeLinea::lee`, que sabe qué hay en la línea, borrándola, escribiendo el aviso
+// y repintando el indicador con lo tecleado. En Windows, al pintar el siguiente indicador.
+void encolaAviso(const std::string& texto);
+
 class LectorDeLinea {
 public:
     // `indicador` se reescribe en cada repintado, así que no puede llevar nada que ocupe

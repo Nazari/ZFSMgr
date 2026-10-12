@@ -376,6 +376,10 @@ QString MainWindow::gsaMensajeDeMotivo(const zfsmgr::base::gsa::Reason& m,
             }
             return QString::fromStdString(zfsmgr::base::gsa::labelOf(m.failure));
         }
+        // Solo lo produce `targetFromUrl`, que la interfaz gráfica no usa: su editor sigue
+        // escribiendo el formato que se guarda. Se redacta con el texto de la capa base.
+        case F::LegacyTargetFormat:
+            return QString::fromStdString(zfsmgr::base::gsa::labelOf(m.failure));
         case F::EnabledWithNoRetention:
             return trk(QStringLiteral("t_gsa_requires_retention_001"),
                        QStringLiteral("La programación GSA de %1 está activada pero no tiene ninguna retención mayor que 0."),

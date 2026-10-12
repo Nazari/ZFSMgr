@@ -586,6 +586,9 @@ std::string agentCapabilityList() {
     // esto antes de pedirlo.
     caps.push_back("--file-stream-compression");
     caps.push_back("--file-send-to-peer-async");
+    // El estado del planificador y una pasada a demanda.
+    caps.push_back("--dump-gsa-status");
+    caps.push_back("--mutate-gsa-run-once");
 #if !defined(_WIN32) && !defined(__APPLE__)
     caps.push_back("--mutate-mount-ro-temp");
     caps.push_back("--mutate-unmount-ro-temp");
@@ -5684,85 +5687,201 @@ std::string gsaPropValue(const std::string& ds, const std::string& prop, bool lo
     return (val == "-") ? std::string() : val;
 }
 
-// Creates a snapshot; returns the snapshot short name on success.
-std::string gsaCreateSnapshot(const std::string& ds, const std::string& klass,
-                               bool recursive,
-                               const std::function<void(const std::string&)>& log) {
-    const std::string stamp    = gsaLocalTimestamp();
-    const std::string snapName = "GSA-" + klass + "-" + stamp;
-    const std::string full     = ds + "@" + snapName;
-    log("GSA snapshot attempt for " + ds + ": class=" + klass
-        + " recursive=" + (recursive ? "yes" : "no") + " snap=" + snapName);
-    // Already exists?
-    const ExecResult check = runExecCapture("zfs",
-        {"list", "-H", "-t", "snapshot", "-o", "name", full});
-    if (check.rc == 0 && trim(check.out).find(full) != std::string::npos) {
-        log("GSA snapshot skip for " + ds + ": " + snapName + " already exists");
-        return snapName;
-    }
-    std::vector<std::string> args = {"snapshot"};
-    if (recursive) args.push_back("-r");
-    args.push_back(full);
-    const ExecResult r = runExecCapture("zfs", args);
+// Lo que deja cada paso del planificador: si fue bien, y si no, por qué. Va al registro del
+// daemon con su nivel y, con el mismo texto, al estado (`gsa-state.json`), que es lo que
+// lee el CLI para decir si las programaciones están en verde.
+using GsaLog = std::function<void(const char* nivel, const std::string& linea)>;
+
+struct GsaPaso {
+    bool hecho{false};    // se intentó algo
+    bool ok{true};
+    std::string error;
+};
+
+// Los snapshots de UN dataset (sin descendientes), del más viejo al más nuevo, con su guid.
+//
+// `-s createtxg` y no `creation`: dos snapshots del mismo segundo —una horaria y una diaria
+// a medianoche— tienen el mismo `creation`, y el orden entre ellos decide cuál es la base.
+bool gsaSnapshotsDe(const std::string& ds, std::vector<zfsmgr::base::gsa::SnapRef>& out,
+                    std::string& error) {
+    out.clear();
+    const ExecResult r = runExecCapture(
+        "zfs", {"list", "-H", "-p", "-t", "snapshot", "-o", "name,guid", "-s", "createtxg",
+                "-d", "1", ds});
     if (r.rc != 0) {
-        log("GSA snapshot error for " + ds + ": " + trim(r.err));
-        return {};
+        error = trim(r.err).empty() ? "zfs list failed" : trim(r.err);
+        return false;
     }
-    log("GSA snapshot created for " + ds + ": " + snapName);
-    return snapName;
+    const std::string prefijo = ds + "@";
+    for (const std::string& l : splitLines(r.out)) {
+        const std::size_t tab = l.find('\t');
+        if (tab == std::string::npos) {
+            continue;
+        }
+        const std::string nombre = trim(l.substr(0, tab));
+        if (nombre.rfind(prefijo, 0) != 0) {
+            continue;
+        }
+        out.push_back({nombre.substr(prefijo.size()), trim(l.substr(tab + 1))});
+    }
+    return true;
 }
 
-void gsaPruneSnapshots(const std::string& ds, const std::string& klass,
-                       int keep, bool recursive,
-                       const std::function<void(const std::string&)>& log) {
-    if (keep <= 0) return;
-    const ExecResult lst = runExecCapture("zfs",
-        {"list", "-H", "-t", "snapshot", "-o", "name", "-s", "creation", "-r", ds});
-    if (lst.rc != 0) return;
-    const std::string prefix = ds + "@GSA-" + klass + "-";
-    std::vector<std::string> matching;
-    for (const std::string& rawLine : splitLines(lst.out)) {
-        const std::string line = trim(rawLine);
-        if (line.empty()) continue;
-        if (line.size() >= prefix.size() && line.compare(0, prefix.size(), prefix) == 0)
-            matching.push_back(line);
+std::vector<std::string> gsaNombres(const std::vector<zfsmgr::base::gsa::SnapRef>& s) {
+    std::vector<std::string> n;
+    n.reserve(s.size());
+    for (const auto& x : s) {
+        n.push_back(x.name);
     }
-    // Se ordenan por el INSTANTE DEL NOMBRE, no por `creation`.
-    //
-    // Son dos relojes distintos y no siempre coinciden: `creation` es cuándo llegó la
-    // instantánea a ESTE pool, y en una máquina que las recibe por replicación eso es la
-    // hora de recepción, no la de la foto. Ordenando por creation, el destino podaría en
-    // un orden distinto que el origen y acabarían guardando cosas distintas. El nombre
-    // lleva el instante de verdad y es el mismo en las dos puntas.
-    //
-    // Se vio con instantáneas de prueba fabricadas a mano: la poda se llevó la más nueva
-    // por nombre porque era la más vieja por creación.
-    std::stable_sort(matching.begin(), matching.end(),
-                     [&](const std::string& a, const std::string& b) {
-                         std::time_t ta = 0;
-                         std::time_t tb = 0;
-                         const bool oka = gsaInstanteDeNombre(a.substr(ds.size() + 1), klass, ta);
-                         const bool okb = gsaInstanteDeNombre(b.substr(ds.size() + 1), klass, tb);
-                         if (!oka || !okb) {
-                             return false;   // sin fecha legible, se deja donde estaba
-                         }
-                         return ta < tb;
-                     });
-    const int total = static_cast<int>(matching.size());
-    if (total <= keep) return;
-    const int removeCount = total - keep;
-    for (int i = 0; i < removeCount; ++i) {
-        const std::string& full = matching[static_cast<std::size_t>(i)];
-        const std::string shortName = full.substr(ds.size() + 1); // after "@"
-        std::vector<std::string> args = {"destroy"};
-        if (recursive) args.push_back("-r");
-        args.push_back(ds + "@" + shortName);
+    return n;
+}
+
+// ¿Ha cambiado algo desde `previo`? `written@<previo>` es lo escrito desde entonces, y ZFS
+// ya lo lleva contado: 0 en el dataset —y en una recursiva, en TODOS sus descendientes— es
+// que un snapshot nuevo guardaría exactamente lo mismo. Ante cualquier duda (un hijo sin
+// ese snapshot da «-», un error, un valor que no se entiende) la respuesta es «sí ha
+// cambiado»: lo malo de equivocarse por ese lado es un snapshot de más.
+bool gsaSinCambiosDesde(const std::string& ds, const std::string& previo, bool recursive) {
+    std::vector<std::string> args = {"get", "-H", "-p", "-o", "value"};
+    if (recursive) {
+        args.push_back("-r");
+        args.push_back("-t");
+        args.push_back("filesystem,volume");
+    }
+    args.push_back("written@" + previo);
+    args.push_back(ds);
+    const ExecResult r = runExecCapture("zfs", args);
+    if (r.rc != 0) {
+        return false;
+    }
+    bool alguno = false;
+    for (const std::string& l : splitLines(r.out)) {
+        const std::string v = trim(l);
+        if (v.empty()) {
+            continue;
+        }
+        if (v != "0") {
+            return false;
+        }
+        alguno = true;
+    }
+    return alguno;
+}
+
+// El snapshot de la clase que toca.
+//
+// Si el dataset no ha cambiado desde el último de ESA MISMA clase, no se hace uno nuevo: se
+// RENOMBRA aquel al nombre que tocaría. El periodo queda cubierto —que es lo que mira
+// `gsaDueClasses`—, la retención no gasta una plaza en algo que no aporta nada y el snapshot
+// sigue guardando los mismos datos. La misma clase y no «el anterior» a secas: renombrar la
+// horaria de las 00:00 para hacer la diaria se la quitaría a las horarias.
+//
+// En el destino de la nivelación el renombrado se repite solo, porque la base se busca por
+// guid (`planLevel`).
+GsaPaso gsaHazSnapshot(const std::string& ds, const std::string& klass, bool recursive,
+                       std::string& nombre, const GsaLog& log) {
+    GsaPaso paso;
+    paso.hecho = true;
+    nombre = "GSA-" + klass + "-" + gsaLocalTimestamp();
+    std::vector<zfsmgr::base::gsa::SnapRef> snaps;
+    std::string err;
+    if (!gsaSnapshotsDe(ds, snaps, err)) {
+        paso.ok = false;
+        paso.error = "cannot list the snapshots of " + ds + ": " + err;
+        log("ERROR", "GSA snapshot error for " + ds + ": " + paso.error);
+        return paso;
+    }
+    for (const auto& s : snaps) {
+        if (s.name == nombre) {
+            log("INFO", "GSA snapshot skip for " + ds + ": " + nombre + " already exists");
+            return paso;
+        }
+    }
+    const std::string previo = zfsmgr::base::gsa::newestOfClass(gsaNombres(snaps), klass);
+    if (!previo.empty() && gsaSinCambiosDesde(ds, previo, recursive)) {
+        std::vector<std::string> args = {"rename"};
+        if (recursive) {
+            args.push_back("-r");
+        }
+        args.push_back(ds + "@" + previo);
+        args.push_back(ds + "@" + nombre);
         const ExecResult r = runExecCapture("zfs", args);
-        if (r.rc != 0)
-            log("GSA prune error for " + ds + "@" + shortName + ": " + trim(r.err));
-        else
-            log("GSA pruned " + ds + "@" + shortName);
+        if (r.rc == 0) {
+            log("INFO", "GSA snapshot unchanged for " + ds + ": " + previo + " -> " + nombre);
+            return paso;
+        }
+        // Si no se pudo renombrar, se hace el snapshot de siempre: mejor uno de más que
+        // un periodo sin cubrir.
+        log("WARN", "GSA snapshot rename failed for " + ds + "@" + previo + ": " + trim(r.err)
+                        + "; a new snapshot is taken instead");
     }
+    std::vector<std::string> args = {"snapshot"};
+    if (recursive) {
+        args.push_back("-r");
+    }
+    args.push_back(ds + "@" + nombre);
+    const ExecResult r = runExecCapture("zfs", args);
+    if (r.rc != 0) {
+        paso.ok = false;
+        paso.error = trim(r.err).empty() ? "zfs snapshot failed" : trim(r.err);
+        log("ERROR", "GSA snapshot error for " + ds + ": " + paso.error);
+        nombre.clear();
+        return paso;
+    }
+    log("INFO", "GSA snapshot created for " + ds + ": " + nombre);
+    return paso;
+}
+
+// La poda de una clase en el ORIGEN. La base de la nivelación —su guid lo guarda el estado
+// tras cada nivelación buena— no se borra aunque quede fuera de la retención: con el destino
+// caído más tiempo que la retención, borrarla rompería para siempre la cadena incremental.
+GsaPaso gsaPoda(const std::string& ds, const std::string& klass, int keep, bool recursive,
+                const std::string& guidProtegido, int& borrados, bool& baseConservada,
+                const GsaLog& log) {
+    GsaPaso paso;
+    if (keep <= 0) {
+        return paso;
+    }
+    std::vector<zfsmgr::base::gsa::SnapRef> snaps;
+    std::string err;
+    if (!gsaSnapshotsDe(ds, snaps, err)) {
+        paso.hecho = true;
+        paso.ok = false;
+        paso.error = "cannot list the snapshots of " + ds + ": " + err;
+        log("ERROR", "GSA prune error for " + ds + ": " + paso.error);
+        return paso;
+    }
+    std::string protegido;
+    for (const auto& s : snaps) {
+        if (!guidProtegido.empty() && s.guid == guidProtegido) {
+            protegido = s.name;
+        }
+    }
+    const zfsmgr::base::gsa::PrunePlan plan =
+        zfsmgr::base::gsa::planPrune(gsaNombres(snaps), klass, keep, protegido);
+    if (plan.keptBase) {
+        baseConservada = true;
+        log("WARN", "GSA prune of " + ds + ": " + protegido
+                        + " is beyond the retention but kept, it is the base of the levelling");
+    }
+    for (const std::string& n : plan.destroy) {
+        paso.hecho = true;
+        std::vector<std::string> args = {"destroy"};
+        if (recursive) {
+            args.push_back("-r");
+        }
+        args.push_back(ds + "@" + n);
+        const ExecResult r = runExecCapture("zfs", args);
+        if (r.rc != 0) {
+            paso.ok = false;
+            paso.error = "cannot destroy " + ds + "@" + n + ": " + trim(r.err);
+            log("ERROR", "GSA prune error for " + ds + "@" + n + ": " + trim(r.err));
+        } else {
+            ++borrados;
+            log("INFO", "GSA pruned " + ds + "@" + n);
+        }
+    }
+    return paso;
 }
 
 // Run a command on the SSH target, return combined exit code.
@@ -5902,8 +6021,14 @@ bool gsaCargaPeer(const std::string& id, GsaPeer& out) {
 
 // Una petición al daemon de un par, por el mismo protocolo que usa la aplicación:
 // `{"cmd":…,"args":[…]}` y respuesta con `rc`, `stdout` y `stderr`.
-bool gsaPeerRpc(const GsaPeer& peer, const std::string& cmd,
-                const std::vector<std::string>& args, std::string& salida, std::string& error) {
+//
+// Distingue NO LLEGAR de que el par conteste que no. Antes las dos cosas eran `false`, y la
+// nivelación tomaba «el par está apagado» por «el dataset no existe»: intentaba un envío
+// completo y el error que quedaba era el de la escucha, no el de verdad.
+enum class GsaRpc { Ok, NoLlega, Rechaza };
+
+GsaRpc gsaPeerRpc(const GsaPeer& peer, const std::string& cmd,
+                  const std::vector<std::string>& args, std::string& salida, std::string& error) {
     zfsmgr::base::TlsClientConfig cfg;
     cfg.host = peer.host;
     cfg.port = peer.port;
@@ -5918,360 +6043,660 @@ bool gsaPeerRpc(const GsaPeer& peer, const std::string& cmd,
     }
     req.set("args", zfsmgr::base::json::Value(std::move(ja)));
     std::string respuesta;
-    if (!zfsmgr::base::tlsRequestLine(cfg, zfsmgr::base::json::toCompact(req), respuesta, error)) {
-        return false;
+    std::string errTls;
+    if (!zfsmgr::base::tlsRequestLine(cfg, zfsmgr::base::json::toCompact(req), respuesta, errTls)) {
+        error = "cannot reach the daemon of «" + peer.id + "» at " + peer.host + ":"
+                + std::to_string(peer.port) + ": " + trim(errTls);
+        return GsaRpc::NoLlega;
     }
     zfsmgr::base::json::Value resp;
     std::string errJson;
     if (!zfsmgr::base::json::parse(respuesta, resp, &errJson)) {
-        error = "unreadable answer from the peer: " + errJson;
-        return false;
+        error = "unreadable answer from the daemon of «" + peer.id + "»: " + errJson;
+        return GsaRpc::NoLlega;
     }
     const int rc = static_cast<int>(resp["rc"].toInt(1));
     salida = resp["stdout"].toString();
     if (rc != 0) {
         error = trim(resp["stderr"].toString());
         if (error.empty()) {
-            error = "the peer answered " + std::to_string(rc);
+            error = "the daemon of «" + peer.id + "» answered " + std::to_string(rc);
         }
-        return false;
+        return GsaRpc::Rechaza;
     }
-    return true;
+    return GsaRpc::Ok;
 }
 
-// Lo que queda del «destino» después de quitar el SSH: si es esta misma máquina, y si
-// allí hay que elevar. El usuario, el host, el puerto, la clave y el known_hosts eran
-// para abrir la sesión remota, y ya no se abre ninguna.
+// Lo que queda del «destino» después de quitar el SSH: si es esta misma máquina.
 struct GsaTargetConn {
     std::string mode;      // «local» si el destino es esta máquina
-    bool useSudo{false};
 };
 
-void gsaLevelSnapshot(const std::string& ds, bool recursive,
-                      const std::string& snapName, const std::string& dstSpec,
-                      bool levelOn, const GsaTargetConn& target,
-                      const std::function<void(const std::string&)>& log) {
-    if (!levelOn || snapName.empty() || dstSpec.empty()) return;
+struct GsaNivelado {
+    GsaPaso paso;           // la nivelación en sí
+    GsaPaso podaDestino;    // la poda del destino
+    int borradosEnDestino{0};
+    std::string enviado;    // el snapshot del origen hasta el que se llegó
+    std::string guidBase;   // y su guid: la base de la próxima vez, la que la poda protege
+};
+
+// Nivelar: dejar el destino con los mismos snapshots que el origen.
+//
+// Se decide con `planLevel` (capa base, con pruebas), comparando los snapshots de los dos
+// lados POR GUID:
+//   - renombra en el destino los que el origen renombró (periodos sin cambios);
+//   - manda con `-I` desde la base común hasta el más nuevo del origen, con lo que viajan
+//     también los intermedios —antes `-i` dejaba fuera los que no llegaron en su día—;
+//   - poda en el destino los `GSA-` que el origen ya no tiene, a la vez que el origen, y nunca
+//     uno que no sea nuestro;
+//   - y si el destino tiene, por detrás de la base, snapshots que el origen no tiene, NO manda
+//     nada: `recv -F` los destruiría. Se dice cuáles.
+GsaNivelado gsaNivela(const std::string& ds, bool recursive, const std::string& dstSpec,
+                      const GsaTargetConn& target, const GsaLog& log) {
+    namespace G = zfsmgr::base::gsa;
+    GsaNivelado res;
+    res.paso.hecho = true;
+    const auto falla = [&](const std::string& motivo) {
+        res.paso.ok = false;
+        res.paso.error = motivo;
+        log("ERROR", "GSA level error for " + ds + ": " + motivo);
+        return res;
+    };
     const std::size_t sep = dstSpec.find("::");
     if (sep == std::string::npos || sep == 0 || sep + 2 >= dstSpec.size()) {
-        log("GSA level skip for " + ds + ": invalid destination " + dstSpec);
-        return;
+        return falla("invalid destination «" + dstSpec + "»");
     }
-    const std::string dstDataset = dstSpec.substr(sep + 2);
-    if (dstDataset.empty()) {
-        log("GSA level skip for " + ds + ": empty destination dataset in " + dstSpec);
-        return;
-    }
-
+    const std::string conexionDestino = trim(dstSpec.substr(0, sep));
+    const std::string dstDataset = trim(dstSpec.substr(sep + 2));
+    const std::string dstUrl = G::destinationAsUrl(dstSpec);
     const bool isLocal = (target.mode == "local");
-    const std::string conexionDestino = dstSpec.substr(0, sep);
-    GsaPeer peer;
-    bool peerListo = false;
-    std::string recvOpts = "-u";
-    // «-e» minúscula: bloques embebidos. Estaba escrito «-E», que NO es una bandera de
-    // `zfs send` —su propia ayuda dice [-DLPbcehnpsVvw]— y hacía fallar el envío entero.
-    // No se había notado porque esta rama llevaba desde siempre sin ejecutarse.
-    std::string sendOpts = "-wLec";
-    if (recursive) { recvOpts = "-u -s"; sendOpts = "-wLecR"; }
 
-    // Check if destination dataset exists and get its latest snapshot.
-    std::string baseSnap;
-    bool targetExists = false;
+    std::vector<G::SnapRef> origen;
+    std::string err;
+    if (!gsaSnapshotsDe(ds, origen, err)) {
+        return falla("cannot list the snapshots of the source: " + err);
+    }
+    if (origen.empty()) {
+        return falla("the source has no snapshots to send");
+    }
+
+    // ── El destino: si existe y qué snapshots tiene.
+    GsaPeer peer;
+    bool destinoExiste = false;
+    std::vector<G::SnapRef> destino;
     if (isLocal) {
-        const ExecResult chk = runExecCapture("zfs",
-            {"list", "-H", "-o", "name", dstDataset});
-        targetExists = (chk.rc == 0);
-        if (targetExists) {
-            const ExecResult snaps = runExecCapture("zfs",
-                {"list", "-H", "-t", "snapshot", "-o", "name", "-s", "creation", "-d", "1", dstDataset});
-            if (snaps.rc == 0 && !trim(snaps.out).empty()) {
-                const std::vector<std::string> lines = splitLines(snaps.out);
-                for (int i = static_cast<int>(lines.size()) - 1; i >= 0; --i) {
-                    const std::string l = trim(lines[static_cast<std::size_t>(i)]);
-                    if (!l.empty()) { baseSnap = l.substr(dstDataset.size() + 1); break; }
-                }
-            }
+        const ExecResult chk = runExecCapture("zfs", {"list", "-H", "-o", "name", dstDataset});
+        destinoExiste = (chk.rc == 0);
+        if (!destinoExiste && trim(chk.err).find("does not exist") == std::string::npos) {
+            return falla("cannot look at " + dstUrl + ": " + trim(chk.err));
+        }
+        if (destinoExiste && !gsaSnapshotsDe(dstDataset, destino, err)) {
+            return falla("cannot list the snapshots of " + dstUrl + ": " + err);
         }
     } else {
-        // El destino se consulta por el TRANSPORTE DEL DAEMON, no abriendo un `ssh`.
-        //
-        // Lo de antes exigía credenciales SSH propias —usuario, clave y `known_hosts` en
-        // `gsa-connections.conf`, con la contraseña en claro— y acababa en un
-        // `std::system()` con una tubería de shell dentro del daemon, que es justo lo que
-        // este programa está quitando de todas partes. El daemon ya sabe hablar con otro
-        // daemon: mTLS, verbos tipados y un flujo por socket con reanudación.
+        // Que falte el par NO es «saltarse» esta nivelación: es un fallo, y se dice qué hacer.
         if (!gsaCargaPeer(conexionDestino, peer)) {
-            log("GSA level skip for " + ds + ": no credentials for the peer «" + conexionDestino
-                + "» in " + kPeersPath);
-            return;
+            return falla("no credentials for the connection «" + conexionDestino + "» in "
+                         + std::string(kPeersPath) + "; run «peers --push» on this machine");
         }
-        peerListo = true;
         std::string salida;
         std::string errPeer;
-        if (!gsaPeerRpc(peer, "--dump-zfs-list-all", {dstDataset}, salida, errPeer)) {
-            // Que el dataset no exista NO es un fallo: es la primera nivelación, y el
-            // receptor lo crea. Se distingue por si el par contestó algo.
-            targetExists = false;
-        } else {
-            targetExists = true;
-            const std::string prefijo = dstDataset + "@";
-            std::vector<std::string> snapshots;
-            for (const std::string& l : splitLines(salida)) {
-                const std::string nombre = trim(l.substr(0, l.find('\t')));
-                if (nombre.rfind(prefijo, 0) == 0) {
-                    snapshots.push_back(nombre);
+        switch (gsaPeerRpc(peer, "--dump-zfs-list-all", {dstDataset}, salida, errPeer)) {
+            case GsaRpc::NoLlega:
+                return falla(errPeer);
+            case GsaRpc::Rechaza:
+                // Solo «no existe» es la primera nivelación; cualquier otra negativa es un fallo.
+                if (errPeer.find("does not exist") == std::string::npos) {
+                    return falla("cannot look at " + dstUrl + ": " + errPeer);
                 }
-            }
-            if (!snapshots.empty()) {
-                baseSnap = snapshots.back().substr(dstDataset.size() + 1);
-            }
-        }
-    }
-
-    if (!baseSnap.empty()) {
-        if (baseSnap.compare(0, 4, "GSA-") != 0) {
-            log("GSA level error for " + ds + ": destination has manual snapshots (" + dstDataset + "@" + baseSnap + ")");
-            return;
-        }
-        const ExecResult chkSrc = runExecCapture("zfs",
-            {"list", "-H", "-t", "snapshot", "-o", "name", ds + "@" + baseSnap});
-        if (chkSrc.rc != 0) {
-            log("GSA level skip for " + ds + ": base snapshot " + baseSnap + " not in source");
-            return;
-        }
-        recvOpts = isLocal ? "-u -F" : "-u -F";
-        if (recursive) recvOpts = "-u -s -F";
-    }
-
-    log("GSA level start for " + ds + " -> " + dstDataset);
-
-    if (isLocal) {
-        // Misma máquina: el propio daemon encadena `zfs send` con `zfs recv`.
-        //
-        // Aquí había un `std::system()` con la tubería montada por concatenación de
-        // cadenas, y un `sudo -n sh -lc '…'` con el nombre del dataset metido dentro de
-        // comillas simples. Eso era lo último que quedaba del camino por intérprete en esta
-        // función —su propio comentario lo decía— y no hacía falta: el daemon ya monta esa
-        // tubería con `pipe()` y dos `execvp`, que es lo que sirve el verbo
-        // `--zfs-pipe-local`. Ahora los dos usan la misma pieza.
-        //
-        // El `sudo` desaparece por el camino y no se echa en falta: este código YA corre
-        // como root dentro del daemon, así que envolverse en sudo era pedir permiso para
-        // algo que ya se tiene.
-        std::vector<std::string> sendArgv = {"send"};
-        {
-            std::istringstream iss(sendOpts);
-            std::string tok;
-            while (iss >> tok) {
-                sendArgv.push_back(tok);
-            }
-        }
-        if (!baseSnap.empty()) {
-            sendArgv.push_back("-i");
-            sendArgv.push_back("@" + baseSnap);
-        }
-        sendArgv.push_back(ds + "@" + snapName);
-
-        std::vector<std::string> recvArgv = {"recv"};
-        {
-            std::istringstream iss(recvOpts);
-            std::string tok;
-            while (iss >> tok) {
-                recvArgv.push_back(tok);
-            }
-        }
-        recvArgv.push_back(dstDataset);
-
-        const ExecResult res = ejecutaTuberiaZfsLocal(sendArgv, recvArgv);
-        if (res.rc != 0) {
-            log("GSA level error for " + ds + ": exit " + std::to_string(res.rc)
-                + (trim(res.err).empty() ? "" : " — " + trim(res.err)));
-        } else {
-            log("GSA level done for " + ds + " -> " + dstDataset);
-        }
-        return;
-    }
-
-    // Y a otra máquina: se le pide al par que ESCUCHE, y se le manda el flujo al socket que
-    // abre. Es el mismo camino que usa «copy» desde la aplicación, con su testigo de un
-    // solo uso, así que la transfer se puede reanudar y no pasa por ningún intérprete.
-    if (!peerListo) {
-        log("GSA level skip for " + ds + ": the peer is not resolved");
-        return;
-    }
-    std::string respuesta;
-    std::string errPeer;
-    if (!gsaPeerRpc(peer, "--zfs-recv-listen", {dstDataset, baseSnap.empty() ? "0" : "1"},
-                    respuesta, errPeer)) {
-        // El motivo casi seguro, y conviene decirlo entero: el daemon del par escucha en
-        // 127.0.0.1 salvo que se le diga otra cosa (AGENT_BIND en su agent.conf). Con la
-        // aplicación delante eso no se nota porque abre un túnel SSH, pero aquí no hay
-        // nadie que lo abra: nivelar exige que el par sea alcanzable.
-        log("GSA level error for " + ds + ": the peer could not listen: " + errPeer);
-        log("GSA level hint: the daemon on " + peer.host + " must listen on a reachable "
-            "address (AGENT_BIND in its agent.conf); by default it only listens on 127.0.0.1");
-        return;
-    }
-    std::string puerto;
-    std::string testigo;
-    for (const std::string& l : splitLines(respuesta)) {
-        const std::string s = trim(l);
-        if (s.rfind("PORT=", 0) == 0) puerto = s.substr(5);
-        if (s.rfind("TOKEN=", 0) == 0) testigo = s.substr(6);
-    }
-    if (puerto.empty() || testigo.empty()) {
-        log("GSA level error for " + ds + ": the peer returned no port and token");
-        return;
-    }
-    const ExecResult env = runZfsSendToPeerCapture(
-        {ds + "@" + snapName, peer.host, puerto, testigo, baseSnap, sendOpts}, nullptr);
-    if (env.rc != 0) {
-        log("GSA level error for " + ds + ": " + trim(env.err));
-    } else {
-        log("GSA level done for " + ds + " -> " + dstDataset);
-    }
-}
-
-void gsaRunOnce(const std::function<void(const std::string&)>& log) {
-    // NO se exige `/etc/zfsmgr/gsa.conf`.
-    //
-    // Antes se salía en silencio si ese fichero no estaba, y no está en ninguna máquina:
-    // lo escribía el instalador de GSA, que quedó fuera del build hace meses. O sea que
-    // todo esto llevaba desde entonces sin ejecutarse una sola vez, sin que nada lo dijera.
-    //
-    // Y no hace falta: hacer y podar instantáneas no necesita configuración ninguna —la
-    // programación está en las propiedades del dataset—. Lo único que sí necesita
-    // credenciales es NIVELAR contra otra máquina, y eso se comprueba abajo, donde toca,
-    // diciéndolo en el registro en vez de callar la pasada entera.
-    // Con quién se identifica esta máquina, para saber si un destino es ELLA. Sale de
-    // `peers.json`, que ya escribe el cliente; antes salía de `gsa-connections.conf`.
-    const std::string selfConn = gsaYoMismo();
-
-    const ExecResult dsResult = runExecCapture("zfs", {"list", "-H", "-o", "name", "-t", "filesystem"});
-    if (dsResult.rc != 0 || trim(dsResult.out).empty()) return;
-
-    std::vector<std::string> processedRecursiveRoots;
-
-    auto isDescendant = [](const std::string& ds, const std::string& root) {
-        return ds.size() > root.size() + 1
-               && ds.compare(0, root.size(), root) == 0
-               && ds[root.size()] == '/';
-    };
-
-    for (const std::string& rawLine : splitLines(dsResult.out)) {
-        if (g_stop.load()) break;
-        const std::string ds = trim(rawLine);
-        if (ds.empty()) continue;
-
-        const std::string enabledVal = gsaPropValue(ds, "org.fc16.gsa:activado", /*local=*/true);
-        if (!gsaBoolOn(enabledVal)) continue;
-
-        // Skip if already covered by a recursive ancestor.
-        bool coveredByRoot = false;
-        for (const std::string& root : processedRecursiveRoots) {
-            if (isDescendant(ds, root)) { coveredByRoot = true; break; }
-        }
-        if (coveredByRoot) continue;
-
-        // Skip if a recursive GSA ancestor exists.
-        bool hasRecursiveAncestor = false;
-        std::string probe = ds;
-        while (true) {
-            const std::size_t slash = probe.rfind('/');
-            if (slash == std::string::npos) break;
-            probe = probe.substr(0, slash);
-            if (gsaBoolOn(gsaPropValue(probe, "org.fc16.gsa:activado", /*local=*/true))
-                && gsaBoolOn(gsaPropValue(probe, "org.fc16.gsa:recursivo", /*local=*/false))) {
-                hasRecursiveAncestor = true;
+                destinoExiste = false;
+                break;
+            case GsaRpc::Ok: {
+                destinoExiste = true;
+                // name, guid, used, compressratio, encryption, creation… Con -r salen también
+                // los descendientes: solo cuentan los del propio dataset. Orden por creación,
+                // estable para respetar el de `zfs list` dentro del mismo segundo.
+                std::vector<std::pair<long long, G::SnapRef>> conFecha;
+                const std::string prefijo = dstDataset + "@";
+                for (const std::string& l : splitLines(salida)) {
+                    const std::vector<std::string> c = zfsmgr::base::split(l, "\t", false);
+                    if (c.size() < 6 || c[0].rfind(prefijo, 0) != 0) {
+                        continue;
+                    }
+                    long long creado = 0;
+                    try { creado = std::stoll(c[5]); } catch (...) {}
+                    conFecha.push_back({creado, {c[0].substr(prefijo.size()), trim(c[1])}});
+                }
+                std::stable_sort(conFecha.begin(), conFecha.end(),
+                                 [](const auto& a, const auto& b) { return a.first < b.first; });
+                for (auto& x : conFecha) {
+                    destino.push_back(x.second);
+                }
                 break;
             }
         }
-        if (hasRecursiveAncestor) continue;
-
-        const bool recursive = gsaBoolOn(gsaPropValue(ds, "org.fc16.gsa:recursivo", false));
-        const int hourly     = gsaIntVal(gsaPropValue(ds, "org.fc16.gsa:horario",   false));
-        const int daily      = gsaIntVal(gsaPropValue(ds, "org.fc16.gsa:diario",    false));
-        const int weekly     = gsaIntVal(gsaPropValue(ds, "org.fc16.gsa:semanal",   false));
-        const int monthly    = gsaIntVal(gsaPropValue(ds, "org.fc16.gsa:mensual",   false));
-        const int yearly     = gsaIntVal(gsaPropValue(ds, "org.fc16.gsa:anual",     false));
-        const bool levelOn   = gsaBoolOn(gsaPropValue(ds, "org.fc16.gsa:nivelar",  false));
-        const std::string dstSpec = gsaPropValue(ds, "org.fc16.gsa:destino",        false);
-
-        const std::vector<std::string> due =
-            gsaDueClasses(ds, hourly, daily, weekly, monthly, yearly, std::time(nullptr));
-        {
-            std::string dueStr;
-            for (const std::string& c : due) { if (!dueStr.empty()) dueStr += ','; dueStr += c; }
-            log("GSA evaluate " + ds + ": recursive=" + (recursive ? "yes" : "no")
-                + " hourly=" + std::to_string(hourly) + " daily=" + std::to_string(daily)
-                + " weekly=" + std::to_string(weekly) + " monthly=" + std::to_string(monthly)
-                + " yearly=" + std::to_string(yearly) + " due=" + dueStr);
-        }
-        // OJO: aquí NO se sale aunque no toque crear ninguna. La poda de más abajo tiene
-        // que correr igual, porque su disparador no es que toque una instantánea nueva
-        // sino que sobren viejas — que es lo que pasa justo después de bajar una retención.
-
-        // Resolve destination connection once per dataset.
-        GsaTargetConn target;
-        if (levelOn && !dstSpec.empty()) {
-            const std::size_t sep = dstSpec.find("::");
-            if (sep != std::string::npos) {
-                const std::string connId = trim(dstSpec.substr(0, sep));
-                // El destino soy YO: se decide por identificador de MÁQUINA, con el
-                // nombre como respaldo. Lo demás lo decide `gsaLevelSnapshot`, que busca al
-                // par en `peers.json`.
-                if (gsaDestinoSoyYo(connId, selfConn)) {
-                    target.mode = "local";
-                }
-            }
-        }
-
-        const auto retencionDe = [&](const std::string& klass) {
-            return (klass == "hourly")    ? hourly
-                   : (klass == "daily")   ? daily
-                   : (klass == "weekly")  ? weekly
-                   : (klass == "monthly") ? monthly
-                   : (klass == "yearly")  ? yearly
-                                          : 0;
-        };
-        for (const std::string& klass : due) {
-            if (g_stop.load()) break;
-            const std::string snapName = gsaCreateSnapshot(ds, klass, recursive, log);
-            if (snapName.empty()) continue;
-            if (levelOn) {
-                gsaLevelSnapshot(ds, recursive, snapName, dstSpec, true, target, log);
-            }
-        }
-
-        // La poda va APARTE de la creación, y en cada pasada.
-        //
-        // Estaba dentro del bucle de las clases que tocaban, así que solo se podaba al
-        // crear. Bajar una retención de 10 a 3 no tenía efecto hasta el siguiente periodo
-        // —y en las clases largas, eso es hasta el mes o el año que viene—: el usuario
-        // veía diez instantáneas donde había pedido tres. Se vio probándolo: cuatro
-        // horarias con la retención en 3 y ninguna pasada las tocaba.
-        for (const char* klass : {"hourly", "daily", "weekly", "monthly", "yearly"}) {
-            if (g_stop.load()) break;
-            const int keep = retencionDe(klass);
-            if (keep > 0) {
-                gsaPruneSnapshots(ds, klass, keep, recursive, log);
-            }
-        }
-
-        if (recursive) processedRecursiveRoots.push_back(ds);
     }
+
+    const G::LevelPlan plan = G::planLevel(origen, destino, destinoExiste);
+    if (plan.kind == G::LevelPlan::Kind::Conflict) {
+        if (plan.conflicting.empty()) {
+            return falla(dstUrl + " exists and has no snapshot in common with the source; nothing "
+                         "was sent (receiving would overwrite it)");
+        }
+        std::string lista;
+        for (const std::string& n : plan.conflicting) {
+            lista += (lista.empty() ? "" : ", ") + n;
+        }
+        return falla(dstUrl + " has snapshots the source does not have after the last common one ("
+                     + lista + "); nothing was sent, «zfs recv -F» would destroy them");
+    }
+
+    // Acciones sobre el destino, en la máquina que toque.
+    const auto enDestino = [&](const std::string& verbo, const std::vector<std::string>& local,
+                               const std::vector<std::string>& remoto, std::string& error) {
+        if (isLocal) {
+            const ExecResult r = runExecCapture("zfs", local);
+            error = trim(r.err);
+            return r.rc == 0;
+        }
+        std::string salida;
+        return gsaPeerRpc(peer, verbo, remoto, salida, error) == GsaRpc::Ok;
+    };
+
+    // 1) Los renombrados. Si uno falla no se para: el envío por guid funciona igual, y se
+    //    vuelve a intentar en la siguiente pasada.
+    for (const auto& rn : plan.renameOnTarget) {
+        std::vector<std::string> local = {"rename"};
+        if (recursive) {
+            local.push_back("-r");
+        }
+        local.push_back(dstDataset + "@" + rn.first);
+        local.push_back(dstDataset + "@" + rn.second);
+        std::vector<std::string> remoto = {dstDataset + "@" + rn.first, dstDataset + "@" + rn.second};
+        if (recursive) {
+            remoto.push_back("r");
+        }
+        std::string e;
+        if (enDestino("--mutate-zfs-rename", local, remoto, e)) {
+            log("INFO", "GSA level renamed " + dstDataset + "@" + rn.first + " -> " + rn.second);
+        } else {
+            log("WARN", "GSA level cannot rename " + dstDataset + "@" + rn.first + " -> " + rn.second
+                            + ": " + e);
+        }
+    }
+
+    // 2) El envío.
+    const std::string& ultimo = origen.back().name;
+    if (plan.kind == G::LevelPlan::Kind::UpToDate) {
+        res.enviado = ultimo;
+        res.guidBase = origen.back().guid;
+    } else {
+        const bool incremental = (plan.kind == G::LevelPlan::Kind::Incremental);
+        // «-e» minúscula: bloques embebidos («-E» no es una bandera de `zfs send`).
+        const std::string sendOpts = recursive ? "-wLecR" : "-wLec";
+        log("INFO", "GSA level start for " + ds + " -> " + dstUrl
+                        + (incremental ? " from @" + plan.base : " (full)") + " to @" + ultimo);
+        if (isLocal) {
+            std::vector<std::string> sendArgv = {"send", sendOpts};
+            if (incremental) {
+                sendArgv.push_back("-I");
+                sendArgv.push_back("@" + plan.base);
+            }
+            sendArgv.push_back(ds + "@" + ultimo);
+            std::vector<std::string> recvArgv = {"recv", "-u"};
+            if (recursive) {
+                recvArgv.push_back("-s");
+            }
+            if (incremental) {
+                recvArgv.push_back("-F");
+            }
+            recvArgv.push_back(dstDataset);
+            const ExecResult r = ejecutaTuberiaZfsLocal(sendArgv, recvArgv);
+            if (r.rc != 0) {
+                return falla("sending to " + dstUrl + " failed (exit " + std::to_string(r.rc) + ")"
+                             + (trim(r.err).empty() ? "" : ": " + trim(r.err)));
+            }
+        } else {
+            std::string respuesta;
+            std::string errPeer;
+            if (gsaPeerRpc(peer, "--zfs-recv-listen", {dstDataset, incremental ? "1" : "0"},
+                           respuesta, errPeer) != GsaRpc::Ok) {
+                return falla("the daemon of «" + conexionDestino + "» could not listen: " + errPeer
+                             + " (it must listen on a reachable address: «peers --listen» on it)");
+            }
+            std::string puerto;
+            std::string testigo;
+            for (const std::string& l : splitLines(respuesta)) {
+                const std::string s = trim(l);
+                if (s.rfind("PORT=", 0) == 0) puerto = s.substr(5);
+                if (s.rfind("TOKEN=", 0) == 0) testigo = s.substr(6);
+            }
+            if (puerto.empty() || testigo.empty()) {
+                return falla("the daemon of «" + conexionDestino + "» returned no port and token");
+            }
+            const ExecResult env = runZfsSendToPeerCapture(
+                {ds + "@" + ultimo, peer.host, puerto, testigo,
+                 incremental ? "@" + plan.base : std::string(), sendOpts},
+                nullptr);
+            if (env.rc != 0) {
+                return falla("sending to " + dstUrl + " failed: "
+                             + (trim(env.err).empty() ? "exit " + std::to_string(env.rc)
+                                                      : trim(env.err)));
+            }
+        }
+        res.enviado = ultimo;
+        res.guidBase = origen.back().guid;
+        log("INFO", "GSA level done for " + ds + " -> " + dstUrl + " @" + ultimo);
+    }
+
+    // 3) La poda del destino.
+    for (const std::string& n : plan.pruneOnTarget) {
+        res.podaDestino.hecho = true;
+        std::vector<std::string> local = {"destroy"};
+        if (recursive) {
+            local.push_back("-r");
+        }
+        local.push_back(dstDataset + "@" + n);
+        std::string e;
+        if (enDestino("--mutate-zfs-destroy", local,
+                      {dstDataset + "@" + n, "0", recursive ? "r" : "-"}, e)) {
+            ++res.borradosEnDestino;
+            log("INFO", "GSA level pruned " + dstDataset + "@" + n);
+        } else {
+            res.podaDestino.ok = false;
+            res.podaDestino.error = "cannot destroy " + dstDataset + "@" + n + " on «"
+                                    + conexionDestino + "»: " + e;
+            log("ERROR", "GSA level prune error: " + res.podaDestino.error);
+        }
+    }
+    return res;
+}
+
+// ── El estado del planificador ───────────────────────────────────────────────────────
+//
+// Lo que pasó en la última pasada de cada programación: el snapshot, la poda, la
+// nivelación y la poda del destino, cada uno con si fue bien y por qué no. Hasta ahora el
+// único estado eran los propios snapshots, que dicen lo que salió pero no lo que falló: un
+// fallo solo se veía leyendo el registro, y nadie lo leía. El CLI lo pide con
+// `--dump-gsa-status` (al arrancar y en `schedule status`).
+#ifdef _WIN32
+const char* const kGsaStatePath = "C:\\ProgramData\\ZFSMgr\\agent\\gsa-state.json";
+#else
+const char* const kGsaStatePath = "/var/lib/zfsmgr/gsa-state.json";
+#endif
+
+// Una pasada cada vez: el hilo y `--mutate-gsa-run-once` no pueden pisarse.
+std::mutex g_gsaPasada;
+// Y el fichero, que se lee y escribe desde los dos y desde `--dump-gsa-status`.
+std::mutex g_gsaEstado;
+
+zfsmgr::base::json::Value gsaLeeEstadoSinBloqueo() {
+    zfsmgr::base::json::Value raiz;
+    std::ifstream f(kGsaStatePath);
+    if (!f.is_open()) {
+        return raiz;
+    }
+    std::ostringstream ss;
+    ss << f.rdbuf();
+    std::string err;
+    if (!zfsmgr::base::json::parse(ss.str(), raiz, &err) || !raiz.isObject()) {
+        return zfsmgr::base::json::Value();
+    }
+    return raiz;
+}
+
+// Escritura atómica: un temporal al lado y un renombrado. Un daemon que muere a mitad de
+// escribir deja el fichero anterior entero, no uno a medias que ya no se puede leer.
+void gsaGuardaEstadoSinBloqueo(const zfsmgr::base::json::Value& raiz) {
+    std::error_code ec;
+    std::filesystem::create_directories(std::filesystem::path(kGsaStatePath).parent_path(), ec);
+    const std::string tmp = std::string(kGsaStatePath) + ".tmp";
+    {
+        std::ofstream f(tmp, std::ios::trunc);
+        if (!f.is_open()) {
+            daemonLog("ERROR", std::string("GSA cannot write ") + tmp);
+            return;
+        }
+        f << zfsmgr::base::json::toIndented(raiz);
+    }
+    std::filesystem::rename(tmp, kGsaStatePath, ec);
+    if (ec) {
+        daemonLog("ERROR", std::string("GSA cannot write ") + kGsaStatePath + ": " + ec.message());
+    }
+}
+
+zfsmgr::base::json::Value gsaEntradaDe(const std::string& ds) {
+    std::lock_guard<std::mutex> lock(g_gsaEstado);
+    return gsaLeeEstadoSinBloqueo()["datasets"][ds];
+}
+
+void gsaGuardaEntrada(const std::string& ds, const zfsmgr::base::json::Value& entrada) {
+    std::lock_guard<std::mutex> lock(g_gsaEstado);
+    zfsmgr::base::json::Value raiz = gsaLeeEstadoSinBloqueo();
+    zfsmgr::base::json::Value datasets = raiz["datasets"];
+    datasets.set(ds, entrada);
+    raiz.set("datasets", datasets);
+    gsaGuardaEstadoSinBloqueo(raiz);
+}
+
+zfsmgr::base::json::Value gsaRegistroDe(const GsaPaso& p, long long cuando) {
+    zfsmgr::base::json::Value v;
+    v.set("time", zfsmgr::base::json::Value(cuando));
+    v.set("ok", zfsmgr::base::json::Value(p.ok));
+    if (!p.ok) {
+        v.set("error", zfsmgr::base::json::Value(p.error));
+    }
+    return v;
+}
+
+// ── Una programación: lo que toca hacer con un dataset ───────────────────────────────
+
+struct GsaProgramacion {
+    bool recursive{false};
+    int hourly{0}, daily{0}, weekly{0}, monthly{0}, yearly{0};
+    bool levelOn{false};
+    std::string dstSpec;
+};
+
+GsaProgramacion gsaLeeProgramacion(const std::string& ds) {
+    GsaProgramacion p;
+    p.recursive = gsaBoolOn(gsaPropValue(ds, "org.fc16.gsa:recursivo", false));
+    p.hourly = gsaIntVal(gsaPropValue(ds, "org.fc16.gsa:horario", false));
+    p.daily = gsaIntVal(gsaPropValue(ds, "org.fc16.gsa:diario", false));
+    p.weekly = gsaIntVal(gsaPropValue(ds, "org.fc16.gsa:semanal", false));
+    p.monthly = gsaIntVal(gsaPropValue(ds, "org.fc16.gsa:mensual", false));
+    p.yearly = gsaIntVal(gsaPropValue(ds, "org.fc16.gsa:anual", false));
+    p.levelOn = gsaBoolOn(gsaPropValue(ds, "org.fc16.gsa:nivelar", false));
+    p.dstSpec = gsaPropValue(ds, "org.fc16.gsa:destino", false);
+    return p;
+}
+
+// El ancestro con programación RECURSIVA activada que cubre a `ds`, o vacío.
+std::string gsaAncestroRecursivo(const std::string& ds) {
+    std::string probe = ds;
+    while (true) {
+        const std::size_t slash = probe.rfind('/');
+        if (slash == std::string::npos) {
+            return {};
+        }
+        probe = probe.substr(0, slash);
+        if (gsaBoolOn(gsaPropValue(probe, "org.fc16.gsa:activado", /*local=*/true))
+            && gsaBoolOn(gsaPropValue(probe, "org.fc16.gsa:recursivo", /*local=*/false))) {
+            return probe;
+        }
+    }
+}
+
+void gsaProcesaDataset(const std::string& ds, const std::string& selfConn, const GsaLog& log) {
+    namespace J = zfsmgr::base::json;
+    const GsaProgramacion p = gsaLeeProgramacion(ds);
+    const long long ahora = static_cast<long long>(std::time(nullptr));
+    J::Value entrada = gsaEntradaDe(ds);
+    const J::Value previoNivel = entrada["level_result"];
+
+    const std::vector<std::string> due =
+        gsaDueClasses(ds, p.hourly, p.daily, p.weekly, p.monthly, p.yearly, std::time(nullptr));
+    {
+        std::string dueStr;
+        for (const std::string& c : due) { if (!dueStr.empty()) dueStr += ','; dueStr += c; }
+        log("INFO", "GSA evaluate " + ds + ": recursive=" + (p.recursive ? "yes" : "no")
+                        + " hourly=" + std::to_string(p.hourly) + " daily=" + std::to_string(p.daily)
+                        + " weekly=" + std::to_string(p.weekly) + " monthly=" + std::to_string(p.monthly)
+                        + " yearly=" + std::to_string(p.yearly) + " due=" + dueStr);
+    }
+    entrada.set("last_eval", J::Value(ahora));
+    entrada.set("level", J::Value(p.levelOn));
+    entrada.set("destination", J::Value(p.dstSpec));
+    entrada.remove("pending");
+
+    // 1) Los snapshots que tocan. Si fallan dos clases se queda el primer fallo, y uno que
+    //    va bien detrás no lo tapa.
+    bool hayNuevo = false;
+    bool algunSnapshot = false;
+    GsaPaso pasoSnapshot;
+    std::string nombreSnapshot;
+    for (const std::string& klass : due) {
+        if (g_stop.load()) break;
+        std::string nombre;
+        const GsaPaso paso = gsaHazSnapshot(ds, klass, p.recursive, nombre, log);
+        algunSnapshot = true;
+        if (!nombre.empty()) {
+            nombreSnapshot = nombre;
+            hayNuevo = true;
+        }
+        if (!paso.ok && pasoSnapshot.ok) {
+            pasoSnapshot = paso;
+        }
+    }
+    if (algunSnapshot) {
+        J::Value reg = gsaRegistroDe(pasoSnapshot, ahora);
+        if (!nombreSnapshot.empty()) {
+            reg.set("name", J::Value(nombreSnapshot));
+        }
+        entrada.set("snapshot", reg);
+    }
+
+    // 2) La poda del origen, en cada pasada: su disparador no es que toque un snapshot nuevo
+    //    sino que sobren viejos, que es lo que pasa justo después de bajar una retención.
+    //    La base de la nivelación queda protegida.
+    const std::string guidBase = p.levelOn ? previoNivel["base_guid"].toString() : std::string();
+    int borrados = 0;
+    bool baseConservada = false;
+    GsaPaso poda;
+    for (const char* klass : {"hourly", "daily", "weekly", "monthly", "yearly"}) {
+        if (g_stop.load()) break;
+        const int keep = (std::string(klass) == "hourly")    ? p.hourly
+                         : (std::string(klass) == "daily")   ? p.daily
+                         : (std::string(klass) == "weekly")  ? p.weekly
+                         : (std::string(klass) == "monthly") ? p.monthly
+                                                             : p.yearly;
+        const GsaPaso uno = gsaPoda(ds, klass, keep, p.recursive, guidBase, borrados,
+                                    baseConservada, log);
+        if (!uno.ok && poda.ok) {
+            poda = uno;
+        }
+    }
+    {
+        J::Value reg = gsaRegistroDe(poda, ahora);
+        reg.set("destroyed", J::Value(borrados));
+        reg.set("kept_base", J::Value(baseConservada));
+        entrada.set("prune", reg);
+    }
+
+    // 3) La nivelación: tras un snapshot nuevo, tras podar el origen —para podar el destino a
+    //    la vez—, si la anterior falló —sin esperar al periodo siguiente, que puede ser una
+    //    semana— o si nunca se ha hecho.
+    if (p.levelOn && !g_stop.load()) {
+        const bool tocaNivelar = hayNuevo || borrados > 0 || !previoNivel.isObject()
+                                 || !previoNivel["ok"].toBool(false);
+        if (tocaNivelar) {
+            GsaTargetConn target;
+            const std::size_t sep = p.dstSpec.find("::");
+            if (sep != std::string::npos
+                && gsaDestinoSoyYo(trim(p.dstSpec.substr(0, sep)), selfConn)) {
+                target.mode = "local";
+            }
+            const GsaNivelado n = gsaNivela(ds, p.recursive, p.dstSpec, target, log);
+            J::Value reg = gsaRegistroDe(n.paso, ahora);
+            if (n.paso.ok) {
+                reg.set("sent", J::Value(n.enviado));
+                reg.set("base_guid", J::Value(n.guidBase));
+            } else {
+                // La base sigue siendo la de la última vez que fue bien: es la que hay que
+                // seguir protegiendo.
+                reg.set("base_guid", J::Value(previoNivel["base_guid"].toString()));
+                reg.set("sent", J::Value(previoNivel["sent"].toString()));
+                reg.set("last_ok", J::Value(previoNivel["ok"].toBool(false)
+                                                ? previoNivel["time"].toInt(0)
+                                                : previoNivel["last_ok"].toInt(0)));
+            }
+            entrada.set("level_result", reg);
+            if (n.podaDestino.hecho || n.paso.ok) {
+                J::Value rp = gsaRegistroDe(n.podaDestino, ahora);
+                rp.set("destroyed", J::Value(n.borradosEnDestino));
+                entrada.set("target_prune", rp);
+            }
+        }
+    } else if (!p.levelOn) {
+        entrada.remove("level_result");
+        entrada.remove("target_prune");
+    }
+    gsaGuardaEntrada(ds, entrada);
+}
+
+void gsaRunOnce(const GsaLog& log) {
+    // NO se exige `/etc/zfsmgr/gsa.conf`, que ya no existe: la programación está en las
+    // propiedades del dataset, y lo único que necesita credenciales —nivelar contra otra
+    // máquina— lo comprueba la nivelación, diciéndolo como fallo.
+    std::lock_guard<std::mutex> pasada(g_gsaPasada);
+    // Con quién se identifica esta máquina, para saber si un destino es ELLA.
+    const std::string selfConn = gsaYoMismo();
+
+    const ExecResult dsResult = runExecCapture("zfs", {"list", "-H", "-o", "name", "-t", "filesystem"});
+    std::set<std::string> programados;
+    if (dsResult.rc == 0) {
+        std::vector<std::string> raicesRecursivas;
+        const auto desciende = [](const std::string& ds, const std::string& root) {
+            return ds.size() > root.size() + 1 && ds.compare(0, root.size(), root) == 0
+                   && ds[root.size()] == '/';
+        };
+        for (const std::string& rawLine : splitLines(dsResult.out)) {
+            if (g_stop.load()) break;
+            const std::string ds = trim(rawLine);
+            if (ds.empty()) continue;
+            if (!gsaBoolOn(gsaPropValue(ds, "org.fc16.gsa:activado", /*local=*/true))) continue;
+            bool cubierto = false;
+            for (const std::string& root : raicesRecursivas) {
+                if (desciende(ds, root)) { cubierto = true; break; }
+            }
+            if (cubierto || !gsaAncestroRecursivo(ds).empty()) continue;
+            programados.insert(ds);
+            gsaProcesaDataset(ds, selfConn, log);
+            if (gsaBoolOn(gsaPropValue(ds, "org.fc16.gsa:recursivo", false))) {
+                raicesRecursivas.push_back(ds);
+            }
+        }
+    }
+    // La pasada, y fuera lo que ya no está programado: un dataset desprogramado no puede
+    // seguir saliendo en rojo por un fallo de hace un mes.
+    if (!g_stop.load()) {
+        std::lock_guard<std::mutex> lock(g_gsaEstado);
+        zfsmgr::base::json::Value raiz = gsaLeeEstadoSinBloqueo();
+        zfsmgr::base::json::Value datasets;
+        for (const auto& kv : raiz["datasets"].toObject()) {
+            if (programados.count(kv.first)) {
+                datasets.set(kv.first, kv.second);
+            }
+        }
+        raiz.set("datasets", datasets);
+        raiz.set("last_pass", zfsmgr::base::json::Value(static_cast<long long>(std::time(nullptr))));
+        gsaGuardaEstadoSinBloqueo(raiz);
+    }
+}
+
+GsaLog gsaLogDelDaemon() {
+    // Al registro del DAEMON, no a uno aparte, y con su nivel: un fallo es ERROR, no INFO.
+    return [](const char* nivel, const std::string& linea) { daemonLog(nivel, linea); };
+}
+
+// Una pasada para UN dataset, ya. Para comprobar una programación tras arreglar lo que
+// fallaba sin esperar cinco minutos, y para probarla. Nunca recorre todos los datasets.
+ExecResult runGsaRunOnceCapture(const std::string& ds) {
+    ExecResult r;
+    if (trim(ds).empty() || ds.find('@') != std::string::npos) {
+        r.rc = 2;
+        r.err = "usage: --mutate-gsa-run-once <dataset>\n";
+        return r;
+    }
+    if (!gsaBoolOn(gsaPropValue(ds, "org.fc16.gsa:activado", /*local=*/true))) {
+        r.rc = 1;
+        r.err = ds + " has no schedule enabled\n";
+        return r;
+    }
+    const std::string ancestro = gsaAncestroRecursivo(ds);
+    if (!ancestro.empty()) {
+        r.rc = 1;
+        r.err = ds + " is covered by the recursive schedule of " + ancestro + "; run it there\n";
+        return r;
+    }
+    std::vector<std::string> lineas;
+    const GsaLog log = [&lineas](const char* nivel, const std::string& linea) {
+        daemonLog(nivel, linea);
+        lineas.push_back(std::string(nivel) + " " + linea);
+    };
+    {
+        std::lock_guard<std::mutex> pasada(g_gsaPasada);
+        gsaProcesaDataset(ds, gsaYoMismo(), log);
+    }
+    for (const std::string& l : lineas) {
+        r.out += l + "\n";
+    }
+    const zfsmgr::base::json::Value e = gsaEntradaDe(ds);
+    const bool mal = !e["snapshot"]["ok"].toBool(true) || !e["prune"]["ok"].toBool(true)
+                     || (e.contains("level_result") && !e["level_result"]["ok"].toBool(true))
+                     || (e.contains("target_prune") && !e["target_prune"]["ok"].toBool(true));
+    r.rc = mal ? 1 : 0;
+    return r;
+}
+
+// El estado para el CLI: lo guardado, más las programaciones activadas que todavía no han
+// pasado por ninguna pasada (`pending`), y el reloj del daemon para que quien lo lea pueda
+// decir si el hilo está vivo sin fiarse del suyo.
+ExecResult runDumpGsaStatusCapture() {
+    namespace J = zfsmgr::base::json;
+    ExecResult r;
+    J::Value raiz;
+    {
+        std::lock_guard<std::mutex> lock(g_gsaEstado);
+        raiz = gsaLeeEstadoSinBloqueo();
+    }
+    J::Value datasets;
+    const ExecResult pools = runExecCapture("zpool", {"list", "-H", "-o", "name"});
+    if (pools.rc == 0) {
+        for (const std::string& rawPool : splitLines(pools.out)) {
+            const std::string pool = trim(rawPool);
+            if (pool.empty()) continue;
+            const ExecResult g = runExecCapture(
+                "zfs", {"get", "-H", "-r", "-s", "local", "-t", "filesystem", "-o", "name,value",
+                        "org.fc16.gsa:activado", pool});
+            if (g.rc != 0) continue;
+            for (const std::string& l : splitLines(g.out)) {
+                const std::size_t tab = l.find('\t');
+                if (tab == std::string::npos) continue;
+                const std::string ds = trim(l.substr(0, tab));
+                if (!gsaBoolOn(trim(l.substr(tab + 1)))) continue;
+                if (raiz["datasets"].contains(ds)) {
+                    datasets.set(ds, raiz["datasets"][ds]);
+                    continue;
+                }
+                // Los cubiertos por una recursiva no tienen entrada propia, y no la tendrán.
+                if (!gsaAncestroRecursivo(ds).empty()) continue;
+                J::Value e;
+                e.set("pending", J::Value(true));
+                e.set("level", J::Value(gsaBoolOn(gsaPropValue(ds, "org.fc16.gsa:nivelar", false))));
+                e.set("destination", J::Value(gsaPropValue(ds, "org.fc16.gsa:destino", false)));
+                datasets.set(ds, e);
+            }
+        }
+    }
+    J::Value out;
+    out.set("last_pass", J::Value(raiz["last_pass"].toInt(0)));
+    out.set("now", J::Value(static_cast<long long>(std::time(nullptr))));
+    if (!datasets.isObject()) {
+        datasets = J::Value(J::Object{});
+    }
+    out.set("datasets", datasets);
+    r.rc = 0;
+    r.out = J::toCompact(out) + "\n";
+    return r;
 }
 
 void runGsaSchedulerThread() {
     // Cada cinco minutos, y la primera pasada a los treinta segundos de arrancar.
     //
-    // Antes esperaba al siguiente cambio de hora en punto, que era la otra mitad del mismo
-    // fallo: un daemon que arrancaba a las 00:05 no volvía a mirar hasta la 01:00, y la
-    // diaria de ese día ya no se hacía. Despertar a menudo es seguro desde que lo que toca
-    // se decide por PERIODO y no por la hora del reloj: repetir la pasada no repite nada.
-    //
-    // Y los treinta segundos de gracia son para que una máquina que estuvo apagada recupere
-    // lo que le tocaba nada más encenderse, no en el siguiente ciclo.
+    // Despertar a menudo es seguro desde que lo que toca se decide por PERIODO y no por la
+    // hora del reloj: repetir la pasada no repite nada. Los treinta segundos de gracia son
+    // para que una máquina que estuvo apagada recupere lo que le tocaba nada más encenderse.
     bool primera = true;
     while (!g_stop.load()) {
         const int espera = primera ? 30 : 300;
@@ -6280,16 +6705,8 @@ void runGsaSchedulerThread() {
             std::this_thread::sleep_for(std::chrono::seconds(1));
         }
         if (g_stop.load()) break;
-
-        // Al registro del DAEMON, no a uno aparte.
-        //
-        // Había un `gsa.log` propio, escrito por este mismo proceso: dos ficheros y dos
-        // verbos para mirar lo que hace una sola cosa. Desde que el intérprete tiene `log`,
-        // tener que saber cuál de los dos mirar es justo lo que sobra — y lo que uno busca
-        // cuando una instantánea no salió es la secuencia completa, no la mitad.
-        const auto log = [](const std::string& linea) { daemonLog("INFO", linea); };
         try {
-            gsaRunOnce(log);
+            gsaRunOnce(gsaLogDelDaemon());
         } catch (...) {
             daemonLog("ERROR", "gsa: uncaught exception in the pass");
         }
@@ -9690,10 +10107,22 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
     if (cmd == "--mutate-zfs-rename") {
         if (params.size() < 2) {
             r.rc = 2;
-            r.err = std::string("usage: ") + argv0 + " --mutate-zfs-rename <origen> <destino>\n";
+            r.err = std::string("usage: ") + argv0 + " --mutate-zfs-rename <origen> <destino> [r]\n";
             return r;
         }
+        // Tercer parámetro opcional «r»: `rename -r`, que con un snapshot renombra el mismo en
+        // todos los descendientes. Lo usa la nivelación de una programación recursiva.
+        if (params.size() > 2 && params[2] == "r") {
+            return runExecCapture("zfs", {"rename", "-r", params[0], params[1]});
+        }
         return runExecCapture("zfs", {"rename", params[0], params[1]});
+    }
+    if (cmd == "--mutate-gsa-run-once") {
+        if (params.empty()) { r.rc = 2; r.err = std::string("usage: ") + argv0 + " --mutate-gsa-run-once <dataset>\n"; return r; }
+        return runGsaRunOnceCapture(params[0]);
+    }
+    if (cmd == "--dump-gsa-status") {
+        return runDumpGsaStatusCapture();
     }
 
     // Descartar una recepción a medias. `zfs recv -A` tira el estado suspenso y su
@@ -11942,7 +12371,9 @@ int main(int argc, char* argv[]) {
     // cosas: probar una programación sin esperar al ciclo, y ver POR QUÉ una no hizo nada,
     // porque el registro sale aquí mismo.
     if (cmd == "--gsa-run-once") {
-        gsaRunOnce([](const std::string& linea) { std::cout << linea << "\n"; });
+        gsaRunOnce([](const char* nivel, const std::string& linea) {
+            std::cout << nivel << " " << linea << "\n";
+        });
         return 0;
     }
     if (cmd == "--dump-daemon-log") {

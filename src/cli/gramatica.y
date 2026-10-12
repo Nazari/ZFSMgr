@@ -145,7 +145,13 @@ orden
     | V_LOAD_KEY destino_opt                 { astVerbo(res, $1); }
     | V_UNLOAD_KEY destino_opt               { astVerbo(res, $1); }
     | V_CHANGE_KEY destino_opt               { astVerbo(res, $1); }
-    | V_SCHEDULE destino_opt                 { astVerbo(res, $1); }
+/* `schedule` lleva palabras propias, como `job`: «schedule run» y «schedule status
+ * [<conexión>]». Por eso su destino va solo como URL (`url_opt`): con `destino_opt`, «run»
+ * sería a la vez la palabra y «el dataset run», y se tomaba por lo segundo. */
+    | V_SCHEDULE url_opt                     { astVerbo(res, $1); }
+    | V_SCHEDULE url_opt palabra             { astVerbo(res, $1); astRanura(res, "texto", $3); }
+    | V_SCHEDULE url_opt palabra palabra     { astVerbo(res, $1); astRanura(res, "texto", $3);
+                                               astRanura(res, "texto", $4); }
     | V_SCHEDULES destino_opt                { astVerbo(res, $1); }
     | V_LOG destino_opt                      { astVerbo(res, $1); }
     | V_PEERS destino_opt                    { astVerbo(res, $1); }

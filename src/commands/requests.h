@@ -90,6 +90,10 @@ std::vector<std::string> diffBetween(const std::string& snapshotA,
 
 std::vector<std::string> gsaOfDataset(const std::string& dataset);
 std::vector<std::string> gsaOfAllPools();
+// The scheduler's state: what happened to each schedule in its last pass (JSON).
+std::vector<std::string> gsaStatus();
+// One pass for ONE dataset, now. Never every dataset.
+std::vector<std::string> gsaRunOnce(const std::string& dataset);
 
 // ── Files ────────────────────────────────────────────────────────────────────
 

@@ -52,6 +52,7 @@
 #include <array>
 #include <set>
 #include <chrono>
+#include <ctime>
 #include <sstream>
 #include <thread>
 #include <string>
@@ -3382,7 +3383,7 @@ Tabla tablaDeProgramaciones(const std::vector<std::pair<std::string, B::gsa::Ent
                            p.recursive ? "true" : "false", std::to_string(p.hourly),
                            std::to_string(p.daily), std::to_string(p.weekly),
                            std::to_string(p.monthly), std::to_string(p.yearly),
-                           p.target.empty() ? "-" : p.target});
+                           p.target.empty() ? "-" : B::gsa::destinationAsUrl(p.target)});
     }
     return t;
 }
@@ -3832,7 +3833,309 @@ bool cmdSchedules(Estado& e, const LineaAnalizada& linea) {
     return true;
 }
 
+// ── El estado de las programaciones ──────────────────────────────────────────────────
+//
+// Lo que pasó en la última pasada del planificador de cada máquina, según su daemon
+// (`--dump-gsa-status`). Lo usan `schedule status` y la comprobación del arranque, con la
+// MISMA lectura y las mismas frases, para que las dos no puedan contar cosas distintas.
+
+// La de una conexión. No escribe nada: si no se pudo preguntar, lo dice en `whyNotChecked`.
+B::gsa::ConnectionState estadoDeProgramaciones(Sesion& ses, const B::ConnectionProfile& p,
+                                               int timeoutMs) {
+    B::gsa::ConnectionState c;
+    c.connection = p.id.empty() ? p.name : p.id;
+    std::string out;
+    std::string err;
+    int rc = -1;
+    std::string motivo;
+    if (!ejecutarAgente(ses, p, PET::gsaStatus(), out, err, rc, &motivo, timeoutMs)) {
+        c.whyNotChecked = motivo.empty() ? T("t_sch_no_contesta", "no contestó") : motivo;
+        return c;
+    }
+    if (rc != 0) {
+        const std::string detalle = B::trim(err).empty() ? B::trim(out) : B::trim(err);
+        c.whyNotChecked = detalle.find("unknown command") != std::string::npos
+                              ? T("t_sch_daemon_viejo", "su daemon es anterior a esta función y no "
+                                  "informa del estado; «install-daemon» lo actualiza")
+                              : detalle;
+        return c;
+    }
+    std::string errJson;
+    if (!B::gsa::parseState(out, c, errJson)) {
+        c.checked = false;
+        c.whyNotChecked = T("t_sch_estado_ilegible", "estado ilegible: ") + errJson;
+    }
+    return c;
+}
+
+std::string horaLocal(long long epoch) {
+    if (epoch <= 0) {
+        return "-";
+    }
+    const std::time_t t = static_cast<std::time_t>(epoch);
+    std::tm tmv{};
+#ifdef _WIN32
+    localtime_s(&tmv, &t);
+#else
+    localtime_r(&t, &tmv);
+#endif
+    char buf[32] = {0};
+    std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M", &tmv);
+    return buf;
+}
+
+// La frase de una programación en rojo: dónde, qué paso, cuándo y por qué.
+std::string motivoDeFallo(const std::string& conexion, const B::gsa::DatasetState& d,
+                          long long ultimaPasada) {
+    const std::string url = "zfsm://" + conexion + "/" + d.dataset;
+    if (d.failedStep == "scheduler") {
+        return B::format(T("t_sch_mal_hilo", "%1 — el planificador no pasa desde %2: ¿está "
+                           "funcionando el daemon?"), {url, horaLocal(ultimaPasada)});
+    }
+    std::string que;
+    if (d.failedStep == "level") {
+        que = B::format(T("t_sch_mal_nivel", "la nivelación a %1"),
+                        {B::gsa::destinationAsUrl(d.destination)});
+    } else if (d.failedStep == "snapshot") {
+        que = T("t_sch_mal_snap", "el snapshot");
+    } else if (d.failedStep == "prune") {
+        que = T("t_sch_mal_poda", "la poda");
+    } else {
+        que = B::format(T("t_sch_mal_poda_dst", "la poda de %1"),
+                        {B::gsa::destinationAsUrl(d.destination)});
+    }
+    return B::format(T("t_sch_mal_fila", "%1 — %2 falló (%3): %4"),
+                     {url, que, horaLocal(d.errorTime), d.error});
+}
+
+// `schedule status [-a | <conexión>]`.
+//
+// No pasa por `prepara`: `schedule` actúa sobre un dataset, y el estado se pide desde
+// cualquier sitio, también desde la raíz. Por eso se comprueban aquí sus argumentos, con el
+// mismo criterio: lo que sobra es un error.
+bool cmdScheduleStatus(Estado& e, const LineaAnalizada& linea) {
+    const std::vector<std::string> palabras = linea.lista("texto");
+    for (const std::string& b : linea.banderas) {
+        if (b != "-a") {
+            std::fprintf(stderr, TC("t_sch_status_bandera", "«%s» no es una bandera de «schedule "
+                                    "status»\n"), b.c_str());
+            return false;
+        }
+    }
+    if (!linea.opciones.empty() || !linea.objetivo.empty() || palabras.size() > 2) {
+        std::fputs(TC("t_sch_status_uso", "uso: schedule status [-a | <conexión>]\n"), stderr);
+        return false;
+    }
+    const bool todas = linea.tiene("-a");
+    std::vector<const B::ConnectionProfile*> maquinas;
+    if (todas) {
+        if (palabras.size() > 1) {
+            std::fputs(TC("t_sch_status_uso", "uso: schedule status [-a | <conexión>]\n"), stderr);
+            return false;
+        }
+        for (const auto& p : e.conns.perfiles) {
+            const std::string id = p.id.empty() ? p.name : p.id;
+            if (!e.conns.desconectada(id)) {
+                maquinas.push_back(&p);
+            }
+        }
+    } else {
+        const std::string nombre = palabras.size() > 1
+                                       ? palabras[1]
+                                       : subeHasta(e.actual, Objetivo::Conexion).connection;
+        if (nombre.empty()) {
+            std::fputs(TC("t_sch_status_falta", "hace falta estar en una conexión, nombrarla o "
+                          "«schedule status -a» para todas\n"), stderr);
+            return false;
+        }
+        const auto* p = buscarConexion(e.conns, nombre);
+        if (!p) {
+            std::fprintf(stderr, "%s\n",
+                         B::format(T("t_no_conn_nombre", "no hay ninguna conexión llamada «%1»"),
+                                   {nombre}).c_str());
+            return false;
+        }
+        maquinas.push_back(p);
+    }
+
+    Tabla t;
+    t.nombreJson = "schedule_status";
+    t.cabecerasTexto = {T("t_cab_conexion", "CONEXIÓN"), T("t_cab_dataset", "DATASET"),
+                        T("t_cab_ult_snap", "ÚLTIMO SNAPSHOT"), T("t_cab_nivelacion", "NIVELACIÓN"),
+                        T("t_cab_destino", "DESTINO"), T("t_cab_estado", "ESTADO")};
+    t.campos = {"connection", "dataset", "last_snapshot", "level", "destination", "state"};
+    t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena};
+    std::vector<std::string> motivos;
+    bool algunFallo = false;
+    for (const auto* p : maquinas) {
+        const B::gsa::ConnectionState c = estadoDeProgramaciones(*e.ses, *p, 20000);
+        if (!c.checked) {
+            motivos.push_back(B::format(T("t_sch_sin_comprobar", "%1: no se pudo comprobar: %2"),
+                                        {c.connection, c.whyNotChecked}));
+            algunFallo = true;
+            continue;
+        }
+        for (const B::gsa::DatasetState& d : c.datasets) {
+            std::string nivel = "-";
+            if (d.level) {
+                nivel = !d.hasLevel ? T("t_sch_nivel_nunca", "aún no")
+                        : d.levelOk ? T("t_sch_nivel_ok", "ok") + std::string(" ") + horaLocal(d.lastLevelTime)
+                                    : T("t_sch_nivel_mal", "error");
+            }
+            std::string estado = T("t_sch_verde", "verde");
+            if (c.stale || !d.failedStep.empty()) {
+                estado = T("t_sch_rojo", "rojo");
+                B::gsa::DatasetState x = d;
+                if (c.stale) {
+                    x.failedStep = "scheduler";
+                }
+                motivos.push_back(motivoDeFallo(c.connection, x, c.lastPass));
+                algunFallo = true;
+            } else if (d.pending) {
+                estado = T("t_sch_pendiente", "pendiente");
+            }
+            t.filas.push_back({c.connection, d.dataset,
+                               d.lastSnapshot.empty() ? "-" : d.lastSnapshot,
+                               nivel,
+                               d.destination.empty() ? "-" : B::gsa::destinationAsUrl(d.destination),
+                               estado});
+        }
+    }
+    if (t.filas.empty() && motivos.empty()) {
+        std::fputs(TC("t_sch_ninguna_prog", "No hay programaciones\n"), stderr);
+        return true;
+    }
+    if (!t.filas.empty()) {
+        t.imprime(e.formato);
+        // La tabla va por la salida estándar y los motivos por la de error: sin vaciarla,
+        // en una tubería los motivos salían ANTES que la tabla que explican.
+        std::fflush(stdout);
+    }
+    for (const std::string& m : motivos) {
+        std::fprintf(stderr, "%s\n", m.c_str());
+    }
+    e.ultimoRc = algunFallo ? 1 : 0;
+    return !algunFallo;
+}
+
+// La comprobación del ARRANQUE: el estado de las programaciones de todas las conexiones, en
+// segundo plano, y una línea que lo resume. Que una nivelación lleve días fallando solo se veía
+// leyendo el registro del daemon, y nadie lo lee.
+//
+// Cada conexión en su propio hilo y con su PROPIA sesión de transporte: así no se pisan los
+// túneles de la sesión del intérprete, y una máquina apagada no retrasa a las demás. Los
+// mensajes del transporte de estas sesiones se callan —el aviso de un túnel que no abre
+// saldría en mitad de la línea que se está escribiendo—: lo que importa ya va en el resumen.
+//
+// El resultado se deja en la cola de avisos del editor de línea (`encolaAviso`), que es quien
+// sabe pintarlo sin partir lo tecleado.
+class ComprobacionDeArranque {
+public:
+    ComprobacionDeArranque(const Sesion& ses, const Conexiones& conns) {
+        std::vector<B::ConnectionProfile> perfiles;
+        for (const auto& p : conns.perfiles) {
+            const std::string id = p.id.empty() ? p.name : p.id;
+            if (!conns.desconectada(id) && !conns.secretoSinAbrir(id)) {
+                perfiles.push_back(p);
+            }
+        }
+        if (perfiles.empty()) {
+            return;
+        }
+        const std::string dirConfig = ses.dirConfig;
+        const std::string maestra = ses.maestra;
+        m_hilo = std::thread([perfiles, dirConfig, maestra]() {
+            std::vector<B::gsa::ConnectionState> estados(perfiles.size());
+            std::vector<std::thread> hilos;
+            for (std::size_t i = 0; i < perfiles.size(); ++i) {
+                hilos.emplace_back([&estados, &perfiles, &dirConfig, &maestra, i]() {
+                    auto propia = crearSesion(dirConfig, maestra, /*verboso=*/false);
+                    propia->transporte.sink = [](B::TransportSession::Level, const std::string&, const std::string&) {};
+                    propia->transporte.warningSink = [](B::TransportSession::Level, const std::string&,
+                                                        const B::transport::WarningNote&) {};
+                    estados[i] = estadoDeProgramaciones(*propia, perfiles[i], 10000);
+                });
+            }
+            for (auto& h : hilos) {
+                h.join();
+            }
+            encolaAviso(resumen(estados));
+        });
+    }
+    // Al salir se espera a que acabe: cada pregunta tiene su plazo, y un hilo vivo mientras
+    // el proceso destruye lo global acabaría mal.
+    ~ComprobacionDeArranque() {
+        if (m_hilo.joinable()) {
+            m_hilo.join();
+        }
+    }
+
+    static std::string resumen(const std::vector<B::gsa::ConnectionState>& estados) {
+        std::vector<std::pair<std::string, B::gsa::DatasetState>> mal;
+        std::vector<const B::gsa::ConnectionState*> sinComprobar;
+        const B::gsa::Verdict v = B::gsa::summarize(estados, mal, sinComprobar);
+        std::string texto;
+        if (v == B::gsa::Verdict::AllGreen) {
+            texto = T("t_sch_arr_verde", "Todas las programaciones en verde");
+        } else if (v == B::gsa::Verdict::NoSchedules) {
+            texto = T("t_sch_arr_ninguna", "No hay programaciones");
+        } else {
+            texto = T("t_sch_arr_mal", "Programaciones con errores:");
+            for (const auto& m : mal) {
+                long long pasada = 0;
+                for (const auto& c : estados) {
+                    if (c.connection == m.first) {
+                        pasada = c.lastPass;
+                    }
+                }
+                texto += "\n  " + motivoDeFallo(m.first, m.second, pasada);
+            }
+        }
+        for (const auto* c : sinComprobar) {
+            texto += "\n  " + B::format(T("t_sch_arr_sin", "sin comprobar: %1 (%2)"),
+                                        {c->connection, c->whyNotChecked});
+        }
+        if (v == B::gsa::Verdict::WithErrors) {
+            texto += "\n  " + T("t_sch_arr_detalle", "«schedule status -a» da el detalle");
+        }
+        return texto;
+    }
+
+private:
+    std::thread m_hilo;
+};
+
+bool agenteAnuncia(Estado& e, const std::string& conexion, const std::string& capacidad);
+
+// `schedule run`: una pasada del planificador para ESTE dataset, ahora. Lo que el daemon
+// registró se enseña aquí mismo.
+bool cmdScheduleRun(Estado& e, const ZfsmUrl& destino) {
+    if (!agenteAnuncia(e, destino.connection, "--mutate-gsa-run-once")) {
+        std::fprintf(stderr, "%s\n",
+                     T("t_sch_daemon_viejo", "su daemon es anterior a esta función y no informa "
+                       "del estado; «install-daemon» lo actualiza").c_str());
+        return false;
+    }
+    std::string out;
+    std::string errorDeOrden;
+    const bool ok = agente(e, destino, PET::gsaRunOnce(destino.dataset), out, 3600000, &errorDeOrden);
+    for (const std::string& l : B::split(out, "\n", true)) {
+        std::fprintf(stderr, "%s\n", l.c_str());
+    }
+    if (!ok) {
+        if (!errorDeOrden.empty() && errorDeOrden != B::trim(out)) {
+            std::fprintf(stderr, "%s\n", errorDeOrden.c_str());
+        }
+        return false;
+    }
+    return true;
+}
+
 bool cmdSchedule(Estado& e, const LineaAnalizada& linea) {
+    const std::vector<std::string> palabras = linea.lista("texto");
+    if (!palabras.empty() && B::toLowerAscii(palabras[0]) == "status") {
+        return cmdScheduleStatus(e, linea);
+    }
     Peticion pet;
     if (!prepara(e, linea, pet)) {
         return false;
@@ -3840,6 +4143,16 @@ bool cmdSchedule(Estado& e, const LineaAnalizada& linea) {
     const ZfsmUrl& destino = pet.objetivo;
     if (!exigeDataset(destino)) {
         return false;
+    }
+    const bool ejecutar = !palabras.empty() && B::toLowerAscii(palabras[0]) == "run";
+    if ((!palabras.empty() && !ejecutar) || palabras.size() > 1 || pet.tiene("-a")) {
+        std::fprintf(stderr, TC("t_sch_sobra", "«%s» sobra: «schedule status» y «schedule run» son "
+                                "las dos formas con palabra\n"),
+                     palabras.empty() ? "-a" : palabras.back().c_str());
+        return false;
+    }
+    if (ejecutar) {
+        return cmdScheduleRun(e, destino);
     }
     // Lo que hay puesto AHORA. Se lee siempre, también para escribir: fijar `--daily` no
     // debe borrar el resto de la programación.
@@ -3923,7 +4236,19 @@ bool cmdSchedule(Estado& e, const LineaAnalizada& linea) {
     if (pet.tiene("--no-recursive")) { nueva.recursive = false; }
     if (pet.tiene("--level")) { nueva.level = true; }
     if (pet.tiene("--no-level")) { nueva.level = false; }
-    if (!pet.valor("to").empty()) { nueva.target = pet.valor("to"); }
+    if (!pet.valor("to").empty()) {
+        // Solo la URL. «Conexión::pool/dataset» es lo que se GUARDA —el daemon lo lee así y
+        // así está en las máquinas—, pero ya no se escribe a mano: se dice cómo ponerlo.
+        B::gsa::Reason m;
+        if (!B::gsa::targetFromUrl(pet.valor("to"), nueva.target, m)) {
+            std::fprintf(stderr, "--to %s: %s\n", pet.valor("to").c_str(),
+                         B::gsa::labelOf(m.failure).c_str());
+            if (m.failure == B::gsa::Failure::LegacyTargetFormat) {
+                std::fprintf(stderr, "  --to %s\n", m.detail.c_str());
+            }
+            return false;
+        }
+    }
     // Fijar cualquier valor la ACTIVA: programar algo apagado no significa nada. `--off`
     // es lo que la apaga, y por eso se aplica al final.
     nueva.enabled = !pet.tiene("--off");
@@ -9136,7 +9461,8 @@ bool ejecutaConPatrones(Estado& e, const std::string& orden, const LineaAnalizad
     return todoBien;
 }
 
-int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, bool asumirSi) {
+int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, bool asumirSi,
+                  bool compruebaProgramaciones) {
     Estado e;
     // Al salir —por donde sea: `exit`, fin de la entrada o una orden que falla en un guion—
     // se sueltan los montajes de solo lectura que queden.
@@ -9185,6 +9511,12 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
     }
 
     const bool interactivo = hayTerminal();
+    // El estado de las programaciones, en segundo plano. Solo con terminal: en un guion o en
+    // una tubería, una línea de más en la salida de error que nadie ha pedido estorba.
+    std::unique_ptr<ComprobacionDeArranque> comprobacion;
+    if (interactivo && compruebaProgramaciones && !ses.sinSecretos) {
+        comprobacion = std::make_unique<ComprobacionDeArranque>(ses, e.conns);
+    }
     if (interactivo) {
         std::fputs(TC("t_zfsmgr_cli_44809f", "zfsmgr-cli — «help» lista las órdenes y «help <orden>» explica una.\n"
                      "El tabulador completa órdenes y URL; las flechas recorren el historial.\n"), stderr);

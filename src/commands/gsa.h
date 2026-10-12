@@ -9,9 +9,13 @@
 // SCHEDULED snapshots (GSA): what they are and what is valid.
 //
 // A dataset's schedule does not live in a file belonging to this program: it is made of USER
-// PROPERTIES on the dataset itself, prefixed `org.fc16.gsa:`. What runs them is a different
-// agent —`/usr/local/libexec/zfsmgr-gsa.sh`, with its timer— and neither the interface nor
-// the shell takes part in that: both do nothing but read and write properties.
+// PROPERTIES on the dataset itself, prefixed `org.fc16.gsa:`. What runs them is a thread of
+// the agent of that machine (`runGsaSchedulerThread` in `daemon_main.cpp`), every five
+// minutes; the shell only reads and writes properties, and reads the scheduler's state.
+//
+// The decisions the scheduler takes —what to send, what to prune on each side, what the
+// state of every schedule means— are pure functions here, with tests, and not buried in the
+// daemon: see `planLevel`, `planPrune` and `summarize`.
 //
 // **Why this is in the base layer and not in the interface.** The rules lived inside
 // `MainWindow::validatePendingGsaDrafts`, in Qt, and nowhere else. The moment the shell
@@ -55,6 +59,7 @@ enum class Failure {
     MalformedTarget,         // no «::» in it
     TargetHasNoConnection,   // detail: the name of the missing connection
     ClashesWithRecursive,    // detail: the dataset that already has one
+    LegacyTargetFormat,      // detail: the URL it should have been written as
 };
 
 struct Reason {
@@ -130,5 +135,107 @@ std::string destinationFromUrl(const std::string& text);
 // RULE, not painting: the shell will want the same one when it lists snapshots.
 std::vector<std::pair<std::string, std::vector<std::string>>> groupSnapshots(
     const std::vector<std::string>& names);
+
+// The target as the user writes it: ONLY `zfsm://<connection>/<pool>/<dataset>`. The old
+// «Connection::Pool/Dataset» is deprecated on input (`LegacyTargetFormat`, with the URL it
+// should have been in `detail`); it is still what is STORED, and the daemon still reads it.
+// A connection alone, a snapshot, a section or a pattern are `MalformedTarget`.
+bool targetFromUrl(const std::string& text, std::string& stored, Reason& why);
+
+// ── Levelling: what to send and what to change on the target ─────────────────
+//
+// A snapshot of a dataset: its short name (after the «@») and its guid. The guid is what
+// identifies it on both sides: `zfs send`/`recv` keep it and `zfs rename` does not change it,
+// so the common base is found even after a snapshot was renamed on one side only.
+struct SnapRef {
+    std::string name;
+    std::string guid;
+};
+
+struct LevelPlan {
+    enum class Kind {
+        Full,          // the target does not exist: everything is sent
+        Incremental,   // `send -I @base` up to the newest of the source
+        UpToDate,      // the target already has the newest of the source
+        Conflict,      // sending would destroy something on the target: nothing is sent
+    };
+    Kind kind{Kind::Full};
+    std::string base;   // source name of the newest common snapshot
+    // Common snapshots whose name differs: (name on the target, name it must take).
+    std::vector<std::pair<std::string, std::string>> renameOnTarget;
+    // GSA snapshots of the target, older than the base, that the source no longer has.
+    std::vector<std::string> pruneOnTarget;
+    // Why it is a conflict: the target snapshots that `recv -F` would destroy, or empty when
+    // the target exists and shares nothing with the source.
+    std::vector<std::string> conflicting;
+};
+
+// Both lists oldest first, as `zfs list -s creation` gives them. `targetExists` tells «no
+// snapshots» from «no dataset». Only `GSA-` snapshots are ever pruned on the target, and
+// never the base.
+LevelPlan planLevel(const std::vector<SnapRef>& source, const std::vector<SnapRef>& target,
+                    bool targetExists);
+
+// ── Pruning one class ────────────────────────────────────────────────────────
+
+struct PrunePlan {
+    std::vector<std::string> destroy;   // short names, oldest first
+    bool keptBase{false};   // the protected snapshot was beyond the retention and was kept
+};
+
+// The `GSA-<klass>-<stamp>` among `names` (short names) beyond the newest `keep`, ordered by
+// the stamp in the NAME, not by `creation`. `protectedName` —the base of the levelling— is
+// never destroyed: with the target down for longer than the retention, destroying it would
+// break the incremental chain for good.
+PrunePlan planPrune(const std::vector<std::string>& names, const std::string& klass, int keep,
+                    const std::string& protectedName);
+
+// The newest `GSA-<klass>-…` among `names`, by the stamp in the name. Empty if there is none.
+std::string newestOfClass(const std::vector<std::string>& names, const std::string& klass);
+
+// ── State of the schedules, as the daemon reports it (`--dump-gsa-status`) ───
+
+struct DatasetState {
+    std::string dataset;
+    std::string destination;   // stored form; empty if it does not level
+    bool level{false};
+    bool pending{false};       // scheduled, but no pass has looked at it yet
+    long long lastEval{0};
+    std::string lastSnapshot;
+    long long lastSnapshotTime{0};
+    long long lastLevelTime{0};
+    bool levelOk{true};
+    bool hasLevel{false};      // there has been at least one levelling
+    // The first thing that went wrong, in this order: levelling, snapshot, pruning,
+    // pruning of the target. Empty when everything is green.
+    std::string failedStep;    // «level», «snapshot», «prune», «target-prune»
+    std::string error;
+    long long errorTime{0};
+};
+
+struct ConnectionState {
+    std::string connection;
+    bool checked{false};
+    std::string whyNotChecked;
+    bool stale{false};         // there are schedules and the scheduler has not passed lately
+    long long lastPass{0};
+    long long now{0};          // the daemon's clock when it answered
+    std::vector<DatasetState> datasets;
+};
+
+// The daemon's JSON → structure. `stale` is decided here, with the daemon's own clock, so a
+// skewed client clock cannot make it lie: more than `staleAfterSecs` since the last pass with
+// schedules enabled.
+bool parseState(const std::string& json, ConnectionState& out, std::string& error,
+                long long staleAfterSecs = 900);
+
+enum class Verdict { NoSchedules, AllGreen, WithErrors };
+
+// What the CLI says when it starts. `bad` gets the datasets in red; `unchecked`, the
+// connections that could not be asked. A stale scheduler counts as an error of every
+// dataset of that connection.
+Verdict summarize(const std::vector<ConnectionState>& all,
+                  std::vector<std::pair<std::string, DatasetState>>& bad,
+                  std::vector<const ConnectionState*>& unchecked);
 
 }  // namespace zfsmgr::base::gsa

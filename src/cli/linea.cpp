@@ -3,8 +3,10 @@
 #include "secretinput.h"
 
 #include <algorithm>
+#include <cerrno>
 #include <cstdio>
 #include <iostream>
+#include <mutex>
 #include <vector>
 
 #ifdef _WIN32
@@ -12,6 +14,7 @@
 #include <io.h>
 #include <windows.h>
 #else
+#include <poll.h>
 #include <sys/ioctl.h>
 #include <termios.h>
 #include <unistd.h>
@@ -19,6 +22,38 @@
 
 namespace zfsmgr::cli {
 namespace {
+
+// Los avisos que dejan otros hilos para el terminal (el estado de las programaciones al
+// arrancar). Se pintan desde AQUÍ, el único que sabe qué hay escrito en la línea, para no
+// partir por la mitad lo que el usuario está tecleando.
+std::mutex g_avisosMutex;
+std::vector<std::string> g_avisos;
+
+std::vector<std::string> sacaAvisos() {
+    std::lock_guard<std::mutex> lock(g_avisosMutex);
+    std::vector<std::string> v;
+    v.swap(g_avisos);
+    return v;
+}
+
+// Un byte del terminal en modo crudo.
+//
+// En POSIX con `read` y no con `fgetc`: la espera de abajo pregunta con `poll` al
+// DESCRIPTOR si hay algo, y lo que `stdio` tuviera ya leído en su búfer no lo vería —un texto
+// pegado se quedaría a medias hasta la siguiente tecla—. Sin búfer de por medio, lo que dice
+// `poll` es la verdad.
+int leeByte() {
+#ifdef _WIN32
+    return std::fgetc(stdin);
+#else
+    unsigned char c = 0;
+    ssize_t n = 0;
+    do {
+        n = ::read(STDIN_FILENO, &c, 1);
+    } while (n < 0 && errno == EINTR);
+    return n == 1 ? c : EOF;
+#endif
+}
 
 #ifdef _WIN32
 // No está en las cabeceras de MinGW más antiguas, y su valor es fijo desde Windows 10.
@@ -319,6 +354,11 @@ bool LectorDeLinea::completa(std::string& linea, std::size_t& cursor) {
     return true;
 }
 
+void encolaAviso(const std::string& texto) {
+    std::lock_guard<std::mutex> lock(g_avisosMutex);
+    g_avisos.push_back(texto);
+}
+
 bool LectorDeLinea::lee(const std::string& indicador, std::string& out) {
     out.clear();
     if (!hayTerminal()) {
@@ -347,10 +387,40 @@ bool LectorDeLinea::lee(const std::string& indicador, std::string& out) {
     std::size_t enHistorial = m_historial.size();  // uno más allá = la línea que se escribe
     std::string enCurso;
     std::size_t anchoPintado = 0;
+    for (const std::string& a : sacaAvisos()) {
+        std::fprintf(stderr, "%s\n", a.c_str());
+    }
     repinta(indicador, linea, cursor, anchoPintado);
 
     while (true) {
-        const int c = std::fgetc(stdin);
+#ifndef _WIN32
+        // Esperar a la tecla en tramos cortos, y entre tramo y tramo, pintar los avisos que
+        // hayan llegado: se borra la línea, se escribe el aviso y se vuelve a pintar el
+        // indicador con lo tecleado, donde estaba.
+        //
+        // En Windows no: la consola entrega por `ReadConsole` y la biblioteca de C guarda en
+        // su búfer lo que sobra, así que esperar al manejador no sabría si ya hay teclas
+        // leídas. Allí el aviso sale al pintar el siguiente indicador.
+        while (true) {
+            pollfd pfd{};
+            pfd.fd = STDIN_FILENO;
+            pfd.events = POLLIN;
+            if (::poll(&pfd, 1, 200) != 0) {
+                break;
+            }
+            const std::vector<std::string> avisos = sacaAvisos();
+            if (avisos.empty()) {
+                continue;
+            }
+            std::fputs("\r\x1b[K", stderr);
+            for (const std::string& a : avisos) {
+                std::fprintf(stderr, "%s\n", a.c_str());
+            }
+            anchoPintado = 0;
+            repinta(indicador, linea, cursor, anchoPintado);
+        }
+#endif
+        const int c = leeByte();
         if (c == EOF) {
             std::fprintf(stderr, "\n");
             return false;
@@ -410,11 +480,11 @@ bool LectorDeLinea::lee(const std::string& indicador, std::string& out) {
             continue;
         }
         if (c == 27) {  // secuencias de escape: flechas, Inicio, Fin, Suprimir
-            const int a = std::fgetc(stdin);
+            const int a = leeByte();
             if (a != '[' && a != 'O') {
                 continue;
             }
-            const int b = std::fgetc(stdin);
+            const int b = leeByte();
             if (b == 'C') {  // derecha
                 cursor += bytesAdelante(linea, cursor);
             } else if (b == 'D') {  // izquierda
@@ -436,7 +506,7 @@ bool LectorDeLinea::lee(const std::string& indicador, std::string& out) {
                 cursor = linea.size();
             } else if (b >= '0' && b <= '9') {
                 // Inicio/Fin/Suprimir largos: «[1~», «[4~», «[3~».
-                const int t = std::fgetc(stdin);
+                const int t = leeByte();
                 (void)t;
                 if (b == '1') {
                     cursor = 0;

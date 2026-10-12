@@ -1629,6 +1629,110 @@ def casos_programacion(ctx):
                   f"zfs get -H -o value org.fc16.gsa:diario {P}/datos", r"^-$")])
 
 
+def casos_gsa(ctx):
+    """El planificador de snapshots: nivelación por guid con -I, poda del destino a la vez
+    que el origen, snapshots sin cambios que se renombran y el estado que lee el CLI.
+
+    Origen y destino en el MISMO pool de pruebas de fc16 (fc16 se llama a sí misma «local»),
+    así la nivelación va por la tubería local y no depende de la red. Las pasadas se lanzan
+    con `schedule run`, que hace la de UN dataset: nunca una pasada global.
+
+    Para que una clase vuelva a «tocar» sin esperar un día se renombra el último snapshot
+    diario del origen a una fecha vieja: es justo el estado de una máquina cuyo último
+    snapshot es de ayer. El hilo del daemon también pasa cada cinco minutos; por eso se
+    comprueba el ESTADO del pool y no las líneas del registro.
+    """
+    P = POOL_LOCAL
+    O = f"{P}/datos"
+    C = f"{P}/copia"
+    snaps = lambda ds: f"zfs list -H -o name -t snapshot -s createtxg -d 1 {ds}"
+    # El último diario del origen, a una fecha vieja: «ayer» para el planificador.
+    envejece = (f"bash -c 'u=$({snaps(O)} | grep @GSA-daily- | tail -1); "
+                f"[ -n \"$u\" ] && zfs rename \"$u\" {O}@GSA-daily-$1-000000' _ ")
+    sh(ctx, f"zfs set atime=off {O}", root=True)
+
+    caso(ctx, "gsa: --to con «::» ya no se admite y dice la URL",
+         [f"cd Local/{O}", f"schedule --daily 3 --to local::{C}"],
+         rc=1, idioma="es", espera=[r"ya no se admite", rf"--to zfsm://local/{C}"])
+    caso(ctx, "gsa: --to con una conexión sola no vale",
+         [f"cd Local/{O}", "schedule --daily 3 --to zfsm://local"],
+         rc=1, idioma="es", espera=[r"URL de un dataset"])
+    caso(ctx, "gsa: --to con la URL, y se guarda en el formato de siempre",
+         [f"cd Local/{O}", f"schedule --daily 3 --to zfsm://local/{C} --level"], rc=0,
+         estado=[("destino guardado",
+                  f"zfs get -H -o value org.fc16.gsa:destino {O}", rf"^local::{C}$")])
+    caso(ctx, "gsa: schedules enseña el destino como URL",
+         [f"cd Local/{O}", "schedule"], espera=[rf"zfsm://local/{C}"])
+
+    caso(ctx, "gsa: schedule run hace el snapshot y la primera nivelación",
+         [f"cd Local/{O}", "schedule run"], rc=0,
+         estado=[("el diario en el origen", snaps(O), r"@GSA-daily-\d{8}-\d{6}$"),
+                 ("y en el destino", snaps(C), r"@GSA-daily-\d{8}-\d{6}$")])
+    caso(ctx, "gsa: schedule status en verde",
+         [f"cd Local/{O}", "schedule status"], rc=0, idioma="es",
+         espera=[rf"local\s+{O}\s+GSA-daily-\S+\s+ok .*verde"])
+
+    # Sin cambios: el diario de «ayer» se RENOMBRA al de hoy y no se crea otro. En el destino
+    # se repite el renombrado (mismo guid) y no viaja nada.
+    sh(ctx, envejece + "20200101", root=True)
+    caso(ctx, "gsa: sin cambios se renombra el anterior en vez de crear otro",
+         [f"cd Local/{O}", "schedule run"], rc=0,
+         estado=[("un solo diario en el origen, de hoy",
+                  f"bash -c '{snaps(O)} | grep -c @GSA-daily-'", r"^1$"),
+                 ("el de 2020 ya no está", snaps(O), r"\A(?![\s\S]*20200101)"),
+                 ("el destino tiene el mismo nombre",
+                  f"bash -c 'diff <({snaps(O)} | grep -o @GSA.*) <({snaps(C)} | grep -o @GSA.*) && echo IGUALES'",
+                  r"IGUALES")])
+
+    # Con cambios y un snapshot manual por medio: -I lo lleva también al destino.
+    sh(ctx, f"bash -c 'echo cambio > /mnt/{O}/nuevo.txt'", root=True)
+    sh(ctx, f"zfs snapshot {O}@manual1", root=True)
+    sh(ctx, f"bash -c 'echo otro >> /mnt/{O}/nuevo.txt'", root=True)
+    sh(ctx, envejece + "20200102", root=True)
+    caso(ctx, "gsa: con cambios, un diario nuevo; -I trae también el manual intermedio",
+         [f"cd Local/{O}", "schedule run"], rc=0,
+         estado=[("dos diarios en el origen", f"bash -c '{snaps(O)} | grep -c @GSA-daily-'", r"^2$"),
+                 ("el manual en el destino", snaps(C), rf"^{C}@manual1$"),
+                 ("el renombrado también en el destino", snaps(C), r"@GSA-daily-20200102-000000$")])
+
+    # Bajar la retención poda el origen Y el destino; el manual del destino se queda.
+    caso(ctx, "gsa: bajar la retención poda el origen y el destino a la vez",
+         [f"cd Local/{O}", "schedule --daily 1", "schedule run"], rc=0,
+         estado=[("un diario en el origen", f"bash -c '{snaps(O)} | grep -c @GSA-daily-'", r"^1$"),
+                 ("un diario en el destino", f"bash -c '{snaps(C)} | grep -c @GSA-daily-'", r"^1$"),
+                 ("el de 2020 fuera del destino", snaps(C), r"\A(?![\s\S]*20200102)"),
+                 ("el manual del destino sigue", snaps(C), rf"^{C}@manual1$")])
+
+    # Un snapshot propio del destino por detrás del último común: no se manda nada.
+    sh(ctx, f"zfs snapshot {C}@ajeno", root=True)
+    sh(ctx, f"bash -c 'echo mas >> /mnt/{O}/nuevo.txt'", root=True)
+    sh(ctx, envejece + "20200103", root=True)
+    caso(ctx, "gsa: un snapshot propio del destino para la nivelación y dice cuál",
+         [f"cd Local/{O}", "schedule run"], rc=1, espera=[r"ajeno", r"recv -F"],
+         estado=[("el ajeno sigue en el destino", snaps(C), rf"^{C}@ajeno$")])
+    caso(ctx, "gsa: schedule status en rojo con el motivo",
+         [f"cd Local/{O}", "schedule status"], rc=1, idioma="es",
+         espera=[r"\brojo\b", rf"zfsm://local/{O} — la nivelación a zfsm://local/{C} falló .*ajeno"])
+    caso(ctx, "gsa: schedule status -a también lo ve",
+         ["schedule status -a"], rc=1, idioma="es", espera=[r"ajeno"])
+    sh(ctx, f"zfs destroy {C}@ajeno", root=True)
+    caso(ctx, "gsa: quitado el ajeno, la siguiente pasada reintenta sola y vuelve a verde",
+         [f"cd Local/{O}", "schedule run", "schedule status"], rc=0, idioma="es",
+         espera=[r"\bverde\b"], no_espera=[r"\brojo\b"])
+
+    caso(ctx, "gsa: schedule status sin conexión desde la raíz lo pide",
+         ["schedule status"], rc=1, idioma="es", espera=[r"hace falta estar en una conexión"])
+    caso(ctx, "gsa: schedule status de una conexión por su nombre",
+         ["schedule status local"], rc=0, espera=[rf"{O}"])
+    caso(ctx, "gsa: una palabra que no es status ni run es un error",
+         [f"cd Local/{O}", "schedule otra"], rc=1, idioma="es", espera=[r"sobra"])
+    caso(ctx, "gsa: schedule run sin programación lo dice",
+         [f"cd Local/{P}", "schedule run"], rc=1, espera=[r"no schedule enabled"])
+    caso(ctx, "gsa: --clear la quita",
+         [f"cd Local/{O}", "schedule --clear"], rc=0,
+         estado=[("sin destino", f"zfs get -H -o value org.fc16.gsa:destino {O}", r"^-$")])
+
+
 def casos_acciones(ctx):
     P = POOL_LOCAL
     prepara(ctx)   # terreno limpio: ningún grupo hereda lo que dejó otro
@@ -2408,7 +2512,7 @@ def casos_arranque(ctx):
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
 LOCALES = [casos_arranque, casos_identidad, casos_devices, casos_ayuda, casos_version_openzfs, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
-           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_recepcion_a_medias, casos_send_fichero, casos_send_comprimido, casos_sin_montar, casos_cp_destino, casos_load_key, casos_editor_ancho, casos_tab_continua, casos_path, casos_info_labelclear, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
+           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_recepcion_a_medias, casos_send_fichero, casos_send_comprimido, casos_gsa, casos_sin_montar, casos_cp_destino, casos_load_key, casos_editor_ancho, casos_tab_continua, casos_path, casos_info_labelclear, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
 ENTRE_MAQUINAS = [casos_entre_maquinas]

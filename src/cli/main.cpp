@@ -101,6 +101,8 @@ void uso(std::FILE* salida) {
                  "  -v, --verbose         Cuenta por la salida de error lo que hace el\n"
                  "                        transporte con cada máquina\n"
                  "  -y, --yes             No preguntar antes de las acciones destructivas\n"
+                 "  --no-schedule-check   No comprobar al arrancar el estado de las\n"
+                 "                        programaciones de snapshots\n"
                  "  -h, --help            Esta ayuda\n"
                  "\n"
                  "La contraseña maestra NO se pasa por argumento ni por variable de\n"
@@ -151,6 +153,7 @@ struct Opciones {
     std::string idioma;
     bool verboso{false};
     bool asumirSi{false};
+    bool sinComprobarProgramaciones{false};
     std::vector<std::string> orden;
 };
 
@@ -285,6 +288,10 @@ int main(int argc, char** argv) {
         }
         if (a == "-y" || a == "--yes") {
             op.asumirSi = true;
+            continue;
+        }
+        if (a == "--no-schedule-check") {
+            op.sinComprobarProgramaciones = true;
             continue;
         }
         if (a == "--format" && i + 1 < argc) {
@@ -586,7 +593,8 @@ int main(int argc, char** argv) {
         // Sin orden, el intérprete. Es la puerta por la que el CLI pasa de leer la
         // configuración a hablar con las máquinas.
         auto ses = zfsmgr::cli::crearSesion(op.dirConfig, maestra, op.verboso, op.sinSecretos);
-        rc = zfsmgr::cli::ejecutarShell(*ses, op.formato, op.urlInicial, op.asumirSi);
+        rc = zfsmgr::cli::ejecutarShell(*ses, op.formato, op.urlInicial, op.asumirSi,
+                                        !op.sinComprobarProgramaciones);
         zfsmgr::base::transport::closeAllTunnels(ses->transporte);
     } else {
         rc = listarConexiones(op, maestra);

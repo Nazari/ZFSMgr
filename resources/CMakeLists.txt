@@ -87,6 +87,9 @@ cmd:--dump-resolve-devices
 cmd:--mutate-zpool-labelclear
 cmd:--dump-path-list
 cmd:--dump-path-info
+cmd:--dump-gsa-status
+cmd:--mutate-gsa-run-once
+gsa:state-guid-level-prune-target
 cmd:--file-recv-listen
 cmd:--file-send-to-peer-async
 cmd:--mutate-mount-ro-temp

@@ -424,8 +424,12 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
        {"t_ej_schedule_3", "también a los descendientes"}},
       {"schedule --no-recursive",
        {"t_ej_schedule_4", "solo a este dataset"}},
-      {"schedule --daily 7 --to unibody::sback/copia",
+      {"schedule --daily 7 --to zfsm://unibody/sback/copia --level",
        {"t_ej_schedule_5", "y nivela contra otra máquina"}},
+      {"schedule run",
+       {"t_ej_schedule_10", "la pasada de este dataset, ahora"}},
+      {"schedule status -a",
+       {"t_ej_schedule_11", "el estado de todas las programaciones"}},
       {"schedule --level",
        {"t_ej_schedule_6", "nivelar tras cada snapshot"}},
       {"schedule --no-level",
@@ -1027,18 +1031,20 @@ const std::vector<Orden> kOrdenes = {
     {"unload-key", {"t_dataset_105268", "Datasets"}, {"", ""}, {"t_descarga_l_d86fbd", "Descarga la clave de cifrado."}, {}, {},
      Objetivo::Dataset, {}},
     {"schedule", {"t_grupo_snapshots", "Snapshots"},
-     {"t_sch_uso", "[--daily <n>] [--recursive] [--to <Con::pool/ds>] [--off|--clear]"},
+     {"t_sch_uso2", "[--daily <n>] [--recursive] [--to <zfsm://con/pool/ds>] [--level] [--off|--clear] | run | status [-a | <conexión>]"},
      {"t_sch_res", "La programación de snapshots del dataset. Sin opciones, la enseña."},
      {{{"t_sch_ret", "--hourly <n> / --daily <n> / --weekly <n> / --monthly <n> / --yearly <n>"},
        {"t_sch_ret_q", "Cuántas guardar de cada clase. 0 es «ninguna de esas»."}},
       {{"t_sch_rec", "--recursive / --no-recursive"},
        {"t_sch_rec_q", "Si cubre también a los descendientes."}},
-      {{"t_sch_to", "--to <Conexión::pool/dataset>"},
-       {"t_sch_to_q", "A dónde se nivela lo programado."}},
+      {{"t_sch_to2", "--to <zfsm://conexión/pool/dataset>"},
+       {"t_sch_to_q2", "A dónde se nivela lo programado: la URL de un dataset. El formato antiguo "
+        "«Conexión::pool/dataset» ya no se admite al escribirlo."}},
       {{"t_sch_level", "--level / --no-level"},
        {"t_sch_level_q", "Nivelar contra el destino después de cada snapshot. Exige --to."}},
       {{"t_sch_off", "--off"}, {"t_sch_off_q", "La apaga CONSERVANDO lo configurado."}},
-      {{"t_sch_clear", "--clear"}, {"t_sch_clear_q", "Borra la programación: como si nunca la hubiera tenido."}}},
+      {{"t_sch_clear", "--clear"}, {"t_sch_clear_q", "Borra la programación: como si nunca la hubiera tenido."}},
+      {{"t_sch_status_a", "-a"}, {"t_sch_status_a_q", "Con «status»: el estado en todas las conexiones."}}},
      {{"t_sch_det1", "Fijar cualquier valor la ACTIVA: `schedule --daily 7` quiere decir «guarda siete "
        "diarias», y programarla apagada no significaría nada. Para apagarla sin perder lo "
        "puesto, «--off»; para quitarla del todo, «--clear»."},
@@ -1048,8 +1054,28 @@ const std::vector<Orden> kOrdenes = {
       {"t_sch_det3", "Quien hace los snapshots es el agente GSA de esa máquina, no este programa: "
        "si no está instalado, la programación queda escrita y no pasa nada. Las reglas se "
        "comprueban ANTES de escribir nada: una activada sin ninguna retención mayor que 0 "
-       "haría snapshots y los borraría."}},
-     Objetivo::Dataset, {}},
+       "haría snapshots y los borraría."},
+      {"t_sch_det4", "«schedule status» dice qué pasó en la última pasada de cada programación: el "
+       "snapshot, la poda, la nivelación y la poda del destino, y si algo falló, cuándo y por qué. "
+       "Sin argumento, la conexión en la que se está; con -a, todas; o una por su nombre. Al "
+       "arrancar el intérprete se comprueba lo mismo en segundo plano y se avisa en una línea."},
+      {"t_sch_det5", "«schedule run» hace AHORA la pasada de este dataset —snapshots que toquen, "
+       "poda y nivelación— y enseña lo que hizo. Sirve para comprobar una programación tras "
+       "arreglar lo que fallaba."},
+      {"t_sch_det6", "Nivelar deja el destino con los mismos snapshots que el origen: manda con "
+       "«zfs send -I» desde el último común —buscado por guid—, y poda en el destino los "
+       "snapshots programados que el origen ya no tiene. Los manuales del destino no se tocan, y "
+       "si el destino tiene snapshots propios por detrás del último común no se manda nada: "
+       "«zfs recv -F» los destruiría."},
+      {"t_sch_det7", "Si el dataset no ha cambiado desde el último snapshot de una clase, no se hace "
+       "otro: se renombra aquel al nombre nuevo, y la retención no gasta una plaza en algo que no "
+       "aporta nada. Con atime=on, leer ficheros ya cuenta como cambio."},
+      {"t_sch_det8", "La poda nunca borra la base de la nivelación, aunque quede fuera de la "
+       "retención: así, con el destino caído unos días, al volver se pone al día solo."}},
+     Objetivo::Dataset,
+     // `status` y `run` son palabras de la orden, como `cancel` en `job`; «status» lleva
+     // detrás, opcionalmente, el nombre de una conexión.
+     {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::CeroOMas}}},
     {"schedules", {"t_grupo_snapshots", "Snapshots"}, {"t_schs_uso2", "[-a]"},
      {"t_schs_res", "Qué hay programado en esta máquina."},
      {{{"t_schs_a", "-a"}, {"t_schs_a_q", "En todas las conexiones, no solo en esta."}}},

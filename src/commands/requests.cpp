@@ -175,6 +175,10 @@ std::vector<std::string> gsaOfDataset(const std::string& dataset) {
 }
 
 std::vector<std::string> gsaOfAllPools() { return {"--dump-zfs-get-gsa-raw-all-pools"}; }
+std::vector<std::string> gsaStatus() { return {"--dump-gsa-status"}; }
+std::vector<std::string> gsaRunOnce(const std::string& dataset) {
+    return withOne("--mutate-gsa-run-once", dataset);
+}
 
 std::vector<std::string> directoryContents(const std::string& ruta) {
     return withOne("--dump-dir-list", ruta);

@@ -2,6 +2,8 @@
 #include "i18n.h"
 
 #include "strutil.h"
+#include "json.h"
+#include "zfsmurl.h"
 
 #include <algorithm>
 #include <cctype>
@@ -195,7 +197,9 @@ std::string labelOf(Failure f) {
         case Failure::LevelWithNoTarget:
             return i18n::tr("t_cmd_gsa_nivelar_esta_puesto_hay", "nivelar está puesto y no hay destino");
         case Failure::MalformedTarget:
-            return i18n::tr("t_cmd_gsa_destino_tiene_ser_conexion", "el destino tiene que ser «Conexión::Pool/Dataset»");
+            return i18n::tr("t_cmd_gsa_destino_url", "el destino tiene que ser la URL de un dataset: zfsm://<conexión>/<pool>/<dataset>");
+        case Failure::LegacyTargetFormat:
+            return i18n::tr("t_cmd_gsa_destino_viejo", "«Conexión::pool/dataset» ya no se admite: escríbalo como URL");
         case Failure::TargetHasNoConnection:
             return i18n::tr("t_cmd_gsa_destino_nombra_conexion_existe", "el destino nombra una conexión que no existe");
         case Failure::ClashesWithRecursive:
@@ -289,6 +293,246 @@ std::string destinationFromUrl(const std::string& texto) {
                               // validación con su motivo, no aquí en silencio
     }
     return t.substr(0, barra) + "::" + t.substr(barra + 1);
+}
+
+}  // namespace zfsmgr::base::gsa
+
+namespace zfsmgr::base::gsa {
+namespace {
+
+// «GSA-<clase>-AAAAMMDD-HHMMSS» → el sello, que ordenado como texto es el orden en el
+// tiempo. Vacío si el nombre no es de esa clase o el sello no tiene la forma.
+std::string selloDe(const std::string& nombre, const std::string& clase) {
+    const std::string prefijo = "GSA-" + clase + "-";
+    if (nombre.rfind(prefijo, 0) != 0) {
+        return {};
+    }
+    const std::string sello = nombre.substr(prefijo.size());
+    if (sello.size() != 15 || sello[8] != '-') {
+        return {};
+    }
+    for (std::size_t i = 0; i < sello.size(); ++i) {
+        if (i != 8 && !std::isdigit(static_cast<unsigned char>(sello[i]))) {
+            return {};
+        }
+    }
+    return sello;
+}
+
+bool esGsa(const std::string& nombre) { return nombre.rfind("GSA-", 0) == 0; }
+
+}  // namespace
+
+bool targetFromUrl(const std::string& texto, std::string& guardado, Reason& porQue) {
+    porQue = Reason{};
+    guardado.clear();
+    const std::string t = trim(texto);
+    if (!startsWith(toLowerAscii(t), "zfsm://")) {
+        if (t.find("::") != std::string::npos) {
+            porQue.failure = Failure::LegacyTargetFormat;
+            porQue.detail = destinationAsUrl(t);
+        } else {
+            porQue.failure = Failure::MalformedTarget;
+            porQue.detail = t;
+        }
+        return false;
+    }
+    // Un patrón no es un destino: nivelar «a lo que case» no significa nada.
+    if (t.find_first_of("*?[") != std::string::npos) {
+        porQue.failure = Failure::MalformedTarget;
+        porQue.detail = t;
+        return false;
+    }
+    ZfsmUrl u;
+    std::string error;
+    if (!parseZfsmUrl(t, u, error) || u.kind != ZfsmKind::Dataset || !u.section.empty()) {
+        porQue.failure = Failure::MalformedTarget;
+        porQue.detail = t;
+        return false;
+    }
+    guardado = u.connection + "::" + u.dataset;
+    return true;
+}
+
+LevelPlan planLevel(const std::vector<SnapRef>& origen, const std::vector<SnapRef>& destino,
+                    bool destinoExiste) {
+    LevelPlan plan;
+    if (!destinoExiste) {
+        plan.kind = LevelPlan::Kind::Full;
+        return plan;
+    }
+    std::map<std::string, std::string> nombreEnOrigen;   // guid -> nombre
+    for (const SnapRef& s : origen) {
+        nombreEnOrigen[s.guid] = s.name;
+    }
+    // La base: el más nuevo del destino que el origen también tiene.
+    int base = -1;
+    for (int i = static_cast<int>(destino.size()) - 1; i >= 0; --i) {
+        if (nombreEnOrigen.count(destino[static_cast<std::size_t>(i)].guid)) {
+            base = i;
+            break;
+        }
+    }
+    if (base < 0) {
+        // Existe y no comparte nada: un envío completo exigiría `recv -F` sobre datos que no
+        // son nuestros. Se para.
+        plan.kind = LevelPlan::Kind::Conflict;
+        for (const SnapRef& s : destino) {
+            plan.conflicting.push_back(s.name);
+        }
+        return plan;
+    }
+    // Lo que el destino tiene POR DETRÁS de la base y el origen no: `recv -F` lo destruiría.
+    for (std::size_t i = static_cast<std::size_t>(base) + 1; i < destino.size(); ++i) {
+        plan.conflicting.push_back(destino[i].name);
+    }
+    if (!plan.conflicting.empty()) {
+        plan.kind = LevelPlan::Kind::Conflict;
+        return plan;
+    }
+    const SnapRef& b = destino[static_cast<std::size_t>(base)];
+    plan.base = nombreEnOrigen[b.guid];
+    std::map<std::string, bool> nombresDelDestino;
+    for (const SnapRef& s : destino) {
+        nombresDelDestino[s.name] = true;
+    }
+    for (int i = 0; i <= base; ++i) {
+        const SnapRef& s = destino[static_cast<std::size_t>(i)];
+        const auto it = nombreEnOrigen.find(s.guid);
+        if (it == nombreEnOrigen.end()) {
+            // Ya no está en el origen. Solo se poda si es nuestro, y nunca la base, que por
+            // definición sí está.
+            if (esGsa(s.name)) {
+                plan.pruneOnTarget.push_back(s.name);
+            }
+            continue;
+        }
+        // El mismo snapshot con otro nombre: lo renombró el origen (un periodo sin cambios).
+        // Si el nombre nuevo ya lo tiene OTRO snapshot del destino, no se toca: renombrar
+        // fallaría, y es preferible decirlo a pisar nada.
+        if (it->second != s.name && !nombresDelDestino.count(it->second)) {
+            plan.renameOnTarget.push_back({s.name, it->second});
+        }
+    }
+    plan.kind = (!origen.empty() && origen.back().guid == b.guid) ? LevelPlan::Kind::UpToDate
+                                                                  : LevelPlan::Kind::Incremental;
+    return plan;
+}
+
+PrunePlan planPrune(const std::vector<std::string>& nombres, const std::string& clase, int keep,
+                    const std::string& protegido) {
+    PrunePlan plan;
+    if (keep <= 0) {
+        return plan;
+    }
+    std::vector<std::pair<std::string, std::string>> deLaClase;   // (sello, nombre)
+    for (const std::string& n : nombres) {
+        const std::string sello = selloDe(trim(n), clase);
+        if (!sello.empty()) {
+            deLaClase.push_back({sello, trim(n)});
+        }
+    }
+    std::stable_sort(deLaClase.begin(), deLaClase.end(),
+                     [](const auto& a, const auto& b) { return a.first < b.first; });
+    if (static_cast<int>(deLaClase.size()) <= keep) {
+        return plan;
+    }
+    const std::size_t sobran = deLaClase.size() - static_cast<std::size_t>(keep);
+    for (std::size_t i = 0; i < sobran; ++i) {
+        if (!protegido.empty() && deLaClase[i].second == protegido) {
+            plan.keptBase = true;
+            continue;
+        }
+        plan.destroy.push_back(deLaClase[i].second);
+    }
+    return plan;
+}
+
+std::string newestOfClass(const std::vector<std::string>& nombres, const std::string& clase) {
+    std::string mejorSello;
+    std::string mejor;
+    for (const std::string& n : nombres) {
+        const std::string sello = selloDe(trim(n), clase);
+        if (!sello.empty() && sello > mejorSello) {
+            mejorSello = sello;
+            mejor = trim(n);
+        }
+    }
+    return mejor;
+}
+
+bool parseState(const std::string& texto, ConnectionState& out, std::string& error,
+                long long caducaTras) {
+    json::Value raiz;
+    if (!json::parse(texto, raiz, &error) || !raiz.isObject()) {
+        if (error.empty()) {
+            error = "not a JSON object";
+        }
+        return false;
+    }
+    out.checked = true;
+    out.lastPass = raiz["last_pass"].toInt(0);
+    out.now = raiz["now"].toInt(0);
+    out.datasets.clear();
+    for (const auto& kv : raiz["datasets"].toObject()) {
+        const json::Value& v = kv.second;
+        DatasetState d;
+        d.dataset = kv.first;
+        d.destination = v["destination"].toString();
+        d.level = v["level"].toBool(false);
+        d.pending = v["pending"].toBool(false);
+        d.lastEval = v["last_eval"].toInt(0);
+        d.lastSnapshot = v["snapshot"]["name"].toString();
+        d.lastSnapshotTime = v["snapshot"]["time"].toInt(0);
+        d.hasLevel = v.contains("level_result");
+        d.lastLevelTime = v["level_result"]["time"].toInt(0);
+        d.levelOk = v["level_result"]["ok"].toBool(true);
+        // El primer paso que falló, en el orden en que importan.
+        const std::pair<const char*, const char*> pasos[] = {
+            {"level_result", "level"}, {"snapshot", "snapshot"},
+            {"prune", "prune"}, {"target_prune", "target-prune"}};
+        for (const auto& p : pasos) {
+            const json::Value& r = v[p.first];
+            if (r.isObject() && !r["ok"].toBool(true)) {
+                d.failedStep = p.second;
+                d.error = r["error"].toString();
+                d.errorTime = r["time"].toInt(0);
+                break;
+            }
+        }
+        out.datasets.push_back(std::move(d));
+    }
+    out.stale = !out.datasets.empty()
+                && (out.lastPass <= 0 || (out.now > 0 && out.now - out.lastPass > caducaTras));
+    return true;
+}
+
+Verdict summarize(const std::vector<ConnectionState>& todas,
+                  std::vector<std::pair<std::string, DatasetState>>& mal,
+                  std::vector<const ConnectionState*>& sinComprobar) {
+    mal.clear();
+    sinComprobar.clear();
+    bool hayAlguna = false;
+    for (const ConnectionState& c : todas) {
+        if (!c.checked) {
+            sinComprobar.push_back(&c);
+            continue;
+        }
+        for (const DatasetState& d : c.datasets) {
+            hayAlguna = true;
+            if (c.stale) {
+                DatasetState x = d;
+                x.failedStep = "scheduler";
+                mal.push_back({c.connection, x});
+            } else if (!d.failedStep.empty()) {
+                mal.push_back({c.connection, d});
+            }
+        }
+    }
+    if (!mal.empty()) {
+        return Verdict::WithErrors;
+    }
+    return hayAlguna ? Verdict::AllGreen : Verdict::NoSchedules;
 }
 
 }  // namespace zfsmgr::base::gsa
