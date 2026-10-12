@@ -71,6 +71,8 @@ namespace {
 
 int fallos = 0;
 int pasados = 0;
+// El caso que se está corriendo, para decir en cuál falla cada comprobación.
+const char* g_casoActual = "";
 
 void comprobar(bool ok, const std::string& nombre, const std::string& detalle = {}) {
     if (ok) {
@@ -79,7 +81,7 @@ void comprobar(bool ok, const std::string& nombre, const std::string& detalle = 
     }
     ++fallos;
 
-    std::fprintf(stderr, "FALLO: %s\n", nombre.c_str());
+    std::fprintf(stderr, "FALLO [%s]: %s\n", g_casoActual, nombre.c_str());
     if (!detalle.empty()) {
         std::fprintf(stderr, "       %s\n", detalle.c_str());
     }
@@ -90,17 +92,20 @@ void igual(const std::string& obtenido, const std::string& esperado, const std::
               "obtenido [" + obtenido + "] esperado [" + esperado + "]");
 }
 
-}  // namespace
+using namespace zfsmgr::base;
+// Los alias que el antiguo main() declaraba arriba y usaban varios casos.
+namespace H = zfsmgr::base::helpers;
+namespace dp = zfsmgr::base::daemonpayload;
 
-int main() {
-    using namespace zfsmgr::base;
-
+void caso01() {
     // --- trim
     igual(trim("  a b  "), "a b", "trim quita por los dos lados");
     igual(trim("\t\n x \r\n"), "x", "trim cuenta tabuladores y saltos");
     igual(trim("   "), "", "trim de solo espacios da vacio");
     igual(trim(""), "", "trim de vacio no revienta");
+}
 
+void caso02() {
     // --- replaceAll
     {
         std::string s = "a.b.c";
@@ -118,7 +123,9 @@ int main() {
         replaceAll(s, "", "z");
         igual(s, "abc", "replaceAll con patron vacio no hace nada");
     }
+}
 
+void caso03() {
     // --- format: la semantica que importa es UNA sola pasada
     igual(format("%1-%2", {"a", "b"}), "a-b", "format sustituye posicionalmente");
     igual(format("%2-%1", {"a", "b"}), "b-a", "format respeta el orden pedido");
@@ -136,12 +143,16 @@ int main() {
     igual(format("%9", {"a"}), "%9", "format deja literal lo que se sale de rango");
     igual(format("100%", {}), "100%", "format tolera un porcentaje suelto al final");
     igual(format("50%x", {"a"}), "50%x", "format tolera un porcentaje sin numero");
+}
 
+void caso04() {
     // --- shSingleQuote
     igual(shSingleQuote("simple"), "'simple'", "shSingleQuote envuelve");
     igual(shSingleQuote("a'b"), "'a'\"'\"'b'", "shSingleQuote escapa la comilla simple");
     igual(shSingleQuote(""), "''", "shSingleQuote de vacio da dos comillas");
+}
 
+void caso05() {
     // --- daemonpayload: rutas fijas, que son contrato con el agente instalado
     namespace dp = zfsmgr::base::daemonpayload;
     igual(dp::unixBinPath(), "/usr/local/libexec/zfsmgr-agent", "ruta del binario Unix");
@@ -158,7 +169,9 @@ int main() {
         comprobar(s.find("TLS_CLIENT_KEY='/etc/zfsmgr/tls/client.key'\n") != std::string::npos,
                   "simpleConfigPayload llega hasta el ultimo campo");
     }
+}
 
+void caso06() {
     // --- recortes por CARACTER, no por byte
     // El caso que lo destapo comparando contra Qt: cortar "aE" acentuado por bytes deja
     // UTF-8 invalido, y left() es lo que recorta las lineas del registro.
@@ -172,12 +185,16 @@ int main() {
         igual(mid("abcdef", 1, 3), "bcd", "mid con longitud");
         comprobar(byteOfChar(ae, 1) == 2, "byteOfChar salta el byte de continuacion");
     }
+}
 
+void caso07() {
     // --- caja ASCII, y SOLO ASCII: es una divergencia buscada respecto a Qt
     igual(toLowerAscii("ABC"), "abc", "toLowerAscii en ASCII");
     igual(toUpperAscii("abc"), "ABC", "toUpperAscii en ASCII");
     igual(toLowerAscii("\xc3\x89"), "\xc3\x89", "toLowerAscii NO toca los acentos (a proposito)");
+}
 
+void caso08() {
     // --- contains / startsWith / endsWith / indexOf
     comprobar(contains("abc", "b"), "contains encuentra");
     comprobar(!contains("abc", "z"), "contains no inventa");
@@ -187,20 +204,25 @@ int main() {
     comprobar(indexOf("abc", "z") == -1, "indexOf devuelve -1 si no hay");
     comprobar(indexOf("abcb", "b") == 1, "indexOf da la primera");
     comprobar(lastIndexOf("abcb", "b") == 3, "lastIndexOf da la ultima");
+}
 
+void caso09() {
     // --- simplify: colapsa y recorta, como QString::simplified()
     igual(simplify("  a  b  "), "a b", "simplify colapsa y recorta");
     igual(simplify("a\tb\nc"), "a b c", "simplify trata tabuladores y saltos");
     igual(simplify("   "), "", "simplify de solo espacios da vacio");
+}
 
+void caso10() {
     // --- split / join
     igual(join(split("//a//b//", "/", true), "|"), "a|b", "split saltando vacios");
     igual(join(split("a/b", "/", false), "|"), "a|b", "split conservando vacios");
     igual(join(split("", "/", false), "|"), "", "split de vacio da un trozo vacio");
     igual(join({"a", "b"}, "-"), "a-b", "join");
     igual(join({}, "-"), "", "join de nada da vacio");
+}
 
-
+void caso11() {
     // --- helpers portados a mano desde mwhelpers
     namespace H = zfsmgr::base::helpers;
     igual(H::parentDatasetName("pool/a/b"), "pool/a", "parentDatasetName sube un nivel");
@@ -254,8 +276,9 @@ int main() {
     igual(H::stripToJson("sin llave"), "sin llave", "stripToJson devuelve tal cual si no hay");
     igual(H::oneLine("  a   b  ", 220), "a b", "oneLine colapsa espacios");
     igual(H::oneLine("\xc3\xa1\xc3\x89", 1), "\xc3\xa1", "oneLine recorta por caracteres");
+}
 
-
+void caso12() {
     // --- lo que se apoya en ConnectionProfile
     {
         zfsmgr::base::ConnectionProfile p;
@@ -310,8 +333,9 @@ int main() {
     // Un caracter multibyte sale como VARIOS escapes, uno por byte.
     igual(H::shPrintfOctalEscaped("\xc3\xb1"), "\\0303\\0261", "escapado octal byte a byte");
     comprobar(contains(H::sshControlPath(), "%C"), "sshControlPath lleva el marcador %C");
+}
 
-
+void caso13() {
     // --- caja UTF-8: el caso que obligo a implementarla
     // Con toLowerAscii esto devolvia false y un rechazo de contrasena se habria
     // clasificado como «no se pudo comprobar», sin avisar al usuario.
@@ -328,7 +352,9 @@ int main() {
     comprobar(!H::looksLikeSudoAuthFailure(""), "el vacio no es un fallo");
     igual(toLowerUtf8("CONTRASE\xc3\x91""A"), "contrase\xc3\xb1""a", "toLowerUtf8 baja la enye");
     igual(toUpperUtf8("ni\xc3\xb1o"), "NI\xc3\x91O", "toUpperUtf8 sube la enye");
+}
 
+void caso14() {
     // --- secretos: lo que NUNCA debe acabar en disco
     {
         std::vector<H::StorableSecret> ss{{"k1", "rpq231"}};
@@ -346,21 +372,27 @@ int main() {
         comprobar(ok2 && !contains(red2, H::shPrintfOctalEscaped("rpq231")),
                   "tambien tapa el secreto escapado en octal");
     }
+}
 
+void caso15() {
     // --- letras de unidad
     igual(H::normalizeDriveLetterValue("Z:\\"), "Z", "normaliza Z:\\");
     igual(H::normalizeDriveLetterValue(" y: "), "Y", "recorta y sube la caja");
     igual(H::normalizeDriveLetterValue("none"), "", "none no es letra");
     igual(H::normalizeDriveLetterValue("12"), "", "un digito no es letra");
     igual(H::normalizeDriveLetterValue(""), "", "el vacio no es letra");
+}
 
+void caso16() {
     // --- particiones protegidas: ofrecer a ZFS el disco de arranque seria destructivo
     comprobar(H::windowsPartitionTypeIsProtected("type=System"), "la particion de sistema esta protegida");
     comprobar(H::windowsPartitionTypeIsProtected("type=RECOVERY"), "recuperacion, sin distinguir caja");
     comprobar(H::windowsPartitionTypeIsProtected("isBoot=True|type=Basic"), "el disco de arranque");
     comprobar(!H::windowsPartitionTypeIsProtected("type=Basic"), "una basica no esta protegida");
     comprobar(!H::windowsPartitionTypeIsProtected(""), "el vacio no protege nada");
+}
 
+void caso17() {
     // --- troceo POSIX: el token vacio ESCRITO no es lo mismo que no haberlo
     {
         const auto v = H::posixShellSplitArgs("a '' b");
@@ -368,15 +400,18 @@ int main() {
         const auto v2 = H::posixShellSplitArgs("  ");
         comprobar(v2.empty(), "solo espacios no da ningun argumento");
     }
+}
 
+void caso18() {
     // --- el secreto no debe llegar al registro
     {
         const std::string m = H::maskedAgentArgvForLog({"--mutate-zfs-load-key", "ds", "SECRETO"});
         comprobar(!contains(m, "SECRETO"), "maskedAgentArgvForLog tapa la passphrase");
         comprobar(contains(m, "[secret]"), "y deja el marcador");
     }
+}
 
-
+void caso19() {
     // --- lo que ahora va con std::regex
     // Enmascarado: la orden real que construye withSudoCommand con la clave en octal.
     {
@@ -397,7 +432,9 @@ int main() {
     // La anticipacion (?=...) SI existe en ECMAScript: sin ella este caso no casaria.
     comprobar(contains(H::maskCommandSecrets("{ printf '%s\\n' 'x'; cat; } | sudo y"), "[secret]"),
               "la forma con ; cat depende de la anticipacion");
+}
 
+void caso20() {
     // --- Enmascarado de la SALIDA, que es otra cosa que la orden.
     //
     // Existe porque la clave privada del cliente TLS se leia ejecutando una orden, y su
@@ -431,7 +468,9 @@ int main() {
     // pasa toda la salida de todas las ordenes.
     igual(H::maskSecretOutput("NAME  SIZE\nfc16  2.46T\n"), "NAME  SIZE\nfc16  2.46T\n",
           "una salida normal no se toca");
+}
 
+void caso21() {
     // --- Los avisos del transporte, que son PROSA y por eso no los redacta esta capa.
     //
     // Lo que se comprueba es que un aviso NO SE PIERDE cuando nadie ha conectado
@@ -470,7 +509,9 @@ int main() {
                       !BTr::looksLikeTls(BTr::Failure::TunnelCannotBeBuilt),
                   "de TLS es lo de TLS, no lo de red");
     }
+}
 
+void caso22() {
     // --- El analizador DESESCAPA. Es la propiedad de la que depende la persistencia de
     // trabajos del daemon: guarda el texto escapado y lo vuelve a leer en cada arranque.
     //
@@ -497,7 +538,9 @@ int main() {
     igual(H::parseOpenZfsVersionText("zpool 99.0.0"), "", "un mayor por encima de 10 se descarta");
     igual(H::parseOpenZfsVersionText("nada"), "", "sin version no inventa");
     igual(H::parseOpenZfsVersionText(""), "", "el vacio no revienta");
+}
 
+void caso23() {
     // --- Como se nombra un extremo de `cp`: cuatro formas, una sola salida.
     //
     // De esta regla depende DONDE se escribe, asi que esta aqui y no en el interprete.
@@ -601,7 +644,9 @@ int main() {
                   "cp: de un dataset, la HOJA de su nombre y no el nombre entero");
         }
     }
+}
 
+void caso24() {
     // --- La version MINIMA de OpenZFS, que decide si se deja instalar el agente.
     //
     // Cuatro estados y no un booleano, porque lo que hay que hacer en cada caso es
@@ -668,8 +713,9 @@ int main() {
         comprobar(H::parseZpoolImportOutput("   pool: mal nombre\n  state: ONLINE\n").empty(),
                   "un nombre invalido se descarta");
     }
+}
 
-
+void caso25() {
     // --- JSON
     {
         namespace J = zfsmgr::base::json;
@@ -711,8 +757,9 @@ int main() {
         comprobar(J::parse("{}", v, &err) && v.isObject(), "el objeto vacio si es valido");
         comprobar(J::parse("[]", v, &err) && v.isArray(), "el array vacio si es valido");
     }
+}
 
-
+void caso26() {
     // --- base64
     {
         igual(base64Encode(""), "", "base64 de vacio");
@@ -730,7 +777,9 @@ int main() {
         comprobar(base64Decode(base64Encode(todos), d) && d == todos,
                   "ida y vuelta con los 256 bytes");
     }
+}
 
+void caso27() {
     // --- cifrado de los secretos de la configuracion
     {
         using C = zfsmgr::base::SecretCipher;
@@ -762,8 +811,9 @@ int main() {
         comprobar(!C::decryptEncv1("encv1$solodospartes", "m", mal, err), "rechaza formato invalido");
         comprobar(!C::decryptEncv1("", "m", mal, err), "rechaza la entrada vacia");
     }
+}
 
-
+void caso28() {
     // --- traduccion entre ConnectionProfile y el JSON de disco
     {
         namespace CJ = zfsmgr::base::connjson;
@@ -832,8 +882,9 @@ int main() {
         zfsmgr::base::ConnectionProfile sinId;
         comprobar(!CJ::upsertConnectionJson(arr, sinId, ""), "sin id no inserta");
     }
+}
 
-
+void caso29() {
     // --- abrir secretos y fundir el almacen de confianza
     //
     // Estaban escritas dos veces, y NO hacian lo mismo: la interfaz dejaba ganar al
@@ -954,7 +1005,9 @@ int main() {
         comprobar(conLocalRancio.at(0).osType != "Windows" || sinLocal.at(0).osType == "Windows",
                   "local: y el sistema corregido al de esta maquina");
     }
+}
 
+void caso30() {
     // --- los analizadores de listings
     //
     // Las muestras son SALIDA REAL de esta máquina, no ejemplos inventados: es lo que
@@ -1091,7 +1144,9 @@ int main() {
         comprobar(!L::poolProperties("{esto no es json", cruzado, err),
                   "listados: pero la basura si lo es");
     }
+}
 
+void caso31() {
     // --- el destino de la programacion: la URL de un dataset, y sus dos mitades
     {
         namespace G = zfsmgr::base::gsa;
@@ -1103,7 +1158,9 @@ int main() {
         comprobar(!G::splitTarget("zfsm://solomaquina", c, d), "gsa: una conexión sola tampoco");
         comprobar(!G::splitTarget("", c, d), "gsa: ni el vacío");
     }
+}
 
+void caso32() {
     // --- por dónde van los bytes, y desde dónde se reanuda
     //
     // Fase 0 de docs/diseno_tecnico_transferencias.md: las DECISIONES de una transfer,
@@ -1497,7 +1554,9 @@ int main() {
         comprobar(!TR::resumeToken("t/nuevo", "t/copias\t-\n").any(),
                   "transferencia: un destino que aun no existe no tiene testigo");
     }
+}
 
+void caso33() {
     // --- los permisos delegados: leer `zfs allow` y componer lo que los cambia
     //
     // El fixture es SALIDA REAL, capturada de un pool creado para esto con las cinco formas
@@ -1690,7 +1749,9 @@ int main() {
         comprobar(SY::copyLocalPayload({}, false, false).empty(),
                   "sincronizar: sin pares no hay carga");
     }
+}
 
+void caso34() {
     // --- una respuesta LENTA no se da por perdida
     //
     // El plazo de CONEXION no puede seguir siendo el plazo de LECTURA. `conecta()` lo pone
@@ -1784,7 +1845,9 @@ int main() {
         hilo.join();
         std::filesystem::remove_all(dir);
     }
+}
 
+void caso35() {
     // --- el puerto local de un tunel nunca es uno de los NUESTROS
     //
     // El rango efimero de Linux es 32768-60999 e incluye el 47653 (daemon), asi que el
@@ -1806,7 +1869,9 @@ int main() {
         comprobar(cuantos > 0, "puertos: el sistema da puertos libres");
         comprobar(!salioUnoNuestro, "puertos: y NUNCA uno de los que este programa reserva");
     }
+}
 
+void caso36() {
     // --- qué propiedad se puede escribir encima
     //
     // Esta regla estaba TRES veces: `isDatasetPropertySupportedOnPlatform` duplicada letra
@@ -1880,7 +1945,9 @@ int main() {
         comprobar(!ZP::isInlineEditable("creation", "", "local", "off", lin),
                   "zfsprops: pero no lo que no esta en ninguna lista");
     }
+}
 
+void caso37() {
     // --- el guion que instala el daemon
     //
     // Estas 200 lineas vivian dentro de `src/cli/shell.cpp`, sueltas entre los fprintf del
@@ -2107,7 +2174,9 @@ int main() {
         comprobar(sinBin.fallo == DI::Failure::UnreadableBinary,
                   "daemoninstall: sin binario no se toca la maquina");
     }
+}
 
+void caso38() {
     // --- guardar un perfil: cifrado, y el TLS segun cambie o no el EXTREMO
     //
     // Esta ultima parte es la que el interprete no tenia: escribia el perfil tal cual, asi
@@ -2248,7 +2317,9 @@ int main() {
         comprobar(av.reason == ST::Reason::EmptyId, "guardar: con su motivo");
         std::filesystem::remove_all(dirG);
     }
+}
 
+void caso39() {
     // --- varios procesos sobre los mismos ficheros
     //
     // Dos `zfsmgr-cli` —o uno y la interfaz— comparten config.json. Antes se escribía en el
@@ -2370,7 +2441,9 @@ int main() {
 #endif
         std::filesystem::remove_all(dirC);
     }
+}
 
+void caso40() {
     // --- versiones del agente
     //
     // Estaban solo en la interfaz, y el interprete comparaba con `!=`: un agente MAS NUEVO
@@ -2406,7 +2479,9 @@ int main() {
         comprobar(AV::verdictFor("1.0.0rc1.111111111", "1.0.0.111111111") == V::Update,
                   "av: un rc instalado se actualiza a su final");
     }
+}
 
+void caso41() {
     // --- ficheros del almacen y motivos tipificados
     {
         namespace ST = zfsmgr::base::store;
@@ -2566,8 +2641,9 @@ int main() {
 
         std::filesystem::remove_all(dir);
     }
+}
 
-
+void caso42() {
     // --- analizadores de la respuesta al refrescar
     {
         namespace R = zfsmgr::base::refresh;
@@ -2628,8 +2704,9 @@ int main() {
             comprobar(set.size() <= 10, "la lista de herramientas no ha crecido sin control");
         }
     }
+}
 
-
+void caso43() {
     // --- ejecución de procesos con retroalimentación
     //
     // Estos casos NO son ceremonia: es la pieza que sustituye a QProcess, y sus fallos
@@ -2747,8 +2824,9 @@ int main() {
         }
     }
 #endif
+}
 
-
+void caso44() {
     // --- zfsm://  nombrar cualquier elemento del arbol
     {
         namespace U = zfsmgr::base;
@@ -2855,7 +2933,9 @@ int main() {
             comprobar(!e2.empty(), std::string("y explica por que: ") + m.url);
         }
     }
+}
 
+void caso45() {
     // --- transportcmd: la parte del transporte que decide y analiza texto.
     //
     // Estos valores esperados NO estan inventados: salen de contrastar la traduccion
@@ -3029,7 +3109,9 @@ int main() {
                       "wrapRemoteCommand: un prologo a medias no se retira");
         }
     }
+}
 
+void caso46() {
     // --- Las piezas que sostienen un tunel: un proceso que sigue VIVO entre llamadas, un
     // puerto libre y la sonda de «ya acepta conexiones». Aqui se prueban contra un
     // proceso local; contra un `ssh -L` de verdad se probaron aparte, y el tunel tardo
@@ -3083,7 +3165,9 @@ int main() {
 #endif
         }
     }
+}
 
+void caso47() {
     // --- El transporte de alto nivel. Lo que necesita una maquina se probo aparte, contra
     // un daemon real por SSH; aqui queda lo que se puede afirmar sin salir de esta.
     {
@@ -3200,7 +3284,9 @@ int main() {
                       "transporte de prueba: se anota como cadena de shell");
         }
     }
+}
 
+void caso48() {
     // --- Las banderas de `zfs send` que se dejan llegar al mandato.
     //
     // Esta lista es una frontera de SEGURIDAD, no una comodidad: lo que la pase acaba en el
@@ -3232,7 +3318,9 @@ int main() {
         comprobar(!areValidSendFlags("-wX", mala),
                   "send: un grupo con una que lleva valor tampoco: no se sabe dónde empieza");
     }
+}
 
+void caso49() {
     // --- Las instantáneas programadas (GSA).
     //
     // Estas reglas vivían dentro de la interfaz gráfica y en ningún sitio más. Al traerlas
@@ -4271,7 +4359,9 @@ int main() {
                       != std::string::npos,
                   "una plataforma desconocida cae al guion de systemd, que se planta solo");
     }
+}
 
+void caso50() {
     // --- parseHumanSize: el inverso de humanSize, sobre lo que escriben zpool y zfs
     {
         unsigned long long v = 0;
@@ -4294,7 +4384,9 @@ int main() {
         comprobar(v == 12345, "parseHumanSize no toca la salida cuando falla");
         comprobar(parseHumanSize("0", v) && v == 0, "parseHumanSize lee el cero legitimo");
     }
+}
 
+void caso51() {
     // --- parseDedupDdt: el coste de la deduplicacion, de `zpool status -D`
     {
         // Medido en fc16 el 2026-10-09.
@@ -4324,7 +4416,9 @@ int main() {
         comprobar(!helpers::parseDedupDdt(" dedup: DDT entries 10, size on disk, in core\n").hayTabla,
                   "parseDedupDdt rechaza la linea incompleta");
     }
+}
 
+void caso52() {
     // --- El servicio de FreeBSD suelta los descriptores de quien lo arranca.
     //
     // Sin `-f`, `daemon(8)` y el agente heredaban la salida del guion de instalación; si esa
@@ -4338,7 +4432,9 @@ int main() {
         comprobar(rc.find("/usr/sbin/daemon") != std::string::npos,
                   "rc.d de FreeBSD: el agente va supervisado por daemon(8)");
     }
+}
 
+void caso53() {
     // --- sshHostKeyChanged: el aviso de clave cambiada, reconocido y localizado.
     {
         // El mensaje real que vio el usuario al apuntar una conexión a una IP que antes era
@@ -4376,6 +4472,9 @@ int main() {
     }
 
 #ifndef _WIN32
+}
+
+void caso54() {
     // --- SIGPIPE: el proceso sobrevive; sus hijos, no.
     {
         ignoreSigpipeExceptInChildren();
@@ -4402,7 +4501,9 @@ int main() {
         close(tubo[1]);
     }
 #endif
+}
 
+void caso55() {
     // --- Patrones de las URL: llaves, comodines y escape.
     {
         const auto llaves = [](const std::string& pat) {
@@ -4455,7 +4556,9 @@ int main() {
         comprobar(!checkRawPattern("{a,b") && !checkRawPattern("a%2") && checkRawPattern("a*"),
                   "crudo: detecta patrones mal formados");
     }
+}
 
+void caso56() {
     // --- compresión de los ficheros de `send`
     {
         namespace CZ = zfsmgr::compresion;
@@ -4555,7 +4658,90 @@ int main() {
                       std::string("comp: ") + nombre + " dañado no pasa por bueno");
         }
     }
+}
 
+// The cases, in the order they always ran. `zfsmgr_base_test <text>` runs only those whose
+// name contains <text>; with no argument, all of them.
+struct Caso {
+    const char* nombre;
+    void (*correr)();
+};
+const Caso kCasos[] = {
+    {"trim", caso01},
+    {"replaceAll", caso02},
+    {"format", caso03},
+    {"shSingleQuote", caso04},
+    {"daemonpayload", caso05},
+    {"recortes por CARACTER, no por byte", caso06},
+    {"caja ASCII, y SOLO ASCII", caso07},
+    {"contains / startsWith / endsWith / indexOf", caso08},
+    {"simplify", caso09},
+    {"split / join", caso10},
+    {"helpers portados a mano desde mwhelpers", caso11},
+    {"lo que se apoya en ConnectionProfile", caso12},
+    {"caja UTF-8", caso13},
+    {"secretos", caso14},
+    {"letras de unidad", caso15},
+    {"particiones protegidas", caso16},
+    {"troceo POSIX", caso17},
+    {"el secreto no debe llegar al registro", caso18},
+    {"lo que ahora va con std", caso19},
+    {"Enmascarado de la SALIDA, que es otra cosa que la orden.", caso20},
+    {"Los avisos del transporte, que son PROSA y por eso no los redacta esta capa.", caso21},
+    {"El analizador DESESCAPA. Es la propiedad de la que depende la persistencia de", caso22},
+    {"Como se nombra un extremo de `cp`", caso23},
+    {"La version MINIMA de OpenZFS, que decide si se deja instalar el agente.", caso24},
+    {"JSON", caso25},
+    {"base64", caso26},
+    {"cifrado de los secretos de la configuracion", caso27},
+    {"traduccion entre ConnectionProfile y el JSON de disco", caso28},
+    {"abrir secretos y fundir el almacen de confianza", caso29},
+    {"los analizadores de listings", caso30},
+    {"el destino de la programacion", caso31},
+    {"por dónde van los bytes, y desde dónde se reanuda", caso32},
+    {"los permisos delegados", caso33},
+    {"una respuesta LENTA no se da por perdida", caso34},
+    {"el puerto local de un tunel nunca es uno de los NUESTROS", caso35},
+    {"qué propiedad se puede escribir encima", caso36},
+    {"el guion que instala el daemon", caso37},
+    {"guardar un perfil", caso38},
+    {"varios procesos sobre los mismos ficheros", caso39},
+    {"versiones del agente", caso40},
+    {"ficheros del almacen y motivos tipificados", caso41},
+    {"analizadores de la respuesta al refrescar", caso42},
+    {"ejecución de procesos con retroalimentación", caso43},
+    {"zfsm", caso44},
+    {"transportcmd", caso45},
+    {"Las piezas que sostienen un tunel", caso46},
+    {"El transporte de alto nivel. Lo que necesita una maquina se probo aparte, contra", caso47},
+    {"Las banderas de `zfs send` que se dejan llegar al mandato.", caso48},
+    {"Las instantáneas programadas", caso49},
+    {"parseHumanSize", caso50},
+    {"parseDedupDdt", caso51},
+    {"El servicio de FreeBSD suelta los descriptores de quien lo arranca.", caso52},
+    {"sshHostKeyChanged", caso53},
+    {"SIGPIPE", caso54},
+    {"Patrones de las URL", caso55},
+    {"compresión de los ficheros de `send`", caso56},
+};
+
+}  // namespace
+
+int main(int argc, char* argv[]) {
+    const std::string filtro = argc > 1 ? argv[1] : std::string();
+    int corridos = 0;
+    for (const Caso& c : kCasos) {
+        if (!filtro.empty() && std::string(c.nombre).find(filtro) == std::string::npos) {
+            continue;
+        }
+        g_casoActual = c.nombre;
+        c.correr();
+        ++corridos;
+    }
+    if (corridos == 0) {
+        std::fprintf(stderr, "ningún caso casa con «%s»\n", filtro.c_str());
+        return 2;
+    }
     std::fprintf(stderr, "%d pasados, %d fallos\n", pasados, fallos);
     return fallos == 0 ? 0 : 1;
 }
