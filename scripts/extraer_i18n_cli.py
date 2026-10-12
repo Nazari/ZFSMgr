@@ -60,7 +60,8 @@ def extrae(ruta):
 def main():
     encontrados = {}
     # Solo el CLI: la fuente de verdad es el código, que es justo de lo que va este guion.
-    fuentes = sorted((RAIZ / 'src' / 'cli').glob('*.cpp'))
+    # También las cabeceras: shell_internal.h lleva clases con métodos en línea que tienen textos.
+    fuentes = sorted((RAIZ / 'src' / 'cli').glob('*.cpp')) + sorted((RAIZ / 'src' / 'cli').glob('*.h'))
     for ruta in fuentes:
         encontrados.update(extrae(ruta))
     esRuta = RAIZ / 'i18n' / 'es.json'

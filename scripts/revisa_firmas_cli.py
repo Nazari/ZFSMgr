@@ -19,7 +19,8 @@ import sys
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent.parent
-SHELL = RAIZ / "src/cli/shell.cpp"
+# El intérprete, partido en src/cli/shell_*.cpp (y su cabecera interna).
+SHELL = sorted((RAIZ / "src/cli").glob("shell_*.cpp")) + [RAIZ / "src/cli/shell_internal.h"]
 AYUDA = RAIZ / "src/cli/ayuda.cpp"
 
 
@@ -27,7 +28,9 @@ def cuerpos_de_funciones(texto, patron=r"^bool (cmd[A-Za-z]+)\(Estado&"):
     """El código de cada función que case, equilibrando llaves."""
     out = {}
     for m in re.finditer(patron, texto, re.M):
-        i = texto.index("{", m.start())
+        i = texto.find("{", m.start())
+        if i == -1:
+            continue  # la última declaración de la cabecera: no hay cuerpo detrás
         # Una DECLARACIÓN no es una definición: `bool cmdX(...);` no tiene cuerpo, y
         # buscarle la siguiente llave da el cuerpo de OTRA función. Con el prototipo detrás
         # de la definición —que es lo que pasa aquí— ese cuerpo falso ganaba, y el guion
@@ -49,7 +52,7 @@ def cuerpos_de_funciones(texto, patron=r"^bool (cmd[A-Za-z]+)\(Estado&"):
 
 
 def main():
-    shell = SHELL.read_text(encoding="utf-8")
+    shell = "\n".join(f.read_text(encoding="utf-8") for f in SHELL)
     ayuda = AYUDA.read_text(encoding="utf-8")
 
     mapa = dict(re.findall(r'\{"([a-z-]+)",\s*(cmd[A-Za-z]+)\}', shell))

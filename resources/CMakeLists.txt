@@ -248,7 +248,7 @@ add_library(zfsmgr_base STATIC
 #
 # Aquí es donde debe acabar concentrándose la construcción de cada orden del agente. Hoy los
 # dos clientes arman el mismo argv por su cuenta —`--mutate-advanced-assemble` está escrito
-# en `cli/shell.cpp` y en `native/mainwindow_advanced.cpp`—, y con él sus reglas, que por eso
+# en `cli/shell_*.cpp` y en `native/mainwindow_advanced.cpp`—, y con él sus reglas, que por eso
 # no viven en ninguna parte.
 add_library(zfsmgr_commands STATIC
     ../src/commands/copyspec.cpp
@@ -522,7 +522,22 @@ add_executable(zfsmgr-cli
     ../src/cli/secretinput.h
     ../src/cli/session.cpp
     ../src/cli/session.h
-    ../src/cli/shell.cpp
+    ../src/cli/shell_core.cpp
+    ../src/cli/shell_listing.cpp
+    ../src/cli/shell_datasets.cpp
+    ../src/cli/shell_admin.cpp
+    ../src/cli/shell_schedules.cpp
+    ../src/cli/shell_advanced.cpp
+    ../src/cli/shell_send.cpp
+    ../src/cli/shell_daemon.cpp
+    ../src/cli/shell_pools.cpp
+    ../src/cli/shell_connections.cpp
+    ../src/cli/shell_inspect.cpp
+    ../src/cli/shell_copy.cpp
+    ../src/cli/shell_completion.cpp
+    ../src/cli/shell_patterns.cpp
+    ../src/cli/shell_loop.cpp
+    ../src/cli/shell_internal.h
     ../src/cli/shell.h
     ../src/cli/tabla.h
 )

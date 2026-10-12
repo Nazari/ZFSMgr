@@ -23,7 +23,7 @@
 
 // Traducir un texto del CLI.
 //
-// El castellano va ESCRITO EN EL CÓDIGO y la clave lo acompaña: `T("t_x_ab12", "texto")`.
+// El castellano va ESCRITO EN EL CÓDIGO y la clave lo acompaña: `T("<clave>", "texto")`.
 // Así el fuente se lee sin ir a buscar a un fichero qué dice cada mensaje, y si el
 // catálogo falta, está incompleto o está roto, la herramienta sigue saliendo en castellano
 // en vez de escupir claves.
