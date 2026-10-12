@@ -3671,6 +3671,50 @@ int main() {
             comprobar(!G::parseState("no es json", parada, err), "estado: basura no se lee");
         }
 
+        // --- Cuándo lanzar una nivelación.
+        {
+            using A = G::LevelAction;
+            G::LevelTrigger t;
+            comprobar(G::decideLevel(t) == A::Nothing, "nivelar: sin nivelar puesto, nada");
+            t.levelOn = true;
+            comprobar(G::decideLevel(t) == A::Start, "nivelar: la primera vez, sí");
+            t.hasPrevious = true;
+            t.previousOk = true;
+            comprobar(G::decideLevel(t) == A::Nothing, "nivelar: tras una buena y sin nada nuevo, nada");
+            t.newSnapshot = true;
+            comprobar(G::decideLevel(t) == A::Start, "nivelar: con un snapshot nuevo, sí");
+            t.jobActive = true;
+            comprobar(G::decideLevel(t) == A::Wait, "nivelar: con un trabajo en marcha, nunca otro");
+            t = G::LevelTrigger{};
+            t.levelOn = t.hasPrevious = true;
+            t.prunedSource = true;
+            comprobar(G::decideLevel(t) == A::Start, "nivelar: tras podar el origen, para podar el destino");
+            t.prunedSource = false;
+            t.previousOk = false;
+            comprobar(G::decideLevel(t) == A::Start, "nivelar: una fallida se reintenta sola");
+            t.previousCancelled = true;
+            comprobar(G::decideLevel(t) == A::Nothing, "nivelar: una cancelada NO se reintenta sola");
+            t.forced = true;
+            comprobar(G::decideLevel(t) == A::Start, "nivelar: con schedule run, sí");
+            t.forced = false;
+            t.newSnapshot = true;
+            comprobar(G::decideLevel(t) == A::Start, "nivelar: una cancelada vuelve con un snapshot nuevo");
+
+            G::ConnectionState c;
+            std::string err;
+            comprobar(G::parseState(R"({"last_pass":10,"now":20,"datasets":{
+                "t/a":{"level_job":{"id":"ab12","state":"running","bytes":4096}},
+                "t/b":{"level_result":{"ok":false,"cancelled":true,"error":"cancelled by the user"}}}})",
+                                    c, err),
+                      "estado: con un trabajo en curso y otro cancelado", err);
+            comprobar(c.datasets[0].levelJob == "ab12" && c.datasets[0].levelJobState == "running"
+                          && c.datasets[0].levelJobBytes == 4096 && c.datasets[0].failedStep.empty(),
+                      "estado: en curso no es un fallo, y lleva sus bytes");
+            comprobar(c.datasets[1].levelCancelled && c.datasets[1].failedStep == "level",
+                      "estado: la cancelada queda en rojo, y se sabe que fue cancelada");
+            comprobar(G::levellingsInProgress({c}) == 1, "estado: una nivelación en curso");
+        }
+
         // --- Cómo se enseñan: manuales primero, programadas agrupadas por clase.
         //
         // Punto 6 del backlog. La regla estaba escrita dentro del bucle que pinta el árbol,

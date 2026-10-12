@@ -160,7 +160,17 @@ Listado de cambios.
    el siguiente indicador, porque la consola deja teclas en el búfer de stdio y esperar al
    manejador no lo vería.
 
-12. [ABIERTO 2026-10-12] La nivelación del planificador (GSA) no es un trabajo.
+12. [HECHO 2026-10-12] La nivelación del planificador (GSA) no es un trabajo.
+   Lo hecho: la pasada solo hace snapshots y poda y DECIDE (`gsa::decideLevel`, con pruebas);
+   la nivelación es un trabajo «gsa-level» en otro hilo, uno por dataset y dos a la vez como
+   mucho (los demás «en cola»). Sale en `jobs`, se sigue con `job <id>` y `job cancel` la para
+   —también en cola—. Mientras dura, no se poda ese origen ni se renombra un snapshot sin
+   cambios. Una recepción cortada se REANUDA con `zfs send -t` (y si el testigo ya no vale, se
+   descarta y se empieza de cero, diciéndolo). La misma máquina pasa por un relé con contador
+   (`ejecutaTuberiaZfsLocalConAvance`). Cancelada por el usuario no se reintenta sola; tras un
+   reinicio del daemon, sí. `schedule run` lanza y vuelve; `--wait` espera. Probado fc16→unib
+   con 900 MB: cancelar, reanudar desde lo recibido y reiniciar el daemon a mitad.
+   El planteamiento original:
    El daemon la hace por su cuenta (`gsaNivela` en daemon_main.cpp) llamando directamente a
    `runZfsSendToPeerCapture` sin pasar por la cola de trabajos, así que no aparece en `jobs`:
    no se ve su progreso, ni cuántos bytes lleva, ni se puede cancelar. Una primera nivelación

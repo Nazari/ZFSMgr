@@ -487,6 +487,10 @@ bool parseState(const std::string& texto, ConnectionState& out, std::string& err
         d.hasLevel = v.contains("level_result");
         d.lastLevelTime = v["level_result"]["time"].toInt(0);
         d.levelOk = v["level_result"]["ok"].toBool(true);
+        d.levelCancelled = v["level_result"]["cancelled"].toBool(false);
+        d.levelJob = v["level_job"]["id"].toString();
+        d.levelJobState = v["level_job"]["state"].toString();
+        d.levelJobBytes = static_cast<unsigned long long>(v["level_job"]["bytes"].toInt(0));
         // El primer paso que falló, en el orden en que importan.
         const std::pair<const char*, const char*> pasos[] = {
             {"level_result", "level"}, {"snapshot", "snapshot"},
@@ -533,6 +537,34 @@ Verdict summarize(const std::vector<ConnectionState>& todas,
         return Verdict::WithErrors;
     }
     return hayAlguna ? Verdict::AllGreen : Verdict::NoSchedules;
+}
+
+LevelAction decideLevel(const LevelTrigger& t) {
+    if (!t.levelOn) {
+        return LevelAction::Nothing;
+    }
+    if (t.jobActive) {
+        return LevelAction::Wait;
+    }
+    if (t.forced || t.newSnapshot || t.prunedSource || !t.hasPrevious) {
+        return LevelAction::Start;
+    }
+    if (!t.previousOk && !t.previousCancelled) {
+        return LevelAction::Start;
+    }
+    return LevelAction::Nothing;
+}
+
+int levellingsInProgress(const std::vector<ConnectionState>& todas) {
+    int n = 0;
+    for (const ConnectionState& c : todas) {
+        for (const DatasetState& d : c.datasets) {
+            if (!d.levelJob.empty()) {
+                ++n;
+            }
+        }
+    }
+    return n;
 }
 
 }  // namespace zfsmgr::base::gsa

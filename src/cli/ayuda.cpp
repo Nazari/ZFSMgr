@@ -428,6 +428,8 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
        {"t_ej_schedule_5", "y nivela contra otra máquina"}},
       {"schedule run",
        {"t_ej_schedule_10", "la pasada de este dataset, ahora"}},
+      {"schedule run --wait",
+       {"t_ej_schedule_12", "y espera a que acabe la nivelación"}},
       {"schedule status -a",
        {"t_ej_schedule_11", "el estado de todas las programaciones"}},
       {"schedule --level",
@@ -1031,7 +1033,7 @@ const std::vector<Orden> kOrdenes = {
     {"unload-key", {"t_dataset_105268", "Datasets"}, {"", ""}, {"t_descarga_l_d86fbd", "Descarga la clave de cifrado."}, {}, {},
      Objetivo::Dataset, {}},
     {"schedule", {"t_grupo_snapshots", "Snapshots"},
-     {"t_sch_uso2", "[--daily <n>] [--recursive] [--to <zfsm://con/pool/ds>] [--level] [--off|--clear] | run | status [-a | <conexión>]"},
+     {"t_sch_uso3", "[--daily <n>] [--recursive] [--to <zfsm://con/pool/ds>] [--level] [--off|--clear] | run [--wait] | status [-a | <conexión>]"},
      {"t_sch_res", "La programación de snapshots del dataset. Sin opciones, la enseña."},
      {{{"t_sch_ret", "--hourly <n> / --daily <n> / --weekly <n> / --monthly <n> / --yearly <n>"},
        {"t_sch_ret_q", "Cuántas guardar de cada clase. 0 es «ninguna de esas»."}},
@@ -1044,7 +1046,8 @@ const std::vector<Orden> kOrdenes = {
        {"t_sch_level_q", "Nivelar contra el destino después de cada snapshot. Exige --to."}},
       {{"t_sch_off", "--off"}, {"t_sch_off_q", "La apaga CONSERVANDO lo configurado."}},
       {{"t_sch_clear", "--clear"}, {"t_sch_clear_q", "Borra la programación: como si nunca la hubiera tenido."}},
-      {{"t_sch_status_a", "-a"}, {"t_sch_status_a_q", "Con «status»: el estado en todas las conexiones."}}},
+      {{"t_sch_status_a", "-a"}, {"t_sch_status_a_q", "Con «status»: el estado en todas las conexiones."}},
+      {{"t_sch_wait", "--wait"}, {"t_sch_wait_q", "Con «run»: esperar a que acabe la nivelación, enseñando el avance."}}},
      {{"t_sch_det1", "Fijar cualquier valor la ACTIVA: `schedule --daily 7` quiere decir «guarda siete "
        "diarias», y programarla apagada no significaría nada. Para apagarla sin perder lo "
        "puesto, «--off»; para quitarla del todo, «--clear»."},
@@ -1059,9 +1062,11 @@ const std::vector<Orden> kOrdenes = {
        "snapshot, la poda, la nivelación y la poda del destino, y si algo falló, cuándo y por qué. "
        "Sin argumento, la conexión en la que se está; con -a, todas; o una por su nombre. Al "
        "arrancar el intérprete se comprueba lo mismo en segundo plano y se avisa en una línea."},
-      {"t_sch_det5", "«schedule run» hace AHORA la pasada de este dataset —snapshots que toquen, "
-       "poda y nivelación— y enseña lo que hizo. Sirve para comprobar una programación tras "
-       "arreglar lo que fallaba."},
+      {"t_sch_det5b", "«schedule run» hace AHORA la pasada de este dataset —snapshots que toquen y "
+       "poda— y enseña lo que hizo. La nivelación va aparte, como un TRABAJO del daemon: sale en "
+       "«jobs», se sigue con «job <id>» y se para con «job cancel <id>». Con «--wait», se espera "
+       "aquí a que acabe. Una nivelación cancelada no se reintenta sola: espera al siguiente "
+       "snapshot o a otro «schedule run»."},
       {"t_sch_det6", "Nivelar deja el destino con los mismos snapshots que el origen: manda con "
        "«zfs send -I» desde el último común —buscado por guid—, y poda en el destino los "
        "snapshots programados que el origen ya no tiene. Los manuales del destino no se tocan, y "

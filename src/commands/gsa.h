@@ -193,6 +193,35 @@ PrunePlan planPrune(const std::vector<std::string>& names, const std::string& kl
 // The newest `GSA-<klass>-…` among `names`, by the stamp in the name. Empty if there is none.
 std::string newestOfClass(const std::vector<std::string>& names, const std::string& klass);
 
+// ── Whether to level now ─────────────────────────────────────────────────────
+//
+// The levelling runs as a JOB of the daemon, apart from the pass: the pass takes the
+// snapshots and prunes, and this decides whether a levelling job has to be launched.
+struct LevelTrigger {
+    bool levelOn{false};
+    bool jobActive{false};          // a levelling job for this dataset is queued or running
+    bool newSnapshot{false};        // this pass took or renamed a snapshot
+    bool prunedSource{false};       // this pass destroyed snapshots at the source
+    bool forced{false};             // `schedule run`
+    bool hasPrevious{false};        // there has been a levelling before
+    bool previousOk{false};
+    bool previousCancelled{false};  // the previous one was cancelled by the user
+};
+
+enum class LevelAction {
+    Nothing,
+    Wait,    // one is already queued or running: never two for the same dataset
+    Start,
+};
+
+// - Never a second job for the same dataset.
+// - A new snapshot, a pruned source (the target is pruned at the same time), the first time
+//   or `schedule run`: start.
+// - A failed one is retried in the next pass, without waiting for the next period.
+// - A CANCELLED one is not: the user stopped it, and restarting it five minutes later would
+//   make cancelling pointless. It waits for a new snapshot or `schedule run`.
+LevelAction decideLevel(const LevelTrigger& t);
+
 // ── State of the schedules, as the daemon reports it (`--dump-gsa-status`) ───
 
 struct DatasetState {
@@ -211,6 +240,11 @@ struct DatasetState {
     std::string failedStep;    // «level», «snapshot», «prune», «target-prune»
     std::string error;
     long long errorTime{0};
+    bool levelCancelled{false};   // the last levelling was cancelled by the user
+    // The levelling job in progress, if there is one. Being in progress is not an error.
+    std::string levelJob;         // its id
+    std::string levelJobState;    // «queued» or «running»
+    unsigned long long levelJobBytes{0};
 };
 
 struct ConnectionState {
@@ -237,5 +271,8 @@ enum class Verdict { NoSchedules, AllGreen, WithErrors };
 Verdict summarize(const std::vector<ConnectionState>& all,
                   std::vector<std::pair<std::string, DatasetState>>& bad,
                   std::vector<const ConnectionState*>& unchecked);
+
+// How many levellings are queued or running among `all`: the start-up line mentions them.
+int levellingsInProgress(const std::vector<ConnectionState>& all);
 
 }  // namespace zfsmgr::base::gsa

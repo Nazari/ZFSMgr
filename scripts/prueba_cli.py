@@ -1665,7 +1665,7 @@ def casos_gsa(ctx):
          [f"cd Local/{O}", "schedule"], espera=[rf"zfsm://local/{C}"])
 
     caso(ctx, "gsa: schedule run hace el snapshot y la primera nivelación",
-         [f"cd Local/{O}", "schedule run"], rc=0,
+         [f"cd Local/{O}", "schedule run --wait"], rc=0,
          estado=[("el diario en el origen", snaps(O), r"@GSA-daily-\d{8}-\d{6}$"),
                  ("y en el destino", snaps(C), r"@GSA-daily-\d{8}-\d{6}$")])
     caso(ctx, "gsa: schedule status en verde",
@@ -1676,7 +1676,7 @@ def casos_gsa(ctx):
     # se repite el renombrado (mismo guid) y no viaja nada.
     sh(ctx, envejece + "20200101", root=True)
     caso(ctx, "gsa: sin cambios se renombra el anterior en vez de crear otro",
-         [f"cd Local/{O}", "schedule run"], rc=0,
+         [f"cd Local/{O}", "schedule run --wait"], rc=0,
          estado=[("un solo diario en el origen, de hoy",
                   f"bash -c '{snaps(O)} | grep -c @GSA-daily-'", r"^1$"),
                  ("el de 2020 ya no está", snaps(O), r"\A(?![\s\S]*20200101)"),
@@ -1690,14 +1690,14 @@ def casos_gsa(ctx):
     sh(ctx, f"bash -c 'echo otro >> /mnt/{O}/nuevo.txt'", root=True)
     sh(ctx, envejece + "20200102", root=True)
     caso(ctx, "gsa: con cambios, un diario nuevo; -I trae también el manual intermedio",
-         [f"cd Local/{O}", "schedule run"], rc=0,
+         [f"cd Local/{O}", "schedule run --wait"], rc=0,
          estado=[("dos diarios en el origen", f"bash -c '{snaps(O)} | grep -c @GSA-daily-'", r"^2$"),
                  ("el manual en el destino", snaps(C), rf"^{C}@manual1$"),
                  ("el renombrado también en el destino", snaps(C), r"@GSA-daily-20200102-000000$")])
 
     # Bajar la retención poda el origen Y el destino; el manual del destino se queda.
     caso(ctx, "gsa: bajar la retención poda el origen y el destino a la vez",
-         [f"cd Local/{O}", "schedule --daily 1", "schedule run"], rc=0,
+         [f"cd Local/{O}", "schedule --daily 1", "schedule run --wait"], rc=0,
          estado=[("un diario en el origen", f"bash -c '{snaps(O)} | grep -c @GSA-daily-'", r"^1$"),
                  ("un diario en el destino", f"bash -c '{snaps(C)} | grep -c @GSA-daily-'", r"^1$"),
                  ("el de 2020 fuera del destino", snaps(C), r"\A(?![\s\S]*20200102)"),
@@ -1708,7 +1708,7 @@ def casos_gsa(ctx):
     sh(ctx, f"bash -c 'echo mas >> /mnt/{O}/nuevo.txt'", root=True)
     sh(ctx, envejece + "20200103", root=True)
     caso(ctx, "gsa: un snapshot propio del destino para la nivelación y dice cuál",
-         [f"cd Local/{O}", "schedule run"], rc=1, espera=[r"ajeno", r"recv -F"],
+         [f"cd Local/{O}", "schedule run --wait"], rc=1, espera=[r"ajeno", r"recv -F"],
          estado=[("el ajeno sigue en el destino", snaps(C), rf"^{C}@ajeno$")])
     caso(ctx, "gsa: schedule status en rojo con el motivo",
          [f"cd Local/{O}", "schedule status"], rc=1, idioma="es",
@@ -1717,8 +1717,22 @@ def casos_gsa(ctx):
          ["schedule status -a"], rc=1, idioma="es", espera=[r"ajeno"])
     sh(ctx, f"zfs destroy {C}@ajeno", root=True)
     caso(ctx, "gsa: quitado el ajeno, la siguiente pasada reintenta sola y vuelve a verde",
-         [f"cd Local/{O}", "schedule run", "schedule status"], rc=0, idioma="es",
+         [f"cd Local/{O}", "schedule run --wait", "schedule status"], rc=0, idioma="es",
          espera=[r"\bverde\b"], no_espera=[r"\brojo\b"])
+
+    # La nivelación es un TRABAJO: sin --wait se dice cuál y se vuelve.
+    sh(ctx, f"bash -c 'echo trabajo >> /mnt/{O}/nuevo.txt'", root=True)
+    sh(ctx, envejece + "20200104", root=True)
+    caso(ctx, "gsa: schedule run sin --wait lanza la nivelación como trabajo y lo dice",
+         [f"cd Local/{O}", "schedule run"], rc=0, idioma="es",
+         espera=[r"nivelación en marcha como trabajo [0-9a-f]{16} en local", r"siga con «job"])
+    caso(ctx, "gsa: el trabajo sale en jobs como gsa-level",
+         ["cd local", "jobs --history"], espera=[rf"\sgsa-level\s+{O}\s"])
+    caso(ctx, "gsa: schedule run --wait con nada nuevo no lanza nada y sigue en verde",
+         [f"cd Local/{O}", "schedule run --wait", "schedule status"], rc=0, idioma="es",
+         espera=[r"\bverde\b"])
+    caso(ctx, "gsa: --wait solo vale con run",
+         [f"cd Local/{O}", "schedule --wait"], rc=1, idioma="es", espera=[r"sobra"])
 
     caso(ctx, "gsa: schedule status sin conexión desde la raíz lo pide",
          ["schedule status"], rc=1, idioma="es", espera=[r"hace falta estar en una conexión"])
@@ -1727,7 +1741,7 @@ def casos_gsa(ctx):
     caso(ctx, "gsa: una palabra que no es status ni run es un error",
          [f"cd Local/{O}", "schedule otra"], rc=1, idioma="es", espera=[r"sobra"])
     caso(ctx, "gsa: schedule run sin programación lo dice",
-         [f"cd Local/{P}", "schedule run"], rc=1, espera=[r"no schedule enabled"])
+         [f"cd Local/{P}", "schedule run --wait"], rc=1, espera=[r"no schedule enabled"])
     caso(ctx, "gsa: --clear la quita",
          [f"cd Local/{O}", "schedule --clear"], rc=0,
          estado=[("sin destino", f"zfs get -H -o value org.fc16.gsa:destino {O}", r"^-$")])

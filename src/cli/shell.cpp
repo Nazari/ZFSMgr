@@ -3977,7 +3977,12 @@ bool cmdScheduleStatus(Estado& e, const LineaAnalizada& linea) {
         }
         for (const B::gsa::DatasetState& d : c.datasets) {
             std::string nivel = "-";
-            if (d.level) {
+            if (!d.levelJob.empty()) {
+                nivel = d.levelJobState == "queued"
+                            ? B::format(T("t_sch_nivel_cola", "en cola (job %1)"), {d.levelJob})
+                            : B::format(T("t_sch_nivel_curso", "en curso %1 (job %2)"),
+                                        {B::humanSize(std::to_string(d.levelJobBytes)), d.levelJob});
+            } else if (d.level) {
                 nivel = !d.hasLevel ? T("t_sch_nivel_nunca", "aún no")
                         : d.levelOk ? T("t_sch_nivel_ok", "ok") + std::string(" ") + horaLocal(d.lastLevelTime)
                                     : T("t_sch_nivel_mal", "error");
@@ -4075,8 +4080,13 @@ public:
         std::vector<const B::gsa::ConnectionState*> sinComprobar;
         const B::gsa::Verdict v = B::gsa::summarize(estados, mal, sinComprobar);
         std::string texto;
+        const int enCurso = B::gsa::levellingsInProgress(estados);
         if (v == B::gsa::Verdict::AllGreen) {
             texto = T("t_sch_arr_verde", "Todas las programaciones en verde");
+            if (enCurso > 0) {
+                texto += " " + B::format(T("t_sch_arr_en_curso", "(%1 nivelándose)"),
+                                         {std::to_string(enCurso)});
+            }
         } else if (v == B::gsa::Verdict::NoSchedules) {
             texto = T("t_sch_arr_ninguna", "No hay programaciones");
         } else {
@@ -4108,8 +4118,9 @@ private:
 bool agenteAnuncia(Estado& e, const std::string& conexion, const std::string& capacidad);
 
 // `schedule run`: una pasada del planificador para ESTE dataset, ahora. Lo que el daemon
-// registró se enseña aquí mismo.
-bool cmdScheduleRun(Estado& e, const ZfsmUrl& destino) {
+// registró se enseña aquí mismo. La nivelación, si toca, sale como TRABAJO: sin `--wait` se
+// dice cuál y se vuelve, como `send`; con `--wait` se sigue hasta que acaba.
+bool cmdScheduleRun(Estado& e, const ZfsmUrl& destino, bool esperar) {
     if (!agenteAnuncia(e, destino.connection, "--mutate-gsa-run-once")) {
         std::fprintf(stderr, "%s\n",
                      T("t_sch_daemon_viejo", "su daemon es anterior a esta función y no informa "
@@ -4118,17 +4129,62 @@ bool cmdScheduleRun(Estado& e, const ZfsmUrl& destino) {
     }
     std::string out;
     std::string errorDeOrden;
-    const bool ok = agente(e, destino, PET::gsaRunOnce(destino.dataset), out, 3600000, &errorDeOrden);
+    const bool ok = agente(e, destino, PET::gsaRunOnce(destino.dataset), out, 600000, &errorDeOrden);
+    std::string trabajo;
     for (const std::string& l : B::split(out, "\n", true)) {
+        if (B::startsWith(l, "JOB_ID=")) {
+            trabajo = B::trim(l.substr(7));
+            continue;
+        }
+        if (B::startsWith(l, "ALREADY_RUNNING=")) {
+            continue;
+        }
         std::fprintf(stderr, "%s\n", l.c_str());
     }
     if (!ok) {
-        if (!errorDeOrden.empty() && errorDeOrden != B::trim(out)) {
+        if (!errorDeOrden.empty()) {
             std::fprintf(stderr, "%s\n", errorDeOrden.c_str());
         }
         return false;
     }
-    return true;
+    if (trabajo.empty()) {
+        return true;
+    }
+    ZfsmUrl maquina;
+    maquina.kind = ZfsmKind::Connection;
+    maquina.connection = destino.connection;
+    std::fprintf(stderr, TC("t_sch_run_trabajo", "nivelación en marcha como trabajo %s en %s\n"),
+                 trabajo.c_str(), destino.connection.c_str());
+    if (!esperar) {
+        std::fprintf(stderr, TC("t_siga_con_j_2debd4", "siga con «job %s --on %s»\n"),
+                     trabajo.c_str(), textoDe(maquina).c_str());
+        return true;
+    }
+    // Cada dos segundos, que es el ritmo al que el daemon actualiza el avance. «queued» sigue
+    // siendo esperar: la nivelación aguarda turno.
+    std::string ultimo;
+    while (true) {
+        std::this_thread::sleep_for(std::chrono::seconds(2));
+        std::string est;
+        if (!agente(e, maquina, PET::jobStatus(trabajo), est, 20000)) {
+            return false;
+        }
+        const auto k = clavesDe(est);
+        const std::string estado = k.count("STATE") ? k.at("STATE") : std::string();
+        const std::string linea = k.count("PROGRESS_LINE") ? k.at("PROGRESS_LINE") : std::string();
+        if (!linea.empty() && linea != ultimo) {
+            ultimo = linea;
+            std::fprintf(stderr, "  %s\n", linea.c_str());
+        }
+        if (estado == "running" || estado == "queued") {
+            continue;
+        }
+        const std::string err = k.count("ERROR") ? k.at("ERROR") : std::string();
+        std::fprintf(stderr, TC("t_trabajo_estado_fin", "trabajo %s: %s%s\n"), trabajo.c_str(),
+                     estado.c_str(), err.empty() ? "" : (" — " + err).c_str());
+        e.ultimoRc = (estado == "done" || estado == "finished") ? 0 : 1;
+        return e.ultimoRc == 0;
+    }
 }
 
 bool cmdSchedule(Estado& e, const LineaAnalizada& linea) {
@@ -4145,14 +4201,16 @@ bool cmdSchedule(Estado& e, const LineaAnalizada& linea) {
         return false;
     }
     const bool ejecutar = !palabras.empty() && B::toLowerAscii(palabras[0]) == "run";
-    if ((!palabras.empty() && !ejecutar) || palabras.size() > 1 || pet.tiene("-a")) {
+    if ((!palabras.empty() && !ejecutar) || palabras.size() > 1 || pet.tiene("-a")
+        || (pet.tiene("--wait") && !ejecutar)) {
         std::fprintf(stderr, TC("t_sch_sobra", "«%s» sobra: «schedule status» y «schedule run» son "
                                 "las dos formas con palabra\n"),
-                     palabras.empty() ? "-a" : palabras.back().c_str());
+                     palabras.empty() ? (pet.tiene("-a") ? "-a" : "--wait")
+                                      : palabras.back().c_str());
         return false;
     }
     if (ejecutar) {
-        return cmdScheduleRun(e, destino);
+        return cmdScheduleRun(e, destino, pet.tiene("--wait"));
     }
     // Lo que hay puesto AHORA. Se lee siempre, también para escribir: fijar `--daily` no
     // debe borrar el resto de la programación.

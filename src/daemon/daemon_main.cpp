@@ -16,6 +16,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <condition_variable>
 #include <set>
 #include <sstream>
 #include <string>
@@ -104,6 +105,7 @@ typedef int64_t hrtime_t;
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <poll.h>
 #include <unistd.h>
 #include <limits.h>
 #else
@@ -5691,6 +5693,10 @@ std::string gsaPropValue(const std::string& ds, const std::string& prop, bool lo
 // daemon con su nivel y, con el mismo texto, al estado (`gsa-state.json`), que es lo que
 // lee el CLI para decir si las programaciones están en verde.
 using GsaLog = std::function<void(const char* nivel, const std::string& linea)>;
+ExecResult executeAgentCommandCapture(const std::string& cmd,
+                                      const std::vector<std::string>& params,
+                                      const char* argv0);
+static std::string generateJobId();
 
 struct GsaPaso {
     bool hecho{false};    // se intentó algo
@@ -5779,7 +5785,7 @@ bool gsaSinCambiosDesde(const std::string& ds, const std::string& previo, bool r
 // En el destino de la nivelación el renombrado se repite solo, porque la base se busca por
 // guid (`planLevel`).
 GsaPaso gsaHazSnapshot(const std::string& ds, const std::string& klass, bool recursive,
-                       std::string& nombre, const GsaLog& log) {
+                       bool permitirRenombrar, std::string& nombre, const GsaLog& log) {
     GsaPaso paso;
     paso.hecho = true;
     nombre = "GSA-" + klass + "-" + gsaLocalTimestamp();
@@ -5798,7 +5804,9 @@ GsaPaso gsaHazSnapshot(const std::string& ds, const std::string& klass, bool rec
         }
     }
     const std::string previo = zfsmgr::base::gsa::newestOfClass(gsaNombres(snaps), klass);
-    if (!previo.empty() && gsaSinCambiosDesde(ds, previo, recursive)) {
+    // Con una nivelación en marcha no se renombra: `zfs send -I` puede estar leyendo ese
+    // snapshot. Se hace uno normal, que no estorba a nadie.
+    if (permitirRenombrar && !previo.empty() && gsaSinCambiosDesde(ds, previo, recursive)) {
         std::vector<std::string> args = {"rename"};
         if (recursive) {
             args.push_back("-r");
@@ -6067,10 +6075,248 @@ GsaRpc gsaPeerRpc(const GsaPeer& peer, const std::string& cmd,
     return GsaRpc::Ok;
 }
 
+// `zfs send | zfs recv` en la misma máquina, pero con el daemon EN MEDIO: lee de uno, cuenta y
+// escribe en el otro. Es lo que necesita la nivelación del planificador para ser un trabajo
+// —bytes, velocidad, cancelación—; `ejecutaTuberiaZfsLocal` los une directamente y no ve
+// nada de lo que pasa.
+//
+// `recv` sigue leyendo de una TUBERÍA, que es lo que exige macOS (de un fichero o de un
+// socket se porta mal). Cancelar es dejar de bombear: se termina `send` y se cierra la
+// entrada de `recv`, que falla —y con `-s` deja el testigo para reanudar—.
+#ifndef _WIN32
+ExecResult ejecutaTuberiaZfsLocalConAvance(const std::vector<std::string>& sendArgv,
+                                           const std::vector<std::string>& recvArgv,
+                                           const TransferProgressFn& avance) {
+    ExecResult r;
+    // Las tres tuberías, sin herencia desde que nacen: otro hilo puede hacer fork entre
+    // crearlas y marcarlas, y un hijo ajeno que se queda con un extremo impide el EOF.
+    int deSend[2] = {-1, -1};
+    int aRecv[2] = {-1, -1};
+    int errores[2] = {-1, -1};
+    const auto creaTubo = [](int t[2]) {
+#if defined(__linux__) || defined(__FreeBSD__)
+        return pipe2(t, O_CLOEXEC) == 0;
+#else
+        if (pipe(t) != 0) return false;
+        fcntl(t[0], F_SETFD, FD_CLOEXEC);
+        fcntl(t[1], F_SETFD, FD_CLOEXEC);
+        return true;
+#endif
+    };
+    const auto cierra = [](int& fd) { if (fd >= 0) { close(fd); fd = -1; } };
+    if (!creaTubo(deSend) || !creaTubo(aRecv) || !creaTubo(errores)) {
+        cierra(deSend[0]); cierra(deSend[1]); cierra(aRecv[0]); cierra(aRecv[1]);
+        cierra(errores[0]); cierra(errores[1]);
+        r.rc = 125;
+        r.err = "pipe failed\n";
+        return r;
+    }
+    const auto argvDe = [](const std::vector<std::string>& v) {
+        std::vector<char*> a;
+        a.push_back(const_cast<char*>("zfs"));
+        for (const std::string& x : v) a.push_back(const_cast<char*>(x.c_str()));
+        a.push_back(nullptr);
+        return a;
+    };
+    std::vector<char*> sendA = argvDe(sendArgv);
+    std::vector<char*> recvA = argvDe(recvArgv);
+    // En el hijo, dup2 quita el CLOEXEC del descriptor nuevo: sus 0/1/2 sobreviven al exec y
+    // lo demás se cierra solo.
+    const pid_t sendPid = fork();
+    if (sendPid == 0) {
+        dup2(deSend[1], STDOUT_FILENO);
+        dup2(errores[1], STDERR_FILENO);
+        execvp("zfs", sendA.data());
+        _exit(127);
+    }
+    const pid_t recvPid = sendPid > 0 ? fork() : -1;
+    if (recvPid == 0) {
+        dup2(aRecv[0], STDIN_FILENO);
+        dup2(errores[1], STDERR_FILENO);
+        execvp("zfs", recvA.data());
+        _exit(127);
+    }
+    cierra(deSend[1]);
+    cierra(aRecv[0]);
+    cierra(errores[1]);
+    if (sendPid < 0 || recvPid < 0) {
+        if (sendPid > 0) { kill(sendPid, SIGTERM); waitpid(sendPid, nullptr, 0); }
+        cierra(deSend[0]); cierra(aRecv[1]); cierra(errores[0]);
+        r.rc = 125;
+        r.err = "fork failed\n";
+        return r;
+    }
+
+    std::string errAcum;
+    std::vector<char> buf(256 * 1024);
+    std::uint64_t total = 0;
+    bool cancelado = false;
+    const auto t0 = std::chrono::steady_clock::now();
+    auto ultimo = t0;
+    while (deSend[0] >= 0 || errores[0] >= 0) {
+        pollfd p[2];
+        int n = 0;
+        int iDatos = -1;
+        int iErr = -1;
+        if (deSend[0] >= 0) { p[n] = {deSend[0], POLLIN, 0}; iDatos = n++; }
+        if (errores[0] >= 0) { p[n] = {errores[0], POLLIN, 0}; iErr = n++; }
+        if (::poll(p, static_cast<nfds_t>(n), 1000) < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
+        if (iErr >= 0 && (p[iErr].revents & (POLLIN | POLLHUP | POLLERR))) {
+            char e[4096];
+            const ssize_t k = read(errores[0], e, sizeof(e));
+            if (k > 0) errAcum.append(e, static_cast<std::size_t>(k));
+            else if (k == 0 || errno != EINTR) cierra(errores[0]);
+        }
+        if (iDatos >= 0 && (p[iDatos].revents & (POLLIN | POLLHUP | POLLERR))) {
+            const ssize_t k = read(deSend[0], buf.data(), buf.size());
+            if (k > 0) {
+                std::size_t hecho = 0;
+                while (hecho < static_cast<std::size_t>(k)) {
+                    const ssize_t w = write(aRecv[1], buf.data() + hecho,
+                                            static_cast<std::size_t>(k) - hecho);
+                    if (w < 0) {
+                        if (errno == EINTR) continue;
+                        break;   // recv murió: se ve en su código de salida
+                    }
+                    hecho += static_cast<std::size_t>(w);
+                }
+                total += hecho;
+                if (hecho < static_cast<std::size_t>(k)) {
+                    cierra(deSend[0]);
+                    cierra(aRecv[1]);
+                }
+            } else if (k == 0 || errno != EINTR) {
+                cierra(deSend[0]);
+                cierra(aRecv[1]);   // EOF para recv: el flujo ha terminado
+            }
+        }
+        const auto ahora = std::chrono::steady_clock::now();
+        if (avance && (ahora - ultimo >= std::chrono::seconds(1) || deSend[0] < 0)) {
+            ultimo = ahora;
+            const double segs = std::chrono::duration<double>(ahora - t0).count();
+            const double mibs = segs > 0 ? (static_cast<double>(total) / (1024.0 * 1024.0)) / segs : 0.0;
+            if (!avance(total, static_cast<long>(segs), mibs) && deSend[0] >= 0) {
+                cancelado = true;
+                kill(sendPid, SIGTERM);
+                cierra(deSend[0]);
+                cierra(aRecv[1]);
+            }
+        }
+    }
+    cierra(deSend[0]);
+    cierra(aRecv[1]);
+    cierra(errores[0]);
+    int stSend = 0;
+    int stRecv = 0;
+    waitpid(sendPid, &stSend, 0);
+    waitpid(recvPid, &stRecv, 0);
+    const int rcSend = decodeWaitStatus(stSend);
+    const int rcRecv = decodeWaitStatus(stRecv);
+    r.err = errAcum;
+    r.rc = cancelado ? 130 : (rcRecv != 0 ? rcRecv : rcSend);
+    if (cancelado) {
+        r.err = "cancelled\n" + r.err;
+    }
+    return r;
+}
+#else
+ExecResult ejecutaTuberiaZfsLocalConAvance(const std::vector<std::string>&,
+                                           const std::vector<std::string>&,
+                                           const TransferProgressFn&) {
+    ExecResult r;
+    r.rc = 2;
+    r.err = "the local «zfs send | zfs recv» pipe is not ported to Windows\n";
+    return r;
+}
+#endif
+
 // Lo que queda del «destino» después de quitar el SSH: si es esta misma máquina.
 struct GsaTargetConn {
     std::string mode;      // «local» si el destino es esta máquina
 };
+
+// ¿Hay que dejarlo? El trabajo que corre en este hilo se canceló, o el daemon se para.
+//
+// Se pregunta DESPUÉS de cada envío porque cortar por la función de avance no siempre sale
+// como error: el relé remoto lo da por terminado con 0, y sin esto un envío cancelado se
+// anotaba «done» y seguía hasta podar el destino.
+bool gsaParado() { return g_stop.load() || jobCancelRequested(); }
+
+// Descartar una recepción a medias en el destino (`zfs recv -A`).
+bool enDestinoAborta(bool isLocal, const GsaPeer& peer, const std::string& dataset,
+                     std::string& error) {
+    if (isLocal) {
+        const ExecResult r = runExecCapture("zfs", {"recv", "-A", dataset});
+        error = trim(r.err);
+        return r.rc == 0;
+    }
+    std::string salida;
+    return gsaPeerRpc(peer, "--mutate-zfs-recv-abort", {dataset}, salida, error) == GsaRpc::Ok;
+}
+
+// Un flujo de `zfs send` al destino, en la misma máquina o en la otra, con el avance y la
+// cancelación de `avance`. `sendArgv` es el argv de `zfs send` sin el «zfs»: completo, o
+// «send -t <testigo>» para continuar uno cortado.
+//
+// El receptor recibe SIEMPRE con `-s`: un corte deja un testigo para continuar en vez de
+// obligar a empezar de cero.
+ExecResult gsaEnviaFlujo(bool isLocal, const GsaPeer& peer, const std::string& conexion,
+                         const std::vector<std::string>& sendArgv, const std::string& recvEn,
+                         bool incremental, const std::string& testigoReanudar,
+                         const TransferProgressFn& avance) {
+    if (isLocal) {
+        std::vector<std::string> recvArgv = {"recv", "-u", "-s"};
+        if (incremental) {
+            recvArgv.push_back("-F");
+        }
+        recvArgv.push_back(recvEn);
+        return ejecutaTuberiaZfsLocalConAvance(sendArgv, recvArgv, avance);
+    }
+    ExecResult r;
+    std::string respuesta;
+    std::string errPeer;
+    if (gsaPeerRpc(peer, "--zfs-recv-listen", {recvEn, incremental ? "1" : "0"}, respuesta,
+                   errPeer) != GsaRpc::Ok) {
+        r.rc = 1;
+        r.err = "the daemon of «" + conexion + "» could not listen: " + errPeer
+                + " (it must listen on a reachable address: «peers --listen» on it)";
+        return r;
+    }
+    std::string puerto;
+    std::string testigo;
+    for (const std::string& l : splitLines(respuesta)) {
+        const std::string x = trim(l);
+        if (x.rfind("PORT=", 0) == 0) puerto = x.substr(5);
+        if (x.rfind("TOKEN=", 0) == 0) testigo = x.substr(6);
+    }
+    if (puerto.empty() || testigo.empty()) {
+        r.rc = 1;
+        r.err = "the daemon of «" + conexion + "» returned no port and token";
+        return r;
+    }
+    // runZfsSendToPeerCapture recibe: snap host puerto testigo [base [banderas [reanudar]]].
+    // Se le da el argv ya partido: el snapshot es el último, y lo de en medio son banderas
+    // y la base de «-I».
+    if (!testigoReanudar.empty()) {
+        return runZfsSendToPeerCapture({std::string(), peer.host, puerto, testigo, std::string(),
+                                        std::string(), testigoReanudar},
+                                       avance);
+    }
+    std::string banderas;
+    std::string base;
+    for (std::size_t i = 1; i + 1 < sendArgv.size(); ++i) {
+        if (sendArgv[i] == "-I" && i + 2 < sendArgv.size()) {
+            base = sendArgv[++i];
+            continue;
+        }
+        banderas += (banderas.empty() ? "" : " ") + sendArgv[i];
+    }
+    return runZfsSendToPeerCapture({sendArgv.back(), peer.host, puerto, testigo, base, banderas},
+                                   avance);
+}
 
 struct GsaNivelado {
     GsaPaso paso;           // la nivelación en sí
@@ -6092,7 +6338,8 @@ struct GsaNivelado {
 //   - y si el destino tiene, por detrás de la base, snapshots que el origen no tiene, NO manda
 //     nada: `recv -F` los destruiría. Se dice cuáles.
 GsaNivelado gsaNivela(const std::string& ds, bool recursive, const std::string& dstSpec,
-                      const GsaTargetConn& target, const GsaLog& log) {
+                      const GsaTargetConn& target, const TransferProgressFn& avance,
+                      const GsaLog& log) {
     namespace G = zfsmgr::base::gsa;
     GsaNivelado res;
     res.paso.hecho = true;
@@ -6120,8 +6367,70 @@ GsaNivelado gsaNivela(const std::string& ds, bool recursive, const std::string& 
         return falla("the source has no snapshots to send");
     }
 
-    // ── El destino: si existe y qué snapshots tiene.
     GsaPeer peer;
+    if (!isLocal && !gsaCargaPeer(conexionDestino, peer)) {
+        // Que falte el par NO es «saltarse» esta nivelación: es un fallo, y se dice qué hacer.
+        return falla("no credentials for the connection «" + conexionDestino + "» in "
+                     + std::string(kPeersPath) + "; run «peers --push» on this machine");
+    }
+
+    // ── Lo que quedó A MEDIAS en el destino, primero.
+    //
+    // El receptor recibe con `-s`, así que un corte —la red, una cancelación, un reinicio—
+    // deja allí un testigo, y mientras exista el destino no acepta ningún otro flujo. Se
+    // continúa con `zfs send -t`. Si el testigo ya no sirve —la poda borró el snapshot que
+    // se estaba mandando—, se descarta lo recibido y se empieza de cero, diciéndolo.
+    {
+        const zfsmgr::base::transfer::AgentCall llama =
+            [&](const zfsmgr::base::ConnectionProfile&, const std::vector<std::string>& args,
+                int, std::string& out, std::string& errOut, int& rc) {
+                if (args.empty()) return false;
+                if (isLocal) {
+                    const ExecResult x = executeAgentCommandCapture(
+                        args[0], std::vector<std::string>(args.begin() + 1, args.end()), "zfsmgr-agent");
+                    out = x.out;
+                    errOut = x.err;
+                    rc = x.rc;
+                    return true;
+                }
+                std::string e;
+                const GsaRpc g = gsaPeerRpc(peer, args[0],
+                                            std::vector<std::string>(args.begin() + 1, args.end()),
+                                            out, e);
+                errOut = e;
+                rc = g == GsaRpc::Ok ? 0 : 1;
+                return g != GsaRpc::NoLlega;
+            };
+        const zfsmgr::base::transfer::Resume aMedias =
+            zfsmgr::base::transfer::findResumeToken(llama, zfsmgr::base::ConnectionProfile{}, dstDataset);
+        if (aMedias.any()) {
+            const ExecResult prueba = runExecCapture("zfs", {"send", "-n", "-t", aMedias.token});
+            if (prueba.rc != 0) {
+                log("WARN", "GSA level of " + ds + ": the partial receive on " + aMedias.heldBy
+                                + " cannot be resumed (" + trim(prueba.err)
+                                + "); it is discarded and the levelling starts over");
+                std::string e;
+                if (!enDestinoAborta(isLocal, peer, aMedias.heldBy, e)) {
+                    return falla("cannot discard the partial receive on " + aMedias.heldBy + ": " + e);
+                }
+            } else {
+                log("INFO", "GSA level resuming " + ds + " -> " + dstUrl + " on " + aMedias.heldBy);
+                const ExecResult rr = gsaEnviaFlujo(isLocal, peer, conexionDestino,
+                                                    {"send", "-t", aMedias.token}, aMedias.heldBy,
+                                                    /*incremental=*/false, aMedias.token, avance);
+                if (gsaParado()) {
+                    return falla(g_stop.load() ? "the daemon is stopping" : "cancelled");
+                }
+                if (rr.rc != 0) {
+                    return falla("resuming the partial receive on " + dstUrl + " failed: "
+                                 + (trim(rr.err).empty() ? "exit " + std::to_string(rr.rc) : trim(rr.err)));
+                }
+                log("INFO", "GSA level resumed " + ds + " -> " + dstUrl);
+            }
+        }
+    }
+
+    // ── El destino: si existe y qué snapshots tiene.
     bool destinoExiste = false;
     std::vector<G::SnapRef> destino;
     if (isLocal) {
@@ -6134,11 +6443,6 @@ GsaNivelado gsaNivela(const std::string& ds, bool recursive, const std::string& 
             return falla("cannot list the snapshots of " + dstUrl + ": " + err);
         }
     } else {
-        // Que falte el par NO es «saltarse» esta nivelación: es un fallo, y se dice qué hacer.
-        if (!gsaCargaPeer(conexionDestino, peer)) {
-            return falla("no credentials for the connection «" + conexionDestino + "» in "
-                         + std::string(kPeersPath) + "; run «peers --push» on this machine");
-        }
         std::string salida;
         std::string errPeer;
         switch (gsaPeerRpc(peer, "--dump-zfs-list-all", {dstDataset}, salida, errPeer)) {
@@ -6236,53 +6540,21 @@ GsaNivelado gsaNivela(const std::string& ds, bool recursive, const std::string& 
         const std::string sendOpts = recursive ? "-wLecR" : "-wLec";
         log("INFO", "GSA level start for " + ds + " -> " + dstUrl
                         + (incremental ? " from @" + plan.base : " (full)") + " to @" + ultimo);
-        if (isLocal) {
-            std::vector<std::string> sendArgv = {"send", sendOpts};
-            if (incremental) {
-                sendArgv.push_back("-I");
-                sendArgv.push_back("@" + plan.base);
-            }
-            sendArgv.push_back(ds + "@" + ultimo);
-            std::vector<std::string> recvArgv = {"recv", "-u"};
-            if (recursive) {
-                recvArgv.push_back("-s");
-            }
-            if (incremental) {
-                recvArgv.push_back("-F");
-            }
-            recvArgv.push_back(dstDataset);
-            const ExecResult r = ejecutaTuberiaZfsLocal(sendArgv, recvArgv);
-            if (r.rc != 0) {
-                return falla("sending to " + dstUrl + " failed (exit " + std::to_string(r.rc) + ")"
-                             + (trim(r.err).empty() ? "" : ": " + trim(r.err)));
-            }
-        } else {
-            std::string respuesta;
-            std::string errPeer;
-            if (gsaPeerRpc(peer, "--zfs-recv-listen", {dstDataset, incremental ? "1" : "0"},
-                           respuesta, errPeer) != GsaRpc::Ok) {
-                return falla("the daemon of «" + conexionDestino + "» could not listen: " + errPeer
-                             + " (it must listen on a reachable address: «peers --listen» on it)");
-            }
-            std::string puerto;
-            std::string testigo;
-            for (const std::string& l : splitLines(respuesta)) {
-                const std::string s = trim(l);
-                if (s.rfind("PORT=", 0) == 0) puerto = s.substr(5);
-                if (s.rfind("TOKEN=", 0) == 0) testigo = s.substr(6);
-            }
-            if (puerto.empty() || testigo.empty()) {
-                return falla("the daemon of «" + conexionDestino + "» returned no port and token");
-            }
-            const ExecResult env = runZfsSendToPeerCapture(
-                {ds + "@" + ultimo, peer.host, puerto, testigo,
-                 incremental ? "@" + plan.base : std::string(), sendOpts},
-                nullptr);
-            if (env.rc != 0) {
-                return falla("sending to " + dstUrl + " failed: "
-                             + (trim(env.err).empty() ? "exit " + std::to_string(env.rc)
-                                                      : trim(env.err)));
-            }
+        std::vector<std::string> sendArgv = {"send", sendOpts};
+        if (incremental) {
+            sendArgv.push_back("-I");
+            sendArgv.push_back("@" + plan.base);
+        }
+        sendArgv.push_back(ds + "@" + ultimo);
+        const ExecResult r = gsaEnviaFlujo(isLocal, peer, conexionDestino, sendArgv, dstDataset,
+                                           incremental, std::string(), avance);
+        if (gsaParado()) {
+            return falla(g_stop.load() ? "the daemon is stopping" : "cancelled");
+        }
+        if (r.rc != 0) {
+            return falla("sending to " + dstUrl + " failed"
+                         + (trim(r.err).empty() ? " (exit " + std::to_string(r.rc) + ")"
+                                                : ": " + trim(r.err)));
         }
         res.enviado = ultimo;
         res.guidBase = origen.back().guid;
@@ -6370,10 +6642,17 @@ zfsmgr::base::json::Value gsaEntradaDe(const std::string& ds) {
     return gsaLeeEstadoSinBloqueo()["datasets"][ds];
 }
 
-void gsaGuardaEntrada(const std::string& ds, const zfsmgr::base::json::Value& entrada) {
+// Cambiar la entrada de un dataset LEYÉNDOLA Y ESCRIBIÉNDOLA de una vez, con el cerrojo
+// puesto. La pasada y el trabajo de nivelación escriben la misma entrada desde hilos
+// distintos, cada uno sus campos; con «leer al principio, escribir al final» uno pisaba lo
+// que el otro había escrito entre medias.
+void gsaActualizaEntrada(const std::string& ds,
+                         const std::function<void(zfsmgr::base::json::Value&)>& cambia) {
     std::lock_guard<std::mutex> lock(g_gsaEstado);
     zfsmgr::base::json::Value raiz = gsaLeeEstadoSinBloqueo();
     zfsmgr::base::json::Value datasets = raiz["datasets"];
+    zfsmgr::base::json::Value entrada = datasets[ds];
+    cambia(entrada);
     datasets.set(ds, entrada);
     raiz.set("datasets", datasets);
     gsaGuardaEstadoSinBloqueo(raiz);
@@ -6427,12 +6706,178 @@ std::string gsaAncestroRecursivo(const std::string& ds) {
     }
 }
 
-void gsaProcesaDataset(const std::string& ds, const std::string& selfConn, const GsaLog& log) {
+GsaLog gsaLogDelDaemon() {
+    // Al registro del DAEMON, no a uno aparte, y con su nivel: un fallo es ERROR, no INFO.
+    return [](const char* nivel, const std::string& linea) { daemonLog(nivel, linea); };
+}
+
+// ── La nivelación como TRABAJO del daemon ───────────────────────────────────────────
+//
+// Antes se hacía dentro de la pasada: no salía en `jobs`, no se veía su avance, `job cancel`
+// no la paraba, y mientras duraba —una primera nivelación son horas— el resto de los
+// datasets se quedaba sin snapshots. Ahora la pasada solo decide (`decideLevel`) y lanza un
+// trabajo «gsa-level» en otro hilo, que al acabar deja su resultado en el estado.
+//
+// Uno por dataset y dos a la vez como mucho; los demás esperan «en cola».
+std::mutex g_gsaNivMutex;
+std::condition_variable g_gsaNivCv;
+int g_gsaNivEnMarcha = 0;
+constexpr int kGsaNivMax = 2;
+std::map<std::string, std::string> g_gsaNivPorDataset;   // dataset -> id del trabajo
+
+bool gsaNivelandose(const std::string& ds) {
+    std::lock_guard<std::mutex> lock(g_gsaNivMutex);
+    return g_gsaNivPorDataset.count(ds) > 0;
+}
+
+bool gsaTrabajoCancelado(const std::string& id) {
+    std::lock_guard<std::mutex> lock(g_jobsMutex);
+    const auto it = g_jobs.find(id);
+    return it != g_jobs.end() && it->second.state == JobState::Cancelled;
+}
+
+std::string gsaLanzaNivelacion(const std::string& ds, bool recursive, const std::string& dstSpec,
+                               const GsaTargetConn& target, const GsaLog& log) {
+    const std::string id = generateJobId();
+    if (id.empty()) {
+        log("ERROR", "GSA level error for " + ds + ": could not create a job id");
+        return {};
+    }
+    {
+        DaemonJob j;
+        j.id = id;
+        j.type = "gsa-level";
+        j.state = JobState::Queued;
+        j.snap = ds;
+        j.dstDataset = dstSpec;
+        j.startedAtUtc = utcNowIsoString();
+        j.description = "gsa level " + ds + " -> " + zfsmgr::base::gsa::destinationAsUrl(dstSpec);
+        std::lock_guard<std::mutex> lock(g_jobsMutex);
+        g_jobs[id] = j;
+        persistJobsLocked();
+    }
+    {
+        std::lock_guard<std::mutex> lock(g_gsaNivMutex);
+        g_gsaNivPorDataset[ds] = id;
+    }
+    gsaActualizaEntrada(ds, [&](zfsmgr::base::json::Value& e) {
+        zfsmgr::base::json::Value t;
+        t.set("id", zfsmgr::base::json::Value(id));
+        e.set("level_job", t);
+    });
+    log("INFO", "GSA level job " + id + " queued for " + ds);
+
+    std::thread([id, ds, recursive, dstSpec, target]() {
+        t_currentJobId = id;
+        const GsaLog log = gsaLogDelDaemon();
+        // Esperar turno.
+        {
+            std::unique_lock<std::mutex> lock(g_gsaNivMutex);
+            while (g_gsaNivEnMarcha >= kGsaNivMax && !g_stop.load() && !gsaTrabajoCancelado(id)) {
+                g_gsaNivCv.wait_for(lock, std::chrono::seconds(2));
+            }
+            if (!g_stop.load() && !gsaTrabajoCancelado(id)) {
+                ++g_gsaNivEnMarcha;
+            }
+        }
+        const bool tuvoTurno = !g_stop.load() && !gsaTrabajoCancelado(id);
+        GsaNivelado n;
+        if (tuvoTurno) {
+            {
+                std::lock_guard<std::mutex> lock(g_jobsMutex);
+                auto it = g_jobs.find(id);
+                if (it != g_jobs.end()) {
+                    it->second.state = JobState::Running;
+                    persistJobsLocked();
+                }
+            }
+            const TransferProgressFn avance = [&id](std::uint64_t bytes, long segs, double mibs) {
+                reportJobCounters(bytes, mibs, segs);
+                char linea[160];
+                std::snprintf(linea, sizeof(linea), "%.1f MiB @ %.1f MiB/s, %lds",
+                              static_cast<double>(bytes) / (1024.0 * 1024.0), mibs, segs);
+                reportJobProgress(linea);
+                return !g_stop.load() && !gsaTrabajoCancelado(id);
+            };
+            n = gsaNivela(ds, recursive, dstSpec, target, avance, log);
+            {
+                std::lock_guard<std::mutex> lock(g_gsaNivMutex);
+                --g_gsaNivEnMarcha;
+            }
+            g_gsaNivCv.notify_all();
+        }
+        const bool cancelado = gsaTrabajoCancelado(id);
+        const bool parado = g_stop.load() && !cancelado;
+        const long long ahora = static_cast<long long>(std::time(nullptr));
+        {
+            std::lock_guard<std::mutex> lock(g_jobsMutex);
+            auto it = g_jobs.find(id);
+            if (it != g_jobs.end()) {
+                if (!cancelado) {
+                    it->second.state = n.paso.ok && tuvoTurno ? JobState::Done : JobState::Failed;
+                    it->second.errorText = parado ? "the daemon is stopping" : n.paso.error;
+                }
+                it->second.finishedAtUtc = utcNowIsoString();
+                persistJobsLocked();
+            }
+        }
+        gsaActualizaEntrada(ds, [&](zfsmgr::base::json::Value& e) {
+            namespace J = zfsmgr::base::json;
+            const J::Value previo = e["level_result"];
+            J::Value reg;
+            reg.set("time", J::Value(ahora));
+            reg.set("job", J::Value(id));
+            const bool ok = tuvoTurno && n.paso.ok && !cancelado;
+            reg.set("ok", J::Value(ok));
+            if (ok) {
+                reg.set("sent", J::Value(n.enviado));
+                reg.set("base_guid", J::Value(n.guidBase));
+            } else {
+                std::string motivo = n.paso.error;
+                if (cancelado) {
+                    motivo = "cancelled by the user (job " + id + ")";
+                    reg.set("cancelled", J::Value(true));
+                } else if (parado) {
+                    motivo = "the daemon stopped while levelling";
+                }
+                reg.set("error", J::Value(motivo));
+                // La base sigue siendo la de la última vez que fue bien: es la que hay que
+                // seguir protegiendo de la poda.
+                reg.set("base_guid", J::Value(previo["base_guid"].toString()));
+                reg.set("sent", J::Value(previo["sent"].toString()));
+            }
+            e.set("level_result", reg);
+            if (n.podaDestino.hecho || ok) {
+                J::Value rp = gsaRegistroDe(n.podaDestino, ahora);
+                rp.set("destroyed", J::Value(n.borradosEnDestino));
+                e.set("target_prune", rp);
+            }
+            e.remove("level_job");
+        });
+        {
+            std::lock_guard<std::mutex> lock(g_gsaNivMutex);
+            g_gsaNivPorDataset.erase(ds);
+        }
+        if (cancelado) {
+            log("WARN", "GSA level job " + id + " for " + ds + " cancelled by the user");
+        }
+    }).detach();
+    return id;
+}
+
+// Lo que se hace con un dataset en cada pasada. Devuelve el id del trabajo de nivelación que
+// se haya lanzado, si se lanzó alguno.
+std::string gsaProcesaDataset(const std::string& ds, const std::string& selfConn, bool forzado,
+                              const GsaLog& log) {
     namespace J = zfsmgr::base::json;
+    namespace G = zfsmgr::base::gsa;
     const GsaProgramacion p = gsaLeeProgramacion(ds);
     const long long ahora = static_cast<long long>(std::time(nullptr));
-    J::Value entrada = gsaEntradaDe(ds);
-    const J::Value previoNivel = entrada["level_result"];
+    const J::Value previo = gsaEntradaDe(ds);
+    const J::Value previoNivel = previo["level_result"];
+    // Con una nivelación en marcha, ni se poda el origen ni se renombra: `zfs send -I` está
+    // leyendo esos snapshots. Se recupera en la primera pasada después de acabar.
+    const bool nivelandose = gsaNivelandose(ds);
 
     const std::vector<std::string> due =
         gsaDueClasses(ds, p.hourly, p.daily, p.weekly, p.monthly, p.yearly, std::time(nullptr));
@@ -6442,12 +6887,9 @@ void gsaProcesaDataset(const std::string& ds, const std::string& selfConn, const
         log("INFO", "GSA evaluate " + ds + ": recursive=" + (p.recursive ? "yes" : "no")
                         + " hourly=" + std::to_string(p.hourly) + " daily=" + std::to_string(p.daily)
                         + " weekly=" + std::to_string(p.weekly) + " monthly=" + std::to_string(p.monthly)
-                        + " yearly=" + std::to_string(p.yearly) + " due=" + dueStr);
+                        + " yearly=" + std::to_string(p.yearly) + " due=" + dueStr
+                        + (nivelandose ? " (levelling in progress)" : ""));
     }
-    entrada.set("last_eval", J::Value(ahora));
-    entrada.set("level", J::Value(p.levelOn));
-    entrada.set("destination", J::Value(p.dstSpec));
-    entrada.remove("pending");
 
     // 1) Los snapshots que tocan. Si fallan dos clases se queda el primer fallo, y uno que
     //    va bien detrás no lo tapa.
@@ -6458,7 +6900,7 @@ void gsaProcesaDataset(const std::string& ds, const std::string& selfConn, const
     for (const std::string& klass : due) {
         if (g_stop.load()) break;
         std::string nombre;
-        const GsaPaso paso = gsaHazSnapshot(ds, klass, p.recursive, nombre, log);
+        const GsaPaso paso = gsaHazSnapshot(ds, klass, p.recursive, !nivelandose, nombre, log);
         algunSnapshot = true;
         if (!nombre.empty()) {
             nombreSnapshot = nombre;
@@ -6468,80 +6910,73 @@ void gsaProcesaDataset(const std::string& ds, const std::string& selfConn, const
             pasoSnapshot = paso;
         }
     }
-    if (algunSnapshot) {
-        J::Value reg = gsaRegistroDe(pasoSnapshot, ahora);
-        if (!nombreSnapshot.empty()) {
-            reg.set("name", J::Value(nombreSnapshot));
-        }
-        entrada.set("snapshot", reg);
-    }
 
-    // 2) La poda del origen, en cada pasada: su disparador no es que toque un snapshot nuevo
-    //    sino que sobren viejos, que es lo que pasa justo después de bajar una retención.
-    //    La base de la nivelación queda protegida.
+    // 2) La poda del origen, en cada pasada —su disparador no es que toque un snapshot nuevo
+    //    sino que sobren viejos—, salvo con una nivelación en marcha. La base de la
+    //    nivelación queda protegida.
     const std::string guidBase = p.levelOn ? previoNivel["base_guid"].toString() : std::string();
     int borrados = 0;
     bool baseConservada = false;
     GsaPaso poda;
-    for (const char* klass : {"hourly", "daily", "weekly", "monthly", "yearly"}) {
-        if (g_stop.load()) break;
-        const int keep = (std::string(klass) == "hourly")    ? p.hourly
-                         : (std::string(klass) == "daily")   ? p.daily
-                         : (std::string(klass) == "weekly")  ? p.weekly
-                         : (std::string(klass) == "monthly") ? p.monthly
-                                                             : p.yearly;
-        const GsaPaso uno = gsaPoda(ds, klass, keep, p.recursive, guidBase, borrados,
-                                    baseConservada, log);
-        if (!uno.ok && poda.ok) {
-            poda = uno;
+    if (!nivelandose) {
+        for (const char* klass : {"hourly", "daily", "weekly", "monthly", "yearly"}) {
+            if (g_stop.load()) break;
+            const int keep = (std::string(klass) == "hourly")    ? p.hourly
+                             : (std::string(klass) == "daily")   ? p.daily
+                             : (std::string(klass) == "weekly")  ? p.weekly
+                             : (std::string(klass) == "monthly") ? p.monthly
+                                                                 : p.yearly;
+            const GsaPaso uno = gsaPoda(ds, klass, keep, p.recursive, guidBase, borrados,
+                                        baseConservada, log);
+            if (!uno.ok && poda.ok) {
+                poda = uno;
+            }
         }
-    }
-    {
-        J::Value reg = gsaRegistroDe(poda, ahora);
-        reg.set("destroyed", J::Value(borrados));
-        reg.set("kept_base", J::Value(baseConservada));
-        entrada.set("prune", reg);
     }
 
-    // 3) La nivelación: tras un snapshot nuevo, tras podar el origen —para podar el destino a
-    //    la vez—, si la anterior falló —sin esperar al periodo siguiente, que puede ser una
-    //    semana— o si nunca se ha hecho.
-    if (p.levelOn && !g_stop.load()) {
-        const bool tocaNivelar = hayNuevo || borrados > 0 || !previoNivel.isObject()
-                                 || !previoNivel["ok"].toBool(false);
-        if (tocaNivelar) {
-            GsaTargetConn target;
-            const std::size_t sep = p.dstSpec.find("::");
-            if (sep != std::string::npos
-                && gsaDestinoSoyYo(trim(p.dstSpec.substr(0, sep)), selfConn)) {
-                target.mode = "local";
+    gsaActualizaEntrada(ds, [&](J::Value& e) {
+        e.set("last_eval", J::Value(ahora));
+        e.set("level", J::Value(p.levelOn));
+        e.set("destination", J::Value(p.dstSpec));
+        e.remove("pending");
+        if (algunSnapshot) {
+            J::Value reg = gsaRegistroDe(pasoSnapshot, ahora);
+            if (!nombreSnapshot.empty()) {
+                reg.set("name", J::Value(nombreSnapshot));
             }
-            const GsaNivelado n = gsaNivela(ds, p.recursive, p.dstSpec, target, log);
-            J::Value reg = gsaRegistroDe(n.paso, ahora);
-            if (n.paso.ok) {
-                reg.set("sent", J::Value(n.enviado));
-                reg.set("base_guid", J::Value(n.guidBase));
-            } else {
-                // La base sigue siendo la de la última vez que fue bien: es la que hay que
-                // seguir protegiendo.
-                reg.set("base_guid", J::Value(previoNivel["base_guid"].toString()));
-                reg.set("sent", J::Value(previoNivel["sent"].toString()));
-                reg.set("last_ok", J::Value(previoNivel["ok"].toBool(false)
-                                                ? previoNivel["time"].toInt(0)
-                                                : previoNivel["last_ok"].toInt(0)));
-            }
-            entrada.set("level_result", reg);
-            if (n.podaDestino.hecho || n.paso.ok) {
-                J::Value rp = gsaRegistroDe(n.podaDestino, ahora);
-                rp.set("destroyed", J::Value(n.borradosEnDestino));
-                entrada.set("target_prune", rp);
-            }
+            e.set("snapshot", reg);
         }
-    } else if (!p.levelOn) {
-        entrada.remove("level_result");
-        entrada.remove("target_prune");
+        if (!nivelandose) {
+            J::Value reg = gsaRegistroDe(poda, ahora);
+            reg.set("destroyed", J::Value(borrados));
+            reg.set("kept_base", J::Value(baseConservada));
+            e.set("prune", reg);
+        }
+        if (!p.levelOn) {
+            e.remove("level_result");
+            e.remove("target_prune");
+        }
+    });
+
+    // 3) ¿Nivelar? Lo decide la capa base; aquí solo se lanza.
+    G::LevelTrigger t;
+    t.levelOn = p.levelOn;
+    t.jobActive = nivelandose;
+    t.newSnapshot = hayNuevo;
+    t.prunedSource = borrados > 0;
+    t.forced = forzado;
+    t.hasPrevious = previoNivel.isObject();
+    t.previousOk = previoNivel["ok"].toBool(false);
+    t.previousCancelled = previoNivel["cancelled"].toBool(false);
+    if (g_stop.load() || G::decideLevel(t) != G::LevelAction::Start) {
+        return {};
     }
-    gsaGuardaEntrada(ds, entrada);
+    GsaTargetConn target;
+    const std::size_t sep = p.dstSpec.find("::");
+    if (sep != std::string::npos && gsaDestinoSoyYo(trim(p.dstSpec.substr(0, sep)), selfConn)) {
+        target.mode = "local";
+    }
+    return gsaLanzaNivelacion(ds, p.recursive, p.dstSpec, target, log);
 }
 
 void gsaRunOnce(const GsaLog& log) {
@@ -6571,7 +7006,7 @@ void gsaRunOnce(const GsaLog& log) {
             }
             if (cubierto || !gsaAncestroRecursivo(ds).empty()) continue;
             programados.insert(ds);
-            gsaProcesaDataset(ds, selfConn, log);
+            gsaProcesaDataset(ds, selfConn, /*forzado=*/false, log);
             if (gsaBoolOn(gsaPropValue(ds, "org.fc16.gsa:recursivo", false))) {
                 raicesRecursivas.push_back(ds);
             }
@@ -6594,10 +7029,6 @@ void gsaRunOnce(const GsaLog& log) {
     }
 }
 
-GsaLog gsaLogDelDaemon() {
-    // Al registro del DAEMON, no a uno aparte, y con su nivel: un fallo es ERROR, no INFO.
-    return [](const char* nivel, const std::string& linea) { daemonLog(nivel, linea); };
-}
 
 // Una pasada para UN dataset, ya. Para comprobar una programación tras arreglar lo que
 // fallaba sin esperar cinco minutos, y para probarla. Nunca recorre todos los datasets.
@@ -6624,17 +7055,24 @@ ExecResult runGsaRunOnceCapture(const std::string& ds) {
         daemonLog(nivel, linea);
         lineas.push_back(std::string(nivel) + " " + linea);
     };
+    std::string trabajo;
     {
         std::lock_guard<std::mutex> pasada(g_gsaPasada);
-        gsaProcesaDataset(ds, gsaYoMismo(), log);
+        trabajo = gsaProcesaDataset(ds, gsaYoMismo(), /*forzado=*/true, log);
     }
     for (const std::string& l : lineas) {
         r.out += l + "\n";
     }
+    // La nivelación va aparte, como trabajo: aquí solo se dice cuál. Quien quiera esperarla
+    // sigue ese trabajo (`schedule run --wait`).
+    if (!trabajo.empty()) {
+        r.out += "JOB_ID=" + trabajo + "\n";
+    } else if (gsaNivelandose(ds)) {
+        std::lock_guard<std::mutex> lock(g_gsaNivMutex);
+        r.out += "JOB_ID=" + g_gsaNivPorDataset[ds] + "\nALREADY_RUNNING=1\n";
+    }
     const zfsmgr::base::json::Value e = gsaEntradaDe(ds);
-    const bool mal = !e["snapshot"]["ok"].toBool(true) || !e["prune"]["ok"].toBool(true)
-                     || (e.contains("level_result") && !e["level_result"]["ok"].toBool(true))
-                     || (e.contains("target_prune") && !e["target_prune"]["ok"].toBool(true));
+    const bool mal = !e["snapshot"]["ok"].toBool(true) || !e["prune"]["ok"].toBool(true);
     r.rc = mal ? 1 : 0;
     return r;
 }
@@ -6666,7 +7104,22 @@ ExecResult runDumpGsaStatusCapture() {
                 const std::string ds = trim(l.substr(0, tab));
                 if (!gsaBoolOn(trim(l.substr(tab + 1)))) continue;
                 if (raiz["datasets"].contains(ds)) {
-                    datasets.set(ds, raiz["datasets"][ds]);
+                    J::Value e = raiz["datasets"][ds];
+                    // El trabajo de nivelación en curso, con lo que lleva: eso no está en el
+                    // fichero, está en la lista de trabajos.
+                    const std::string id = e["level_job"]["id"].toString();
+                    if (!id.empty()) {
+                        J::Value t = e["level_job"];
+                        std::lock_guard<std::mutex> lock(g_jobsMutex);
+                        const auto it = g_jobs.find(id);
+                        if (it != g_jobs.end()) {
+                            t.set("state", J::Value(it->second.state == JobState::Queued ? "queued"
+                                                                                         : "running"));
+                            t.set("bytes", J::Value(static_cast<long long>(it->second.bytesTransferred)));
+                        }
+                        e.set("level_job", t);
+                    }
+                    datasets.set(ds, e);
                     continue;
                 }
                 // Los cubiertos por una recursiva no tienen entrada propia, y no la tendrán.
@@ -6691,7 +7144,41 @@ ExecResult runDumpGsaStatusCapture() {
     return r;
 }
 
+// Al arrancar el daemon: una nivelación que constaba EN CURSO no lo está —el proceso que la
+// llevaba ha muerto—. Se anota como fallida, y la siguiente pasada la reintenta continuando
+// lo recibido a medias.
+void gsaCierraNivelacionesHuerfanas() {
+    namespace J = zfsmgr::base::json;
+    std::lock_guard<std::mutex> lock(g_gsaEstado);
+    J::Value raiz = gsaLeeEstadoSinBloqueo();
+    J::Value datasets;
+    bool cambio = false;
+    const long long ahora = static_cast<long long>(std::time(nullptr));
+    for (const auto& kv : raiz["datasets"].toObject()) {
+        J::Value e = kv.second;
+        if (e.contains("level_job")) {
+            const J::Value previo = e["level_result"];
+            J::Value reg;
+            reg.set("time", J::Value(ahora));
+            reg.set("job", J::Value(e["level_job"]["id"].toString()));
+            reg.set("ok", J::Value(false));
+            reg.set("error", J::Value("the daemon restarted while levelling"));
+            reg.set("base_guid", J::Value(previo["base_guid"].toString()));
+            reg.set("sent", J::Value(previo["sent"].toString()));
+            e.set("level_result", reg);
+            e.remove("level_job");
+            cambio = true;
+        }
+        datasets.set(kv.first, e);
+    }
+    if (cambio) {
+        raiz.set("datasets", datasets);
+        gsaGuardaEstadoSinBloqueo(raiz);
+    }
+}
+
 void runGsaSchedulerThread() {
+    gsaCierraNivelacionesHuerfanas();
     // Cada cinco minutos, y la primera pasada a los treinta segundos de arrancar.
     //
     // Despertar a menudo es seguro desde que lo que toca se decide por PERIODO y no por la
@@ -11792,7 +12279,10 @@ int runServeLoop() {
                         exec.rc = 1; exec.out = "ERROR=job not found\n";
                     } else {
                         DaemonJob& j = it->second;
-                        if (j.state != JobState::Running) {
+                        // Una nivelación del planificador puede estar EN COLA esperando turno:
+                        // cancelarla ahí es lo mismo, que no llegue a empezar.
+                        const bool enColaGsa = j.state == JobState::Queued && j.type == "gsa-level";
+                        if (j.state != JobState::Running && !enColaGsa) {
                             exec.rc = 1; exec.out = "ERROR=job not running\n";
                         } else {
 #ifndef _WIN32
