@@ -1,0 +1,32 @@
+name: Formato
+
+# Que las líneas de C++ que toca cada push o pull request cumplan .clang-format. Solo esas:
+# el código anterior no se reformateó de golpe (ver .clang-format).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  formato:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: clang-format 19
+        # pipx: el Python del sistema del runner no deja instalar con pip (PEP 668).
+        run: pipx install clang-format==19.1.7
+      - name: Las líneas cambiadas cumplen el formato
+        env:
+          BASE_PUSH: ${{ github.event.before }}
+          BASE_PR: ${{ github.event.pull_request.base.sha }}
+        run: |
+          base="${BASE_PR:-$BASE_PUSH}"
+          # Un push que crea la rama no trae «before»: se compara con el commit anterior.
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            base="HEAD~1"
+          fi
+          CLANG_FORMAT="$HOME/.local/bin/clang-format" scripts/formato.sh --check "$base"

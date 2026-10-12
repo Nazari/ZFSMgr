@@ -1,0 +1,23 @@
+# Lo mínimo común para cualquier editor. El formato del C++ lo fija .clang-format.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{cpp,h,c,l,y,cmake,py}]
+indent_style = space
+indent_size = 4
+
+[CMakeLists.txt]
+indent_style = space
+indent_size = 4
+
+[*.{sh,yml,yaml,json}]
+indent_style = space
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false

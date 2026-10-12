@@ -1,0 +1,23 @@
+# El estilo del proyecto, escrito para que lo mantenga una herramienta y no la costumbre.
+#
+# Reproduce lo que ya hay: 4 espacios, 100 columnas, llave en la misma línea, punteros pegados
+# al tipo. NO se ha reformateado el código existente de golpe —sería un commit enorme que
+# ensuciaría `git blame`—: `scripts/formato.sh` comprueba solo las líneas que cada cambio toca,
+# y el CI hace lo mismo con cada push.
+BasedOnStyle: Google
+IndentWidth: 4
+ColumnLimit: 100
+AccessModifierOffset: -4
+PointerAlignment: Left
+DerivePointerAlignment: false
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Never
+BreakBeforeBinaryOperators: NonAssignment
+SpacesBeforeTrailingComments: 2
+# Los comentarios se escriben a mano, con su sangría: no se rehacen.
+ReflowComments: false
+# Los includes van agrupados a propósito (el propio, la biblioteca estándar, el sistema).
+IncludeBlocks: Preserve
+SortIncludes: Never

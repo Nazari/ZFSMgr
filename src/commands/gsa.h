@@ -31,8 +31,7 @@
 // See docs/propuesta_gsa_cli.md.
 namespace zfsmgr::base::gsa {
 
-// The property prefix. The names themselves are in Spanish because that is how they are on
-// machines already out there, and renaming them would break their schedules.
+// The property prefix: `org.zfsmgr:schedule-enabled`, `-recursive`, `-hourly`… `-target`.
 extern const char* const kPropertyPrefix;
 
 struct Schedule {
