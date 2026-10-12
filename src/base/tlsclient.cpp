@@ -1,3 +1,4 @@
+#include "agentmsg.h"
 #include "tlsclient.h"
 
 #include <openssl/err.h>
@@ -88,7 +89,7 @@ SockT conecta(const std::string& host, unsigned short port, int timeoutMs, std::
     addrinfo* res = nullptr;
     const std::string puerto = std::to_string(port);
     if (getaddrinfo(host.c_str(), puerto.c_str(), &pistas, &res) != 0 || !res) {
-        error = "no se pudo resolver " + host;
+        error = agentmsg::inClientLanguage("tls_cannot_resolve", {host});
         return kSockInvalido;
     }
     SockT s = kSockInvalido;
@@ -106,7 +107,7 @@ SockT conecta(const std::string& host, unsigned short port, int timeoutMs, std::
     }
     freeaddrinfo(res);
     if (s == kSockInvalido) {
-        error = "no se pudo conectar a " + host + ":" + puerto;
+        error = agentmsg::inClientLanguage("tls_cannot_connect", {host + ":" + puerto});
     }
     return s;
 }
@@ -172,7 +173,7 @@ bool tlsRequestLine(const TlsClientConfig& cfg,
     error.clear();
     failure = TlsFailure::None;
     if (cfg.host.empty() || cfg.port == 0) {
-        error = "destino sin host o sin puerto";
+        error = agentmsg::inClientLanguage("tls_no_target", {});
         failure = TlsFailure::Connect;
         return false;
     }
@@ -189,18 +190,18 @@ bool tlsRequestLine(const TlsClientConfig& cfg,
     // veinte returns es como se filtran descriptores y contextos.
     do {
         if (!certEsperado) {
-            error = "el certificado del daemon no es un PEM válido";
+            error = agentmsg::inClientLanguage("tls_bad_server_cert", {});
             failure = TlsFailure::BadMaterial;
             break;
         }
         if (!certCliente || !claveCliente) {
-            error = "el certificado o la clave del cliente no son PEM válidos";
+            error = agentmsg::inClientLanguage("tls_bad_client_cert", {});
             failure = TlsFailure::BadMaterial;
             break;
         }
         ctx = SSL_CTX_new(TLS_client_method());
         if (!ctx) {
-            error = "no se pudo crear el contexto TLS";
+            error = agentmsg::inClientLanguage("tls_no_context", {});
             failure = TlsFailure::Handshake;
             break;
         }
@@ -211,7 +212,7 @@ bool tlsRequestLine(const TlsClientConfig& cfg,
         SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, nullptr);
         if (SSL_CTX_use_certificate(ctx, certCliente) != 1
             || SSL_CTX_use_PrivateKey(ctx, claveCliente) != 1) {
-            error = "el certificado y la clave del cliente no casan: " + ultimoErrorOpenssl();
+            error = agentmsg::inClientLanguage("tls_key_mismatch", {ultimoErrorOpenssl()});
             failure = TlsFailure::BadMaterial;
             break;
         }
@@ -223,7 +224,7 @@ bool tlsRequestLine(const TlsClientConfig& cfg,
         }
         ssl = SSL_new(ctx);
         if (!ssl) {
-            error = "no se pudo crear la sesión TLS";
+            error = agentmsg::inClientLanguage("tls_no_session", {});
             failure = TlsFailure::Handshake;
             break;
         }
@@ -232,7 +233,7 @@ bool tlsRequestLine(const TlsClientConfig& cfg,
         // nombre real y no quedarse esperando.
         SSL_set_tlsext_host_name(ssl, cfg.host.c_str());
         if (SSL_connect(ssl) != 1) {
-            error = "no se pudo negociar TLS: " + ultimoErrorOpenssl();
+            error = agentmsg::inClientLanguage("tls_handshake", {ultimoErrorOpenssl()});
             failure = TlsFailure::Handshake;
             break;
         }
@@ -240,14 +241,14 @@ bool tlsRequestLine(const TlsClientConfig& cfg,
         // --- LA FIJACIÓN. Es la única validación del par, y va ANTES de escribir nada.
         X509* certPar = SSL_get1_peer_certificate(ssl);
         if (!certPar) {
-            error = "el daemon no presentó certificado";
+            error = agentmsg::inClientLanguage("tls_no_peer_cert", {});
             failure = TlsFailure::Pinning;
             break;
         }
         const bool esElEsperado = X509_cmp(certPar, certEsperado) == 0;
         X509_free(certPar);
         if (!esElEsperado) {
-            error = "el certificado del daemon no es el esperado";
+            error = agentmsg::inClientLanguage("tls_cert_mismatch", {});
             failure = TlsFailure::Pinning;
             break;
         }
@@ -264,7 +265,7 @@ bool tlsRequestLine(const TlsClientConfig& cfg,
             const int n = SSL_write(ssl, peticion.data() + escrito,
                                     static_cast<int>(peticion.size() - escrito));
             if (n <= 0) {
-                error = "se cortó al enviar la petición";
+                error = agentmsg::inClientLanguage("tls_write_cut", {});
                 failure = TlsFailure::Write;
                 break;
             }
@@ -359,12 +360,12 @@ bool tlsRequestLine(const TlsClientConfig& cfg,
             }
         }
         if (abandonado) {
-            error = "se abandonó la espera de la respuesta";
+            error = agentmsg::inClientLanguage("tls_wait_abandoned", {});
             failure = TlsFailure::Read;
             break;
         }
         if (responseLine.empty()) {
-            error = "el daemon no respondió";
+            error = agentmsg::inClientLanguage("tls_no_answer", {});
             failure = TlsFailure::Read;
             break;
         }

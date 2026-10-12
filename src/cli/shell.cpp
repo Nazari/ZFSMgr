@@ -4354,6 +4354,28 @@ private:
     std::string m_error;
 };
 
+// El error de un trabajo en el idioma de quien lo lee: con código (agentmsg), su frase; sin
+// él —un daemon anterior a los códigos— o con uno que este cliente no conoce, el texto que vino.
+std::string errorDeTrabajo(const std::string& texto, const std::string& codigo,
+                           const std::string& argsJson) {
+    if (codigo.empty()) {
+        return texto;
+    }
+    std::vector<std::string> args;
+    B::json::Value v;
+    std::string err;
+    if (B::json::parse(argsJson.empty() ? "[]" : argsJson, v, &err)) {
+        for (const auto& a : v.toArray()) args.push_back(a.toString());
+    }
+    const std::string frase = B::agentmsg::inClientLanguage(codigo, args);
+    return frase.empty() ? texto : frase;
+}
+
+std::string errorDeTrabajo(const std::map<std::string, std::string>& k) {
+    const auto de = [&](const char* c) { return k.count(c) ? k.at(c) : std::string(); };
+    return errorDeTrabajo(de("ERROR"), de("ERROR_CODE"), de("ERROR_ARGS"));
+}
+
 bool agenteAnuncia(Estado& e, const std::string& conexion, const std::string& capacidad);
 
 // `schedule run`: una pasada del planificador para ESTE dataset, ahora. Lo que el daemon
@@ -4418,7 +4440,7 @@ bool cmdScheduleRun(Estado& e, const ZfsmUrl& destino, bool esperar) {
         if (estado == "running" || estado == "queued") {
             continue;
         }
-        const std::string err = k.count("ERROR") ? k.at("ERROR") : std::string();
+        const std::string err = errorDeTrabajo(k);
         std::fprintf(stderr, TC("t_trabajo_estado_fin", "trabajo %s: %s%s\n"), trabajo.c_str(),
                      estado.c_str(), err.empty() ? "" : (" — " + err).c_str());
         e.ultimoRc = (estado == "done" || estado == "finished") ? 0 : 1;
@@ -5607,7 +5629,7 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
             std::fprintf(stderr, "  %s\n", linea.c_str());
         }
         if (estado != "running") {
-            const std::string err = k.count("ERROR") ? k.at("ERROR") : std::string();
+            const std::string err = errorDeTrabajo(k);
             std::fprintf(stderr, TC("t_trabajo_estado_fin", "trabajo %s: %s%s\n"), jobId.c_str(), estado.c_str(),
                          err.empty() ? "" : (" — " + err).c_str());
             e.ultimoRc = (estado == "done" || estado == "finished") ? 0 : 1;
@@ -6048,7 +6070,8 @@ bool cmdJobs(Estado& e, const LineaAnalizada& linea) {
             char ritmo[32];
             std::snprintf(ritmo, sizeof(ritmo), "%.2f", j["rate"].toDouble());
             // El texto de error puede traer saltos de línea; en una tabla los rompe.
-            std::string textoErr = j["error"].toString();
+            std::string textoErr = errorDeTrabajo(j["error"].toString(), j["error_code"].toString(),
+                                                  B::json::toCompact(j["error_args"]));
             B::replaceAll(textoErr, "\n", " ");
             B::replaceAll(textoErr, "\r", " ");
             std::vector<std::string> fila{idMaquina, j["id"].toString(), j["state"].toString(),
@@ -6117,7 +6140,17 @@ bool cmdJob(Estado& e, const LineaAnalizada& linea) {
     t.cabecerasTexto = {T("t_cab_campo", "CAMPO"), T("t_cab_valor", "VALOR")};
     t.campos = {"field", "value"};
     t.tipos = {Tipo::Cadena, Tipo::Cadena};
-    for (const auto& kv : clavesDe(out)) {
+    const auto claves = clavesDe(out);
+    for (const auto& kv : claves) {
+        // El código del error y sus argumentos no se enseñan sueltos: dan la fila «error» en
+        // el idioma de quien lo lee.
+        if (kv.first == "ERROR_CODE" || kv.first == "ERROR_ARGS") {
+            continue;
+        }
+        if (kv.first == "ERROR") {
+            t.filas.push_back({"error", errorDeTrabajo(claves)});
+            continue;
+        }
         t.filas.push_back({B::toLowerAscii(kv.first), kv.second});
     }
     t.imprime(e.formato);

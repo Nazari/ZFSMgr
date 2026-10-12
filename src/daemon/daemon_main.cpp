@@ -65,6 +65,7 @@ typedef int pid_t;
 #include "base/osinfo.h"
 #include "commands/gsa.h"
 #include "base/agentmsg.h"
+#include "base/i18n.h"
 #include "base/strutil.h"
 #include "base/tlsserver.h"
 #include "base/tlsclient.h"
@@ -315,6 +316,9 @@ struct DaemonJob {
     std::string startedAtUtc;
     std::string finishedAtUtc;
     std::string errorText;
+    // El error como código (agentmsg), para que el CLI lo diga en su idioma.
+    std::string errorCode;
+    std::vector<std::string> errorArgs;
     std::vector<std::string> progressLines; // ring buffer, max 5
     // Qué hace, para quien mira `jobs`: «cp /origen -> /destino (+2)», «send pool/ds@s ->
     // host:puerto». Se compone al recibirlo, que es cuando se tienen los argumentos; el
@@ -405,6 +409,14 @@ using zfsmgr::base::ExecResult;
 // Un fallo DEL PROPIO AGENTE, como código del catálogo (`base/agentmsg`) con sus argumentos.
 // En `err` va además la frase en inglés: es lo que leen los clientes anteriores a los
 // códigos y lo que queda en el registro. Ver agentmsg.h.
+// Lo mismo sobre un resultado que ya lleva otras cosas (la salida, por ejemplo).
+void ponFallo(ExecResult& r, int rc, const std::string& codigo, std::vector<std::string> args) {
+    r.rc = rc;
+    r.code = codigo;
+    r.err = zfsmgr::base::agentmsg::inEnglish(codigo, args) + "\n";
+    r.args = std::move(args);
+}
+
 ExecResult fallo(int rc, const std::string& codigo, std::vector<std::string> args) {
     ExecResult r;
     r.rc = rc;
@@ -6863,6 +6875,8 @@ std::string gsaLanzaNivelacion(const std::string& ds, bool recursive, const std:
                 if (!cancelado) {
                     it->second.state = n.paso.ok && tuvoTurno ? JobState::Done : JobState::Failed;
                     it->second.errorText = parado ? "the daemon is stopping" : n.paso.error;
+                    it->second.errorCode = parado ? "daemon_stopping" : n.paso.codigo;
+                    it->second.errorArgs = parado ? std::vector<std::string>{} : n.paso.args;
                 }
                 it->second.finishedAtUtc = utcNowIsoString();
                 persistJobsLocked();
@@ -8785,8 +8799,7 @@ static ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& param
 
     const TransferSocket sock = conectaConElPar(peerHost, portStr);
     if (sock == kSocketInvalido) {
-        r.rc = 1;
-        r.err = "cannot connect to peer " + peerHost + ":" + portStr + "\n";
+        ponFallo(r, 1, "peer_cannot_connect", {peerHost + ":" + portStr});
         return r;
     }
 
@@ -9391,7 +9404,7 @@ static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params
         std::string mala;
         if (!zfsmgr::base::zfsprops::areValidSendFlags(flagsStr, mala)) {
             r.rc = 2;
-            r.err = "send flag not allowed: " + mala + "\n";
+            ponFallo(r, 2, "send_flag_not_allowed", {mala});
             return r;
         }
     }
@@ -9431,8 +9444,7 @@ static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params
     const TransferSocket sockFd = conectaConElPar(peerHost, portStr);
     if (sockFd == kSocketInvalido) {
         if (desdeFichero) { waitSpawnedStdout(child); }
-        r.rc = 1;
-        r.err = "cannot connect to peer " + peerHost + ":" + portStr + "\n";
+        ponFallo(r, 1, "peer_cannot_connect", {peerHost + ":" + portStr});
         return r;
     }
 
@@ -9462,7 +9474,7 @@ static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params
     }
     if (!child.ok) {
         closeTransferSocket(sockFd);
-        r.rc = 1; r.err = "could not launch zfs send\n"; return r;
+        ponFallo(r, 1, "send_cannot_launch", {}); return r;
     }
 
     std::uint64_t totalBytes = 0;
@@ -9653,34 +9665,20 @@ static ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params
         // Distinto de un fallo de escritura: aquí la conexión NUNCA se rompió, sencillamente
         // el otro extremo dejó de leer. Decirlo con esas palabras evita que se busque el
         // problema en la red, que es donde no está.
-        r.rc = 1;
-        r.err = "the receiver stopped reading: " + std::to_string(kAtascoMaximoS) +
-                " s without being able to send a single byte\n";
+        ponFallo(r, 1, "receiver_stalled", {std::to_string(kAtascoMaximoS)});
     } else if (!relayOk && veredicto.hayVeredicto && veredicto.rc != 0) {
-        r.rc = 1;
-        r.err = "the receiver failed: "
-                + (veredicto.motivo.empty() ? "exit " + std::to_string(veredicto.rc)
-                                            : veredicto.motivo)
-                + "\n";
+        ponFallo(r, 1, "receiver_failed",
+                 {veredicto.motivo.empty() ? "exit " + std::to_string(veredicto.rc) : veredicto.motivo});
     } else if (!relayOk) {
-        r.rc = 1;
-        r.err = "the connection to the receiver dropped; check the log on the target "
-                "machine to see why zfs recv failed\n";
+        ponFallo(r, 1, "receiver_dropped", {});
     } else if (lecturaFallida) {
-        r.rc = 1;
-        r.err = motivoLectura.empty()
-                    ? "could not read the stream file " + ficheroOrigen + "\n"
-                    : ficheroOrigen + ": " + motivoLectura + "\n";
+        ponFallo(r, 1, "stream_file_unreadable", {ficheroOrigen, motivoLectura});
     } else if (r.rc != 0) {
-        r.err = "zfs send failed (exit " + std::to_string(r.rc) + ")\n";
-        if (!trim(childErr).empty()) { r.err += trim(childErr) + "\n"; }
+        ponFallo(r, r.rc, "zfs_send_failed", {std::to_string(r.rc), trim(childErr)});
     } else if (veredicto.hayVeredicto && veredicto.rc != 0) {
         // Todo salió de aquí, y el otro lado dice que no lo pudo usar.
-        r.rc = 1;
-        r.err = "the receiver failed: "
-                + (veredicto.motivo.empty() ? "exit " + std::to_string(veredicto.rc)
-                                            : veredicto.motivo)
-                + "\n";
+        ponFallo(r, 1, "receiver_failed",
+                 {veredicto.motivo.empty() ? "exit " + std::to_string(veredicto.rc) : veredicto.motivo});
     }
     return r;
 }
@@ -10253,11 +10251,15 @@ static void runZfsSendToPeerAsync(const std::string& jobId) {
         it->second.state = JobState::Done;
     } else {
         it->second.state     = JobState::Failed;
-        it->second.errorText =
-            vacioSinSerlo
-                ? std::string("the send finished without error but did not move a single byte: "
-                              "the receiver never received anything")
-                : trim(r.err);
+        if (vacioSinSerlo) {
+            it->second.errorCode = "send_moved_nothing";
+            it->second.errorArgs.clear();
+            it->second.errorText = zfsmgr::base::agentmsg::inEnglish("send_moved_nothing", {});
+        } else {
+            it->second.errorText = trim(r.err);
+            it->second.errorCode = r.code;
+            it->second.errorArgs = r.args;
+        }
     }
     it->second.finishedAtUtc = utcNowIsoString();
     persistJobsLocked();
@@ -11206,6 +11208,18 @@ ExecResult executeAgentCommandCapture(const std::string& cmd,
     return r;
 }
 
+std::string jsonEscape(const std::string& s);
+
+// Los argumentos de un código, como array JSON en UNA línea (el estado de un trabajo va por
+// líneas «CLAVE=valor»).
+std::string argsJson(const std::vector<std::string>& args) {
+    std::string out = "[";
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        out += (i ? ",\"" : "\"") + jsonEscape(args[i]) + "\"";
+    }
+    return out + "]";
+}
+
 std::string jsonEscape(const std::string& s) {
     std::string out;
     out.reserve(s.size() + 16);
@@ -11301,7 +11315,9 @@ static void persistJobsLocked() {
           << ",\"startedAt\":\"" << jsonEscape(j.startedAtUtc)
           << "\",\"finishedAt\":\"" << jsonEscape(j.finishedAtUtc)
           << "\",\"error\":\"" << jsonEscape(j.errorText)
-          << "\",\"desc\":\"" << jsonEscape(j.description)
+          << "\",\"error_code\":\"" << jsonEscape(j.errorCode)
+          << "\",\"error_args\":" << argsJson(j.errorArgs)
+          << ",\"desc\":\"" << jsonEscape(j.description)
           << "\"}";
     }
     f << "\n]\n";
@@ -11355,6 +11371,8 @@ static void loadPersistedJobsAtStartup() {
         j.startedAtUtc  = v["startedAt"].toString();
         j.finishedAtUtc = v["finishedAt"].toString();
         j.errorText     = v["error"].toString();
+        j.errorCode     = v["error_code"].toString();
+        for (const auto& a : v["error_args"].toArray()) j.errorArgs.push_back(a.toString());
 
         if (j.id.empty()) continue;
 
@@ -11362,6 +11380,8 @@ static void loadPersistedJobsAtStartup() {
         if (j.state == JobState::Running || j.state == JobState::Queued) {
             j.state        = JobState::Failed;
             j.errorText    = "daemon restarted while running";
+            j.errorCode    = "job_daemon_restarted";
+            j.errorArgs.clear();
             j.finishedAtUtc = utcNowIsoString();
         }
         g_jobs[j.id] = std::move(j);
@@ -11608,6 +11628,8 @@ void runSubmittedMutationJob(const std::string& jobId,
     j.resultOut = r.out;
     if (r.rc != 0 && j.errorText.empty()) {
         j.errorText = r.err.empty() ? ("exit " + std::to_string(r.rc)) : r.err;
+        j.errorCode = r.code;
+        j.errorArgs = r.args;
     }
     j.finishedAtUtc = utcNowIsoString();
     persistJobsLocked();
@@ -12270,6 +12292,8 @@ int runServeLoop() {
                            << "STARTED_AT=" << j.startedAtUtc << "\n"
                            << "FINISHED_AT=" << j.finishedAtUtc << "\n"
                            << "ERROR=" << j.errorText << "\n"
+                           << "ERROR_CODE=" << j.errorCode << "\n"
+                           << "ERROR_ARGS=" << argsJson(j.errorArgs) << "\n"
                            << "DESCRIPTION=" << j.description << "\n";
                         if (!j.progressLines.empty())
                             js << "PROGRESS_LINE=" << j.progressLines.back() << "\n";
@@ -12312,7 +12336,9 @@ int runServeLoop() {
                        << ",\"started\":\"" << jsonEscape(j->startedAtUtc)
                        << "\",\"finished\":\"" << jsonEscape(j->finishedAtUtc)
                        << "\",\"error\":\"" << jsonEscape(j->errorText)
-                       << "\",\"desc\":\"" << jsonEscape(j->description)
+                       << "\",\"error_code\":\"" << jsonEscape(j->errorCode)
+                       << "\",\"error_args\":" << argsJson(j->errorArgs)
+                       << ",\"desc\":\"" << jsonEscape(j->description)
                        << "\"}\n";
                     ++count;
                 }
@@ -12555,6 +12581,10 @@ int main(int argc, char* argv[]) {
     // Antes que nada: escribir en un socket ya cerrado no puede matar el proceso.
     // Ver zfsmgr::base::ignoreSigpipeExceptInChildren.
     zfsmgr::base::ignoreSigpipeExceptInChildren();
+    // El agente escribe en INGLÉS: sus mensajes van a clientes de cualquier idioma, que los
+    // traducen por su código (agentmsg). Sin esto, lo que compone la capa base —el cliente TLS
+    // con el que habla con otro daemon— salía en castellano, que es su idioma por omisión.
+    zfsmgr::base::i18n::setLanguage("en");
     const AgentRuntimeConfig runtimeCfg = loadRuntimeConfig();
     applyRuntimeEnvironment(runtimeCfg);
 
