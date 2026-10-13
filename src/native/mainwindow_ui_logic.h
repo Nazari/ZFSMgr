@@ -28,6 +28,11 @@ namespace zfsmgr::uilogic {
 QList<QStringList> permissionChangeCommands(const DatasetPermissionsCacheEntry& entry,
                                             const QString& datasetName);
 
+// One of those `zfs allow|unallow` argv as the shell's line, without its `--on`:
+// {"allow", "-l", "-u", "juan", "create,mount", "tank/datos"} becomes
+// "allow --local --user juan create,mount". The dataset is the caller's `--on`.
+QString shellLineOfAllowArgv(const QStringList& argv);
+
 struct PoolRootMenuState {
     bool canRefresh{false};
     bool canImport{false};

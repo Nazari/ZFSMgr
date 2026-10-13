@@ -787,7 +787,6 @@ private:
     // y si lo segundo se adelanta a lo primero el resultado es que no queda nada.
     bool applyFromDirCreateStep(int connIdx, const QStringList& rpcArgv, const QString& secreto,
                                 const QString& etiqueta);
-    QStringList daemonizeZfsAllowBatchArgs(int connIdx, const QList<QStringList>& ordenes) const;
     QStringList daemonizeZpoolMutationArgs(int connIdx, const QString& rawCmd) const;
     QStringList daemonizeZpoolMutationArgs(int connIdx, const QStringList& argv) const;
     QStringList daemonizeShellMutationArgs(int connIdx, const QString& rawShell) const;

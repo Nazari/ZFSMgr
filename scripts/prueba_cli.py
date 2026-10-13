@@ -1917,6 +1917,21 @@ def casos_permisos(ctx):
          [f"cd Local/{P}/datos", "unallow --user linarese snapshot"],
          no_espera=[r"error"],
          estado=[("ya no aparece", f"zfs allow {P}/datos", r"^(?!.*linarese snapshot).*$")])
+    # By scope, as the GUI's permissions tab removes what it changed.
+    caso(ctx, "allow: solo en este dataset con --local",
+         [f"cd Local/{P}/datos", "allow --user linarese mount --local"],
+         estado=[("en la sección local", f"zfs allow {P}/datos",
+                  r"Local permissions:\n\s+user linarese mount")])
+    caso(ctx, "unallow: --local quita lo de ese alcance",
+         [f"cd Local/{P}/datos", "unallow --user linarese mount --local"], no_espera=[r"error"],
+         estado=[("ya no aparece", f"zfs allow {P}/datos", r"\A(?![\s\S]*linarese mount)")])
+    caso(ctx, "allow: --create sin destinatario",
+         [f"cd Local/{P}/datos", "allow --create destroy"],
+         estado=[("en la sección al crear", f"zfs allow {P}/datos",
+                  r"Create time permissions:\n\s+destroy")])
+    caso(ctx, "unallow: --create lo quita",
+         [f"cd Local/{P}/datos", "unallow --create destroy"], no_espera=[r"error"],
+         estado=[("ya no aparece", f"zfs allow {P}/datos", r"\A(?![\s\S]*Create time)")])
 
 
 def casos_programacion(ctx):

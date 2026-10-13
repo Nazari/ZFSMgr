@@ -582,7 +582,8 @@ bool cmdPermisos(Estado& e, const LineaAnalizada& linea, bool conceder) {
         argv.push_back(pet.valor("set"));
         ++aQuien;
     }
-    if (aQuien == 0) {
+    // `--create` names nobody: it is for whoever creates a descendant (`zfs allow -c`).
+    if (aQuien == 0 && !pet.tiene("--create")) {
         std::fprintf(stderr,
                      TC("t_uso_s_user_a24007",
                         "uso: %s --user <u> | --group <g> | --everyone | --set @<nombre>\n"
@@ -622,8 +623,10 @@ bool cmdPermisos(Estado& e, const LineaAnalizada& linea, bool conceder) {
     if (!zfsGeneric(e, destino, argv)) {
         return false;
     }
-    std::fprintf(stderr, TC("t_s_en_s_35a806", "%s en %s\n"),
-                 conceder ? "permisos delegados" : "permisos retirados", objetivo.c_str());
+    std::fprintf(stderr,
+                 conceder ? TC("t_permisos_delegados_en", "permisos delegados en %s\n")
+                          : TC("t_permisos_retirados_en", "permisos retirados en %s\n"),
+                 objetivo.c_str());
     return true;
 }
 

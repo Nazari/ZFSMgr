@@ -1978,40 +1978,6 @@ QStringList MainWindow::daemonizeZfsMutationArgs(int connIdx, const QStringList&
         mwhelpers::agentArgv(argv).toStdString()));
 }
 
-QStringList MainWindow::daemonizeZfsAllowBatchArgs(int connIdx,
-                                                   const QList<QStringList>& ordenes) const {
-    if (connIdx < 0 || connIdx >= m_conns.profiles.size() || connIdx >= m_conns.states.size()) {
-        return {};
-    }
-    if (ordenes.isEmpty()) {
-        return {};
-    }
-    const ConnectionRuntimeState& st = m_conns.states[connIdx];
-    if (!st.daemonInstalled || !st.daemonActive) {
-        return {};
-    }
-    if (st.daemonApiVersion.trimmed() != agentversion::expectedApiVersion().trimmed()) {
-        return {};
-    }
-    // El envoltorio es una lista de listas: cada orden se codifica por su cuenta y el lote
-    // vuelve a codificarse entero. Así un nombre de usuario con un espacio —o un dataset con
-    // una comilla— llega intacto, porque en ningún punto del viaje hay una cadena que
-    // alguien tenga que volver a partir.
-    QStringList lote;
-    for (const QStringList& argv : ordenes) {
-        if (argv.size() < 2) {
-            return {};
-        }
-        const QString op = argv.first().trimmed().toLower();
-        if (op != QStringLiteral("allow") && op != QStringLiteral("unallow")) {
-            return {};
-        }
-        lote.push_back(mwhelpers::agentArgv(argv));
-    }
-    return mwhelpers::argvQt(zfsmgr::commands::requests::permissionsBatch(
-        mwhelpers::agentArgv(lote).toStdString()));
-}
-
 QStringList MainWindow::daemonizeZfsMutationArgs(int connIdx, const QString& rawCmd) const {
     if (connIdx < 0 || connIdx >= m_conns.profiles.size()) {
         return {};

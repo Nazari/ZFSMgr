@@ -1620,65 +1620,43 @@ void MainWindow::applyDatasetPropertyChanges() {
             const QString datasetName = pendingPerm.datasetName;
             const DatasetPermissionsCacheEntry entry = pendingPerm.entry;
 
-            // El diff —qué se retira y qué se concede para que lo delegado coincida con lo
-            // que muestra la ficha— vivía aquí, en una lambda dentro de esta función de 400
-            // líneas. Eso lo hacía imposible de probar: tiene CUATRO estados por entrada
-            // —aparece, desaparece, cambia, sigue igual— por tres alcances, más «al crear» y
-            // los conjuntos con nombre. Doce combinaciones que nunca se comprobaron.
-            //
-            // Ahora es una función pura en `uilogic`, con un caso de prueba por combinación,
-            // y compone el argv con `commands::zfsallow` en vez de pegar cadenas de shell.
+            // What to remove and grant so the delegation matches the tab: a pure function in
+            // `uilogic`, tested case by case.
             const QList<QStringList> ordenes =
                 zfsmgr::uilogic::permissionChangeCommands(entry, datasetName);
-            QStringList subcmds;
-            for (const QStringList& argv : ordenes) {
-                subcmds << mwhelpers::cadenaDeArgv(QStringLiteral("zfs"), argv);
-            }
-
-
-            if (subcmds.isEmpty()) {
+            if (ordenes.isEmpty()) {
                 if (auto* mutableEntry = datasetPermissionsEntryMutable(connIdx, poolName, datasetName)) {
                     mutableEntry->dirty = false;
                     mirrorDatasetPermissionsEntryToModel(connIdx, poolName, datasetName);
                 }
                 continue;
             }
-
-            DatasetSelectionContext ctx;
-            ctx.valid = true;
-            ctx.connIdx = connIdx;
-            ctx.poolName = poolName;
-            ctx.datasetName = datasetName;
             const QString permissionDisplayLine =
                 QStringLiteral("%1  %2")
                     .arg(pendingLinePrefix(connIdx, poolName),
                          QStringLiteral("Actualizar permisos en %1").arg(datasetName));
             markPendingRunning(permissionDisplayLine);
-            // La cadena se sigue componiendo, pero solo para el respaldo por SSH y para la
-            // vista previa de la confirmación. Lo que viaja al daemon es el LOTE de argv:
-            // antes esta cadena se volvía a trocear por «; » al otro lado, con un corte que
-            // no respeta comillas.
-            const QString cmd = subcmds.join(QStringLiteral("; "));
-            const QStringList loteArgv = daemonizeZfsAllowBatchArgs(connIdx, ordenes);
-            if (!executeDatasetAction(QStringLiteral("conncontent"),
-                                      QStringLiteral("Aplicar permisos"),
-                                      ctx,
-                                      cmd,
-                                      60000,
-                                      false,
-                                      {},
-                                      false,
-                                      [this, connIdx, poolName, datasetName, refreshVisiblePermissionsNodes]() {
-                                          removeDatasetPermissionsEntry(connIdx, poolName, datasetName);
-                                          ensureDatasetPermissionsLoaded(connIdx, poolName, datasetName);
-                                          refreshVisiblePermissionsNodes(connIdx, poolName, datasetName);
-                                      },
-                                      loteArgv)) {
-                markPendingDone(permissionDisplayLine, false);
+            // Each change is the shell's `allow`/`unallow` line, in order: an `unallow` goes
+            // before the `allow` that replaces it, and the first that fails stops the rest.
+            const QString url = zfsmUrl(connIdx, datasetName);
+            bool todas = true;
+            for (const QStringList& argv : ordenes) {
+                const QString linea = zfsmgr::uilogic::shellLineOfAllowArgv(argv);
+                if (runCliAndWait(QStringLiteral("%1 --on %2").arg(linea, url)).rc != 0) {
+                    todas = false;
+                    break;
+                }
+            }
+            if (m_refreshAfterCli) {
+                removeDatasetPermissionsEntry(connIdx, poolName, datasetName);
+                ensureDatasetPermissionsLoaded(connIdx, poolName, datasetName);
+                refreshVisiblePermissionsNodes(connIdx, poolName, datasetName);
+            }
+            markPendingDone(permissionDisplayLine, todas);
+            if (!todas) {
                 updateApplyPropsButtonState();
                 return;
             }
-            markPendingDone(permissionDisplayLine, true);
         }
 
         // Aquí se aplicaban los RENOMBRADOS y las ACCIONES que esperaban en la lista.

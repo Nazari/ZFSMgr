@@ -213,6 +213,38 @@ QList<QStringList> permissionChangeCommands(const DatasetPermissionsCacheEntry& 
     return salida;
 }
 
+QString shellLineOfAllowArgv(const QStringList& argv) {
+    if (argv.size() < 2) {
+        return QString();
+    }
+    QStringList linea{argv.first()};
+    QString quien;  // the option whose recipient comes next
+    for (int i = 1; i + 1 < argv.size(); ++i) {
+        const QString& a = argv[i];
+        if (a == QStringLiteral("-l")) {
+            linea << QStringLiteral("--local");
+        } else if (a == QStringLiteral("-d")) {
+            linea << QStringLiteral("--descend");
+        } else if (a == QStringLiteral("-c")) {
+            linea << QStringLiteral("--create");
+        } else if (a == QStringLiteral("-e")) {
+            linea << QStringLiteral("--everyone");
+        } else if (a == QStringLiteral("-u")) {
+            quien = QStringLiteral("--user");
+        } else if (a == QStringLiteral("-g")) {
+            quien = QStringLiteral("--group");
+        } else if (a == QStringLiteral("-s")) {
+            quien = QStringLiteral("--set");
+        } else if (!quien.isEmpty()) {
+            linea << quien << a;
+            quien.clear();
+        } else {
+            linea << a;
+        }
+    }
+    return linea.join(QLatin1Char(' '));
+}
+
 PoolRootMenuState buildPoolRootMenuState(const QString& poolAction,
                                          const QString& poolState,
                                          bool hasPoolRow) {

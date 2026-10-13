@@ -154,6 +154,29 @@ private Q_SLOTS:
         QVERIFY(state.canDestroy);
     }
 
+    // The editor's `zfs allow` argv become the shell's lines, scope and recipient as options.
+    void allowArgvBecomesTheShellsLine() {
+        QCOMPARE(shellLineOfAllowArgv({QStringLiteral("allow"), QStringLiteral("-l"),
+                                       QStringLiteral("-u"), QStringLiteral("juan"),
+                                       QStringLiteral("create,mount"), QStringLiteral("tank/d")}),
+                 QStringLiteral("allow --local --user juan create,mount"));
+        QCOMPARE(shellLineOfAllowArgv({QStringLiteral("unallow"), QStringLiteral("-d"),
+                                       QStringLiteral("-e"), QStringLiteral("snapshot"),
+                                       QStringLiteral("tank/d")}),
+                 QStringLiteral("unallow --descend --everyone snapshot"));
+        QCOMPARE(shellLineOfAllowArgv({QStringLiteral("allow"), QStringLiteral("-s"),
+                                       QStringLiteral("@base"), QStringLiteral("mount"),
+                                       QStringLiteral("tank/d")}),
+                 QStringLiteral("allow --set @base mount"));
+        QCOMPARE(shellLineOfAllowArgv({QStringLiteral("allow"), QStringLiteral("-c"),
+                                       QStringLiteral("destroy"), QStringLiteral("tank/d")}),
+                 QStringLiteral("allow --create destroy"));
+        QCOMPARE(shellLineOfAllowArgv({QStringLiteral("allow"), QStringLiteral("-g"),
+                                       QStringLiteral("staff"), QStringLiteral("send"),
+                                       QStringLiteral("tank/d")}),
+                 QStringLiteral("allow --group staff send"));
+    }
+
     void poolMenuStateReflectsImportablePoolActions() {
         const PoolRootMenuState state =
             buildPoolRootMenuState(QStringLiteral("Importar"), QStringLiteral("ONLINE"), true);

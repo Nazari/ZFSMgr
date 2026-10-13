@@ -161,24 +161,20 @@ void MainWindow::cancelSelectedJob() {
     if (jobId.isEmpty() || connIdx < 0 || connIdx >= m_conns.profiles.size()) {
         return;
     }
-    QString out;
-    QString err;
-    int rc = -1;
-    runAgentOnConnection(
-        m_conns.profiles[connIdx],
-        mwhelpers::argvQt(zfsmgr::commands::requests::cancelJob(jobId.toStdString())), 5000, out,
-        err, rc);
-    if (rc != 0) {
-        appLog(QStringLiteral("ERROR"), QStringLiteral("job %1: %2").arg(jobId, err.trimmed()));
-        return;
-    }
-    for (ActiveDaemonJob& j : m_activeDaemonJobs) {
-        if (j.jobId == jobId) {
-            j.state = QStringLiteral("cancelled");
-            break;
-        }
-    }
-    appLog(QStringLiteral("INFO"), QStringLiteral("Job %1 cancelado por el usuario").arg(jobId));
-    updateJobsListWidget();
-    refreshAllJobsAsync();
+    runCli(QStringLiteral("job cancel %1 --on %2").arg(jobId, zfsmUrl(connIdx)),
+           [this, jobId](const CliService::Result& r) {
+               if (r.rc != 0) {
+                   return;
+               }
+               for (ActiveDaemonJob& j : m_activeDaemonJobs) {
+                   if (j.jobId == jobId) {
+                       j.state = QStringLiteral("cancelled");
+                       break;
+                   }
+               }
+               updateJobsListWidget();
+               if (m_refreshAfterCli) {
+                   refreshAllJobsAsync();
+               }
+           });
 }
