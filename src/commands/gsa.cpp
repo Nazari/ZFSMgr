@@ -332,6 +332,19 @@ bool targetFromUrl(const std::string& texto, std::string& guardado, Reason& porQ
     return true;
 }
 
+std::string targetForScheduleMachine(const std::string& target, bool targetIsClientLocal,
+                                     bool scheduleOnClientLocal, const std::string& clientHost) {
+    if (!targetIsClientLocal || scheduleOnClientLocal || trim(clientHost).empty()) {
+        return target;
+    }
+    std::string connection;
+    std::string dataset;
+    if (!splitTarget(target, connection, dataset)) {
+        return target;
+    }
+    return "zfsm://" + trim(clientHost) + "/" + dataset;
+}
+
 LevelPlan planLevel(const std::vector<SnapRef>& origen, const std::vector<SnapRef>& destino,
                     bool destinoExiste) {
     LevelPlan plan;

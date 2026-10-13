@@ -81,8 +81,9 @@ Handover composeHandover(const std::vector<ConnectionProfile>& profiles,
                          // Vacío si nunca se refrescó esa conexión.
                          const std::string& destinationUid,
                          // The network name of the client's own machine. The client's Local
-                         // connection is handed over with it: from the target, 127.0.0.1 is the
-                         // target itself. Empty → the Local connection is left out.
+                         // connection is handed over under it, as name and address: from the
+                         // target, «local» and 127.0.0.1 are the target itself. Empty → the
+                         // Local connection is left out.
                          const std::string& clientHost);
 
 // The network name of this machine, for `clientHost`; empty if it cannot be read.

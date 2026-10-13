@@ -3930,6 +3930,10 @@ void caso49() {
             comprobar(zfsmgr::base::base64Decode(h.payloadB64, json), "peers local: base64");
             comprobar(json.find("\"host\":\"fc16\"") != std::string::npos,
                       "peers local: goes with the client's name");
+            comprobar(json.find("\"id\":\"fc16\"") != std::string::npos,
+                      "peers local: and under it, not as «local»");
+            comprobar(std::find(h.names.begin(), h.names.end(), "fc16") != h.names.end(),
+                      "peers local: listed under that name");
             comprobar(json.find("127.0.0.1") == std::string::npos,
                       "peers local: never as 127.0.0.1");
             igual(h.localName, std::string("local"),
@@ -3940,6 +3944,25 @@ void caso49() {
             igual(PE::labelOf(sinNombre.failure), PE::labelOf(PE::Failure::NoTlsMaterial),
                   "peers local: without a name, nothing usable to hand over");
             comprobar(sinNombre.localName.empty(), "peers local: and not reported");
+        }
+
+        {
+            // --- A schedule's target as the machine that runs it reads it.
+            namespace G = zfsmgr::base::gsa;
+            const std::string t0 = "zfsm://local/back/user/git";
+            igual(G::targetForScheduleMachine(t0, true, false, "fc16"),
+                  std::string("zfsm://fc16/back/user/git"),
+                  "schedule target: the client's local, on another machine, by its name");
+            igual(G::targetForScheduleMachine(t0, true, true, "fc16"), t0,
+                  "schedule target: on the client's own machine it stays local");
+            igual(G::targetForScheduleMachine("zfsm://unib/ppal/x", false, false, "fc16"),
+                  std::string("zfsm://unib/ppal/x"), "schedule target: another machine, as is");
+            igual(G::targetForScheduleMachine(t0, true, false, ""), t0,
+                  "schedule target: no name for the client, as is");
+            std::string c, d;
+            comprobar(G::splitTarget(G::targetForScheduleMachine(t0, true, false, "fc16"), c, d)
+                          && c == "fc16" && d == "back/user/git",
+                      "schedule target: still a valid target");
         }
 
         // Sin material TLS no hay nada que entregar, y el motivo se distingue de «no hay otras».

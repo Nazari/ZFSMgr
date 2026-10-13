@@ -483,6 +483,20 @@ bool cmdSchedule(Estado& e, const LineaAnalizada& linea) {
         }
         return false;
     }
+    // Validated against the client's own names; stored as the scheduling machine will read it.
+    if (!nueva.target.empty()) {
+        std::string conexionDestino;
+        std::string dsDestino;
+        if (B::gsa::splitTarget(nueva.target, conexionDestino, dsDestino)) {
+            const auto esLocal = [&](const std::string& nombre) {
+                const auto* p = buscarConexion(e.conns, nombre);
+                return p != nullptr && B::transport::isLocalConnection(*p);
+            };
+            nueva.target = B::gsa::targetForScheduleMachine(nueva.target, esLocal(conexionDestino),
+                                                            esLocal(destino.connection),
+                                                            B::peers::thisMachineName());
+        }
+    }
     // Y después el conjunto: dos activadas del mismo pool no pueden solaparse si una es
     // recursiva. Hace falta lo que ya hay programado en el POOL, no solo aquí debajo.
     std::vector<B::gsa::Entry> delPool;

@@ -125,6 +125,14 @@ bool targetFromUrl(const std::string& text, std::string& stored, Reason& why);
 // dataset.
 bool splitTarget(const std::string& target, std::string& connection, std::string& dataset);
 
+// The target as the machine that RUNS the schedule must read it. A client calls its own
+// machine «local», and so does every other client about its own: written like that on a
+// dataset of another machine, «local» would point at that machine. When the target is the
+// client's Local connection and the schedule lives elsewhere, the connection is replaced by
+// `clientHost`, the client machine's name, which is also how `peers --push` hands it over.
+std::string targetForScheduleMachine(const std::string& target, bool targetIsClientLocal,
+                                     bool scheduleOnClientLocal, const std::string& clientHost);
+
 // ── Levelling: what to send and what to change on the target ─────────────────
 //
 // A snapshot of a dataset: its short name (after the «@») and its guid. The guid is what

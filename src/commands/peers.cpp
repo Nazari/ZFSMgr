@@ -121,15 +121,16 @@ Handover composeHandover(const std::vector<ConnectionProfile>& perfiles, const s
             || p.daemonTlsClientKeyPem.empty()) {
             continue;  // sin material TLS no hay nada que entregar
         }
-        // The Local connection is the CLIENT's machine. Its profile says 127.0.0.1, which from
-        // the target is the target itself: it goes with the client's network name, or not at
-        // all.
+        // The Local connection is the CLIENT's machine. Its profile says «local» and
+        // 127.0.0.1, and from the target both mean the target itself: it goes under the
+        // client machine's name, as name and address, or not at all.
         const bool esLocal = transport::isLocalConnection(p);
         if (esLocal && trim(clientHost).empty()) {
             continue;
         }
+        const std::string entregado = esLocal ? trim(clientHost) : id;
         json::Value uno;
-        uno.set("id", json::Value(id));
+        uno.set("id", json::Value(entregado));
         uno.set("host", json::Value(esLocal ? trim(clientHost) : p.host));
         if (esLocal) {
             e.localName = id;
@@ -145,7 +146,7 @@ Handover composeHandover(const std::vector<ConnectionProfile>& perfiles, const s
         // que le dijo un cliente.
         uno.set("uid", json::Value(trim(p.machineUid)));
         pares.push_back(uno);
-        e.names.push_back(id);
+        e.names.push_back(entregado);
     }
     if (!habiaOtras) {
         e.failure = Failure::NoOtherConnections;
