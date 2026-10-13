@@ -19,8 +19,8 @@
 #include <ctime>
 
 // The Schedules tab of a dataset: what `schedule status` reports about it and what `schedule`
-// sets on it. The rules are the core's (gsa::isValid, isValidSet, targetForScheduleMachine),
-// the same the shell applies; the tab only gathers the values and shows the answer.
+// sets on it. Apply, Clear and Run now are the shell's `schedule` lines: the tab only gathers
+// the values and shows the answer.
 
 namespace G = zfsmgr::base::gsa;
 
@@ -233,97 +233,31 @@ void MainWindow::applyPaneSchedule(int paneIdx) {
     if (connIdx < 0 || connIdx >= m_conns.profiles.size() || pane.schedDataset.isEmpty()) {
         return;
     }
-    const ConnectionProfile& p = m_conns.profiles[connIdx];
-    G::Schedule s;
-    s.enabled = pane.schedEnabled->isChecked();
-    s.recursive = pane.schedRecursive->isChecked();
-    s.level = pane.schedLevel->isChecked();
-    s.hourly = pane.schedRetention[0]->value();
-    s.daily = pane.schedRetention[1]->value();
-    s.weekly = pane.schedRetention[2]->value();
-    s.monthly = pane.schedRetention[3]->value();
-    s.yearly = pane.schedRetention[4]->value();
-    const auto avisa = [this](const QString& texto) {
-        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), texto);
-    };
+    // The whole schedule as the tab shows it, in one `schedule` line: the shell checks it
+    // against the rest of the pool and stores it as the scheduling machine reads it.
+    QStringList partes{QStringLiteral("schedule")};
+    for (int i = 0; i < 5; ++i) {
+        partes << QStringLiteral("--%1").arg(QLatin1String(kClases[i]))
+               << QString::number(pane.schedRetention[i]->value());
+    }
+    partes << (pane.schedRecursive->isChecked() ? QStringLiteral("--recursive")
+                                                : QStringLiteral("--no-recursive"));
+    partes << (pane.schedLevel->isChecked() ? QStringLiteral("--level")
+                                            : QStringLiteral("--no-level"));
     const QString destino = pane.schedTarget->text().trimmed();
-    G::Reason m;
-    if (!destino.isEmpty() && !G::targetFromUrl(destino.toStdString(), s.target, m)) {
-        avisa(QStringLiteral("%1: %2").arg(destino, QString::fromStdString(G::labelOf(m.failure))));
-        return;
+    if (destino.isEmpty()) {
+        partes << QStringLiteral("--no-to");
+    } else {
+        partes << QStringLiteral("--to") << cliQuote(destino);
     }
-    const std::string ds = pane.schedDataset.toStdString();
-    const auto conexionExiste = [this](const std::string& nombre) {
-        return connectionIndexByNameOrId(QString::fromStdString(nombre)) >= 0;
-    };
-    if (!G::isValid(ds, s, conexionExiste, m)) {
-        avisa(QStringLiteral("%1: %2 %3")
-                  .arg(pane.schedDataset, QString::fromStdString(G::labelOf(m.failure)),
-                       QString::fromStdString(m.detail)));
-        return;
+    if (!pane.schedEnabled->isChecked()) {
+        partes << QStringLiteral("--off");
     }
-    // The rest of the pool's schedules: two recursive ones must not overlap.
-    QString out;
-    QString err;
-    int rc = -1;
-    if (!runAgentOnConnection(p,
-                              mwhelpers::argvQt(zfsmgr::commands::requests::gsaOfDataset(
-                                  pane.schedPool.toStdString())),
-                              30000, out, err, rc)
-        || rc != 0) {
-        avisa(err.trimmed());
-        return;
+    partes << QStringLiteral("--on") << zfsmUrl(connIdx, pane.schedDataset);
+    if (runCliAndWait(partes.join(QLatin1Char(' '))).rc == 0 && m_refreshAfterCli) {
+        invalidateDatasetCacheEntry(connIdx, pane.schedPool, pane.schedDataset, false);
+        loadPaneScheduleStatusAsync(paneIdx);
     }
-    std::vector<G::Entry> delPool;
-    bool sustituido = false;
-    for (const auto& kv : G::groupProperties(out.toStdString())) {
-        G::Entry en{kv.first, {}};
-        G::Reason r;
-        if (!G::fromProperties(kv.second, en.schedule, r)) {
-            continue;
-        }
-        if (en.dataset == ds) {
-            en.schedule = s;
-            sustituido = true;
-        }
-        delPool.push_back(en);
-    }
-    if (!sustituido) {
-        delPool.push_back({ds, s});
-    }
-    if (!G::isValidSet(delPool, m)) {
-        avisa(QStringLiteral("%1: %2 %3")
-                  .arg(QString::fromStdString(m.dataset),
-                       QString::fromStdString(G::labelOf(m.failure)),
-                       QString::fromStdString(m.detail)));
-        return;
-    }
-    if (!s.target.empty()) {
-        std::string conn;
-        std::string dsDestino;
-        if (G::splitTarget(s.target, conn, dsDestino)) {
-            const int idxDestino = connectionIndexByNameOrId(QString::fromStdString(conn));
-            s.target = G::targetForScheduleMachine(
-                s.target, idxDestino >= 0 && isLocalConnection(idxDestino),
-                isLocalConnection(connIdx), zfsmgr::base::peers::thisMachineName());
-        }
-    }
-    for (const auto& kv : G::toProperties(s)) {
-        const QStringList args = daemonizeZfsMutationArgs(
-            connIdx,
-            QStringList{QStringLiteral("set"), QString::fromStdString(kv.first + "=" + kv.second),
-                        pane.schedDataset});
-        if (args.isEmpty() || !runAgentOnConnection(p, args, 30000, out, err, rc) || rc != 0) {
-            avisa(args.isEmpty() ? trk(QStringLiteral("t_sched_needs_daemon_001"),
-                                       QStringLiteral("Hace falta el daemon de la conexión."),
-                                       QStringLiteral("The connection's daemon is needed."))
-                                 : err.trimmed());
-            break;
-        }
-    }
-    appLog(QStringLiteral("INFO"), QStringLiteral("schedule %1 aplicado").arg(pane.schedDataset));
-    invalidateDatasetCacheEntry(connIdx, pane.schedPool, pane.schedDataset, false);
-    loadPaneScheduleStatusAsync(paneIdx);
 }
 
 void MainWindow::clearPaneSchedule(int paneIdx) {
@@ -332,30 +266,14 @@ void MainWindow::clearPaneSchedule(int paneIdx) {
     if (connIdx < 0 || connIdx >= m_conns.profiles.size() || pane.schedDataset.isEmpty()) {
         return;
     }
-    if (QMessageBox::question(
-            this, QStringLiteral("ZFSMgr"),
-            trk(QStringLiteral("t_conf_sch_clear"),
-                QStringLiteral("Se va a borrar la programación de %1. ¿Continuar?"),
-                QStringLiteral("The schedule of %1 is going to be cleared. Continue?"))
-                .replace(QStringLiteral("%1"), pane.schedDataset))
-        != QMessageBox::Yes) {
-        return;
+    if (runCliAndWait(
+            QStringLiteral("schedule --clear --on %1").arg(zfsmUrl(connIdx, pane.schedDataset)))
+                .rc
+            == 0
+        && m_refreshAfterCli) {
+        invalidateDatasetCacheEntry(connIdx, pane.schedPool, pane.schedDataset, false);
+        fillPaneSchedules(paneIdx, connIdx, pane.schedPool, pane.schedDataset);
     }
-    const ConnectionProfile& p = m_conns.profiles[connIdx];
-    for (const auto& kv : G::toProperties(G::Schedule{})) {
-        const QStringList args = daemonizeZfsMutationArgs(
-            connIdx, QStringList{QStringLiteral("inherit"), QString::fromStdString(kv.first),
-                                 pane.schedDataset});
-        QString out;
-        QString err;
-        int rc = -1;
-        if (args.isEmpty() || !runAgentOnConnection(p, args, 30000, out, err, rc) || rc != 0) {
-            QMessageBox::warning(this, QStringLiteral("ZFSMgr"), err.trimmed());
-            return;
-        }
-    }
-    invalidateDatasetCacheEntry(connIdx, pane.schedPool, pane.schedDataset, false);
-    fillPaneSchedules(paneIdx, connIdx, pane.schedPool, pane.schedDataset);
 }
 
 void MainWindow::runPaneScheduleNow(int paneIdx) {
@@ -364,21 +282,19 @@ void MainWindow::runPaneScheduleNow(int paneIdx) {
     if (connIdx < 0 || connIdx >= m_conns.profiles.size() || pane.schedDataset.isEmpty()) {
         return;
     }
-    QString out;
-    QString err;
-    int rc = -1;
-    if (!runAgentOnConnection(m_conns.profiles[connIdx],
-                              mwhelpers::argvQt(zfsmgr::commands::requests::gsaRunOnce(
-                                  pane.schedDataset.toStdString())),
-                              600000, out, err, rc)
-        || rc != 0) {
-        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), err.trimmed());
-        return;
-    }
-    for (const QString& linea : out.split(QLatin1Char('\n'), Qt::SkipEmptyParts)) {
-        appendConnectionLog(m_conns.profiles[connIdx].id, linea);
-    }
-    // A levelling, if due, runs as a job: the Jobs box shows it.
-    refreshAllJobsAsync();
-    loadPaneScheduleStatusAsync(paneIdx);
+    const QString id = m_conns.profiles[connIdx].id;
+    runCli(
+        QStringLiteral("schedule run --on %1").arg(zfsmUrl(connIdx, pane.schedDataset)),
+        [this, paneIdx, id](const CliService::Result& r) {
+            for (const QString& linea : r.out.split(QLatin1Char('\n'), Qt::SkipEmptyParts)) {
+                appendConnectionLog(id, linea);
+            }
+            if (!m_refreshAfterCli) {
+                return;
+            }
+            // A levelling, if due, runs as a job: the Jobs box shows it.
+            refreshAllJobsAsync();
+            loadPaneScheduleStatusAsync(paneIdx);
+        },
+        QStringLiteral("text"));
 }

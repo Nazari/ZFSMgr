@@ -2047,6 +2047,10 @@ def casos_gsa(ctx):
          [f"cd Local/{O}", "schedule otra"], rc=1, idioma="es", espera=[r"sobra"])
     caso(ctx, "gsa: schedule run sin programación lo dice",
          [f"cd Local/{P}", "schedule run --wait"], rc=1, espera=[r"no schedule enabled"])
+    caso(ctx, "gsa: --no-to quita el destino y deja el resto",
+         [f"cd Local/{O}", "schedule --no-to --no-level"], rc=0,
+         estado=[("sin destino", f"zfs get -H -o value org.zfsmgr:schedule-target {O}", r"^-?$"),
+                 ("la diaria sigue", f"zfs get -H -o value org.zfsmgr:schedule-daily {O}", r"^[1-9]")])
     caso(ctx, "gsa: --clear la quita",
          [f"cd Local/{O}", "schedule --clear"], rc=0,
          estado=[("sin destino", f"zfs get -H -o value org.zfsmgr:schedule-target {O}", r"^-$")])

@@ -388,7 +388,7 @@ bool cmdSchedule(Estado& e, const LineaAnalizada& linea) {
     // ¿Se pide algún cambio? Sin ninguno, esta orden solo ENSEÑA.
     const char* const kOpciones[] = {"hourly", "daily", "weekly", "monthly", "yearly", "to"};
     bool cambia = pet.tiene("--off") || pet.tiene("--recursive") || pet.tiene("--no-recursive")
-                  || pet.tiene("--level") || pet.tiene("--no-level");
+                  || pet.tiene("--level") || pet.tiene("--no-level") || pet.tiene("--no-to");
     for (const char* o : kOpciones) {
         if (!pet.valor(o).empty()) {
             cambia = true;
@@ -446,6 +446,9 @@ bool cmdSchedule(Estado& e, const LineaAnalizada& linea) {
     }
     if (pet.tiene("--no-level")) {
         nueva.level = false;
+    }
+    if (pet.tiene("--no-to")) {
+        nueva.target.clear();
     }
     if (!pet.valor("to").empty()) {
         // La URL de un dataset: así se escribe, se guarda y la lee el daemon.

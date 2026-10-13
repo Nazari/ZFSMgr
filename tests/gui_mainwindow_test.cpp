@@ -531,39 +531,31 @@ private Q_SLOTS:
         QCOMPARE(window.zfsmUrlForTest(0, QString(), QString()), QStringLiteral("zfsm://local"));
     }
 
-    // The Schedules tab writes what the core's rules produce, through the agent: enabling a
-    // daily retention of 7 sets org.zfsmgr:schedule-daily=7 on the dataset.
-    void schedulesTabAppliesThroughTheAgent() {
+    // The Schedules tab runs the shell's `schedule` line with the whole schedule it shows.
+    void schedulesTabRunsTheShellsScheduleLine() {
         MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
         ConnectionProfile profile;
         profile.id = QStringLiteral("local");
         profile.name = QStringLiteral("Local");
         profile.connType = QStringLiteral("Local");
-        profile.useSudo = true;
         window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank1")}, {});
-        window.setConnectionDaemonStateForTest(0, true, true);
-        window.setAgentTransportForTest(
-            [](const std::vector<std::string>&, std::string& out, std::string& err, int& rc) {
-                out.clear();
-                err.clear();
-                rc = 0;
-                return true;
-            });
+        window.setCliFakeForTest([](const QString&) {
+            CliService::Result r;
+            r.rc = 0;
+            return r;
+        });
         window.fillPaneSchedulesForTest(0, 0, QStringLiteral("tank1"),
                                         QStringLiteral("tank1/datos"));
         window.setPaneScheduleDailyForTest(0, 7, true);
         window.applyPaneScheduleForTest(0);
-        bool escrito = false;
-        for (const auto& call : window.agentCallsForTest()) {
-            if (call.argv.size() >= 2 && call.argv[0] == "--mutate-zfs-generic") {
-                const QByteArray json =
-                    QByteArray::fromBase64(QByteArray::fromStdString(call.argv[1]));
-                escrito = escrito
-                          || (json.contains("org.zfsmgr:schedule-daily=7")
-                              && json.contains("tank1/datos"));
-            }
-        }
-        QVERIFY2(escrito, "no se escribió org.zfsmgr:schedule-daily=7 en tank1/datos");
+        QCOMPARE(window.cliLinesForTest().size(), 1);
+        const QString linea = window.cliLinesForTest().constFirst();
+        QVERIFY2(linea.startsWith(QStringLiteral("schedule --hourly ")), qPrintable(linea));
+        QVERIFY2(linea.contains(QStringLiteral(" --daily 7 ")), qPrintable(linea));
+        QVERIFY2(linea.contains(QStringLiteral(" --no-to ")), qPrintable(linea));
+        QVERIFY2(!linea.contains(QStringLiteral("--off")), qPrintable(linea));
+        QVERIFY2(linea.endsWith(QStringLiteral(" --on zfsm://local/tank1/datos")),
+                 qPrintable(linea));
     }
 
     // Why a job failed reaches the panel. The agent says it as `ERROR_CODE=` and `ERROR_ARGS=`
