@@ -74,17 +74,6 @@ private:
     void refreshAllTreesForTokenAndDataset(const QString& token, const QString& datasetName);
     void refreshPermissionsOwnerNode(QTreeWidget* tree, QTreeWidgetItem* owner, bool forceReload);
     void rehydrateExpandedDatasetNodes(QTreeWidget* tree, const QString& token);
-    bool executeDatasetActionWithStdin(const QString& side,
-                                       const QString& actionName,
-                                       int connIdx,
-                                       const QString& poolName,
-                                       const QString& datasetName,
-                                       const QString& snapshotName,
-                                       const QString& cmd,
-                                       const QByteArray& stdinPayload,
-                                       int timeoutMs = 45000);
-    bool promptNewPassphrase(const QString& title, QString& passphraseOut);
-    void createSnapshotHold(QTreeWidget* tree, QTreeWidgetItem* rawItem);
     void releaseSnapshotHold(QTreeWidget* tree, QTreeWidgetItem* rawItem);
 
     MainWindow* m_mainWindow{nullptr};

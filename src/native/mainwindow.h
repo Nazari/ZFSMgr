@@ -417,10 +417,6 @@ private:
     // Reintroduce usuario y contraseña de sudo de la conexión Local, que es la única
     // que no se puede editar. Valida la contraseña antes de guardarla.
     void changeLocalSudoCredentials();
-    // Ofrece reintroducirlas cuando una operación en Local falla porque sudo rechaza
-    // la contraseña. Se ofrece una sola vez por sesión hasta que se corrija: un fallo
-    // de sudo se repite en cada comando y si no, saldrían diálogos en cadena.
-    void offerLocalSudoCredentialFix();
     bool m_localSudoFixOffered{false};
     // Invalida el material TLS local cacheado: se leyó elevando con la contraseña de
     // sudo anterior, así que al cambiarla hay que volver a pedirlo.
@@ -567,43 +563,14 @@ private:
                                       QByteArray& clientKeyPem,
                                       quint16& daemonPort);
 
-
-    bool tryAgentRpcOverSsh(const ConnectionProfile& p,
-                            const QStringList& agentArgs,
-                            int timeoutMs,
-                            QString& out,
-                            QString& err,
-                            int& rc,
+    bool tryAgentRpcOverSsh(const ConnectionProfile& p, const QStringList& agentArgs, int timeoutMs,
+                            QString& out, QString& err, int& rc,
                             const std::function<void(const QString&)>& onStdoutLine = {},
                             const std::function<void(const QString&)>& onStderrLine = {},
                             // Mismo motivo que en runSsh: el volcado del log del
                             // daemon llega por aquí, y eran ~27.000 líneas de latidos
                             // eco al registro de la aplicación.
                             bool echoOutputToLog = true);
-    // Submits a long-running agent mutation as a background job and polls until it
-    // finishes. Removes the RPC read timeout from the equation: the submission is
-    // instant and the outcome is asked for afterwards, so a slow operation can no
-    // longer look like a failure. Returns false only if the job could not be
-    // submitted or tracked; the operation's own exit code comes back in rc.
-    // jobSubmittedOut distinguishes "could not submit" (nothing ran, a fallback is
-    // safe) from "submitted but lost track of it" (the daemon is working right now,
-    // so re-running the command would duplicate it).
-    bool runAgentMutationAsJob(const ConnectionProfile& p,
-                               const QStringList& agentArgs,
-                               QString& out,
-                               QString& err,
-                               int& rc,
-                               const std::function<void(const QString&)>& progressCb = {},
-                               bool* jobSubmittedOut = nullptr,
-                               // Cancelar es una salida NORMAL, no una pérdida de contacto,
-                               // y hay que poder distinguirlas. Antes se distinguían
-                               // BUSCANDO «cancelado por el usuario» dentro de `err`: una
-                               // frase que esta misma clase escribe 480 líneas más arriba y
-                               // que, traducida, habría hecho que cada cancelación se
-                               // anunciara como «se perdió su seguimiento, puede seguir en
-                               // curso» — el aviso que asusta, justo cuando el usuario
-                               // acaba de pedir el aborto a propósito.
-                               bool* cancelledOut = nullptr);
     // commandMayHaveRunOut, when non-null, is set to true as soon as the request has
     // been written to the daemon. From that point a failure is ambiguous: the daemon
     // may be executing the command right now, so retrying or falling back to SSH would
@@ -639,10 +606,7 @@ private:
     bool isWindowsConnection(const ConnectionProfile& p) const;
     bool isWindowsConnection(int connIdx) const;
     bool supportsAlternateDatasetMount(int connIdx) const;
-    QString wrapRemoteCommand(const ConnectionProfile& p,
-                              const QString& remoteCmd) const;
-    QString sshExecFromLocal(const ConnectionProfile& p,
-                             const QString& remoteCmd) const;
+    QString wrapRemoteCommand(const ConnectionProfile& p, const QString& remoteCmd) const;
     bool getDatasetProperty(int connIdx, const QString& dataset, const QString& prop,
                             QString& valueOut);
     QString effectiveMountPath(int connIdx, const QString& poolName, const QString& datasetName, const QString& mountpointHint, const QString& mountedValue);
@@ -745,36 +709,10 @@ private:
                             const QString& poolHint = QString());
     DatasetSelectionContext currentDatasetSelection(const QString& side) const;
     DatasetSelectionContext currentConnContentSelection(const QTreeWidget* tree) const;
-    DatasetSelectionContext normalizeDatasetSelectionContext(const DatasetSelectionContext& ctx,
-                                                            const QTreeWidget* treeHint = nullptr) const;
-    bool executeDatasetAction(const QString& side, const QString& actionName,
-                              const DatasetSelectionContext& ctx, const QString& cmd,
-                              int timeoutMs = 45000, bool allowWindowsScript = false,
-                              const QByteArray& stdinPayload = {}, bool invalidatePoolCache = true,
-                              const std::function<void()>& onSuccessRefresh = {},
-                              // Argumentos del agente cuando el llamante los tiene. Con
-                              // ellos la orden viaja por RPC sin pasar por el parseo de
-                              // la cadena, y el ciclo de trabajos usa el túnel ya
-                              // abierto en vez de un SSH con sudo por segundo.
-                              const QStringList& agentArgvIn = {});
-    QStringList daemonizeZfsMutationArgs(int connIdx, const QString& rawCmd) const;
+    DatasetSelectionContext normalizeDatasetSelectionContext(
+        const DatasetSelectionContext& ctx, const QTreeWidget* treeHint = nullptr) const;
     QStringList daemonizeZfsMutationArgs(int connIdx, const QStringList& argv) const;
-    // El LOTE de permisos, en una sola llamada al daemon.
-    //
-    // Va aparte de las otras dos porque no es una orden sino varias, y porque deben
-    // ejecutarse en orden: cambiar una concesión es retirar la vieja y conceder la nueva,
-    // y si lo segundo se adelanta a lo primero el resultado es que no queda nada.
-    bool applyFromDirCreateStep(int connIdx, const QStringList& rpcArgv, const QString& secreto,
-                                const QString& etiqueta);
-    QStringList daemonizeZpoolMutationArgs(int connIdx, const QString& rawCmd) const;
     QStringList daemonizeZpoolMutationArgs(int connIdx, const QStringList& argv) const;
-    QStringList daemonizeShellMutationArgs(int connIdx, const QString& rawShell) const;
-    bool executeConnectionCommand(int connIdx,
-                                  const QString& actionName,
-                                  const QString& remoteCmd,
-                                  int timeoutMs,
-                                  QString* failureDetailOut = nullptr,
-                                  const QByteArray& stdinPayload = QByteArray());
     bool fetchConnectionCommandOutput(int connIdx,
                                       const QString& actionName,
                                       const QString& remoteCmd,
@@ -793,7 +731,6 @@ private:
                                     const QByteArray& stdinPayload = QByteArray());
     bool ensureLocalSudoCredentials(ConnectionProfile& profile);
     bool hasEquivalentLocalSshConnection() const;
-    QString diagnoseUmountFailure(const DatasetSelectionContext& ctx);
     void invalidateDatasetCacheEntry(int connIdx, const QString& poolName, const QString& objectName, bool invalidatePermissions = true);
     void invalidateDatasetSubtreeCacheEntries(int connIdx,
                                               const QString& poolName,
@@ -811,21 +748,11 @@ private:
     void reloadConnContentPoolNow(int connIdx, const QString& poolName);
     void reloadConnContentPool(int connIdx, const QString& poolName);
     void reloadDatasetSide(const QString& side);
-    int pendingShellSingleConnectionIdx(const PendingShellActionDraft& draft) const;
-    bool tryExecutePendingShellActionRemotely(const PendingShellActionDraft& draft,
-                                              bool* handledOut,
-                                              QString* failureDetailOut = nullptr);
     void refreshPendingShellActionDraft(const PendingShellActionDraft& draft);
     void updateConnectionActionsState();
     bool isTransferVersionAllowed(const DatasetSelectionContext& src,
                                   const DatasetSelectionContext& dst,
                                   QString* reasonOut = nullptr) const;
-    // Encola una acción de dataset en vez de ejecutarla. Devuelve si se encoló.
-    //
-    // Las que llevan un secreto por la entrada estándar —montar un dataset cifrado,
-    // crear uno cifrado— NO deben pasar por aquí: encolarlas obliga a sostener la frase
-    // en memoria mientras el cambio espera en la lista, que puede ser minutos.
-    bool runShellActionNow(const PendingShellActionDraft& draft, QString* errorOut = nullptr);
     void executeConnectionTransferAction(const QString& action);
     void runTransferVerb(const QString& action);
     void setConnectionOriginSelection(const DatasetSelectionContext& ctx);
@@ -833,7 +760,6 @@ private:
     bool connAdvancedDatasetActionAllowed(const DatasetSelectionContext& ctx) const;
     bool connDirectoryDatasetActionAllowed(const DatasetSelectionContext& ctx) const;
     QString connContentTokenForTree(const QTreeWidget* tree) const;
-    bool runLocalCommand(const QString& displayLabel, const QString& command, int timeoutMs = 0, bool forceConfirmDialog = false, bool streamProgress = false);
     void actionSendSnapshot();
     // `send` with extra words: "-R", "-w", "--resume", "--discard-partial".
     void cliSend(const QString& extra);
@@ -864,7 +790,6 @@ private:
     void discardAllDraftEdits();
     QString connectionKeyByIndex(int connIdx) const;
     int connectionIndexByKey(const QString& key) const;
-    bool executeShellActionDraft(const PendingShellActionDraft& draft);
     void initLogPersistence();
     void rotateLogIfNeeded();
     void flushAppLogFile();
@@ -954,9 +879,7 @@ private:
     QString defaultStatusTextForCurrentState() const;
     QString defaultIdleStatusText() const;
     void updateConnectivityMatrixButtonState();
-    void setActionsLocked(bool locked);
     bool actionsLocked() const;
-    void terminateProcessTree(qint64 rootPid);
     void loadUiSettings();
     void saveUiSettings() const;
     void applyLanguageLive();
@@ -997,13 +920,10 @@ private:
                                const QString& detail = QString(),
                                const QMap<QString, QString>& invalidItems = {},
                                TreeNameColumn* nameColumn = nullptr);
-    bool editInlinePropertiesDialog(const QString& title,
-                                    const QString& intro,
-                                    const QStringList& items,
-                                    QStringList& selected,
+    bool editInlinePropertiesDialog(const QString& title, const QString& intro,
+                                    const QStringList& items, QStringList& selected,
                                     QVector<InlinePropGroupConfig>& groups,
                                     const QString& initialGroupName = QString());
-    bool confirmActionExecution(const QString& actionName, const QStringList& commands, bool forceDialog = false);
     // Consulta única de "¿puede el usuario hacer esto en esta conexión?". Sustituye a
     // las comprobaciones sueltas de isWindowsConnection repartidas por 20 ficheros,
     // que es lo que hacía que las funciones se apagaran de una en una y que el usuario
@@ -1018,11 +938,6 @@ private:
                               const ConnectionRuntimeState& st,
                               const QString& what) const;
 
-    // La misma regla para las MUTACIONES, con una diferencia: aquí sí se le dice al
-    // usuario. Una lectura que falla se nota —la tabla sale vacía—; una acción que no se
-    // ejecuta y solo deja una línea en el registro parece que funcionó.
-    bool requireDaemonForMutation(int connIdx, const QString& what);
-
     zfsmgr::caps::Platform capabilityPlatform(int connIdx) const;
     bool featureAvailable(int connIdx, zfsmgr::caps::Feature f, QString* reasonOut = nullptr) const;
     // Igual que la anterior, pero además explica al usuario por qué no. Para usar como
@@ -1033,10 +948,6 @@ private:
     // Motivo único de que Send/Nivelar no estén disponibles con un extremo Windows: lo
     // usan el menú (para deshabilitar con explicación) y la comprobación de ejecución.
     QString streamingUnavailableReason(const QString& actionLabel) const;
-    bool requireNonWindowsStreamingEndpoints(int srcConnIdx,
-                                             int dstConnIdx,
-                                             const QString& actionLabel);
-    QString buildSshPreviewCommand(const ConnectionProfile& p, const QString& remoteCmd) const;
     QString trk(const QString& key,
                 const QString& es = QString(),
                 const QString& en = QString()) const;

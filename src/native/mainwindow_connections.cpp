@@ -2376,36 +2376,6 @@ void MainWindow::exportTrustStoreToSelectedConnection() {
            QStringLiteral("text"));
 }
 
-void MainWindow::offerLocalSudoCredentialFix() {
-    if (m_localSudoFixOffered || m_closing) {
-        return;
-    }
-    m_localSudoFixOffered = true;
-    appLog(QStringLiteral("WARN"),
-           QStringLiteral("sudo rechaza la contraseña de la conexión Local: se ofrece reintroducirla"));
-    // Diferido: esto se dispara desde dentro de la ejecución de un comando, que a su
-    // vez bombea el bucle de eventos. Abrir aquí un diálogo modal reentraría en ese
-    // camino, que es de donde vienen las referencias colgantes de este repositorio.
-    QTimer::singleShot(0, this, [this]() {
-        if (m_closing) {
-            return;
-        }
-        const auto answer = QMessageBox::question(
-            this,
-            QStringLiteral("ZFSMgr"),
-            trk(QStringLiteral("t_local_sudo_offer1"),
-                QStringLiteral("La contraseña de sudo guardada para la conexión Local no es válida.\n\n"
-                               "¿Quiere introducirla de nuevo ahora?"),
-                QStringLiteral("The stored sudo password for the Local connection is not valid.\n\n"
-                               "Do you want to enter it again now?")),
-            QMessageBox::Yes | QMessageBox::No,
-            QMessageBox::Yes);
-        if (answer == QMessageBox::Yes) {
-            changeLocalSudoCredentials();
-        }
-    });
-}
-
 void MainWindow::changeLocalSudoCredentials() {
     int idx = -1;
     for (int i = 0; i < m_conns.profiles.size(); ++i) {

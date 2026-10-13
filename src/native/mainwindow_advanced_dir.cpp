@@ -786,61 +786,6 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
     }
 }
 
-// El paso previo de «Desde Dir»: crear el dataset de destino por RPC.
-//
-// Vive aquí y no dentro de la aplicación de cambios porque lo necesitan LOS DOS caminos
-// —la tubería de tar y el árbol entre daemons— y era el único trozo que se habría
-// duplicado al añadir el segundo.
-//
-// La frase de cifrado va en la carga del RPC, nunca en argv: en la línea de órdenes la vería
-// cualquiera con un `ps` en las dos máquinas.
-bool MainWindow::applyFromDirCreateStep(int connIdx, const QStringList& rpcArgv,
-                                        const QString& secreto, const QString& etiqueta) {
-    if (rpcArgv.isEmpty() || connIdx < 0 || connIdx >= m_conns.profiles.size()) {
-        return true;  // no hay dataset que crear
-    }
-        QStringList argv = rpcArgv;
-        argv.last() = QString::fromLatin1(secreto.toUtf8().toBase64());
-        QString out;
-        QString err;
-        int rc = -1;
-        const bool ok = runAgentCommand(m_conns.profiles.at(connIdx), argv, 60000,
-                                        out, err, rc);
-        if (!ok || rc != 0) {
-            appLog(QStringLiteral("ERROR"),
-                   QStringLiteral("%1: no se pudo crear el dataset destino (%2)")
-                       .arg(etiqueta, mwhelpers::oneLine(err)));
-            return false;
-        }
-        // El dataset puede crearse y aun así no servir: si hereda mountpoint=none
-        // del pool, no hay dónde escribir. Antes eso no se detectaba y la tubería
-        // se quedaba colgada moviendo cero bytes, sin decir por qué.
-        QString mp;
-        for (const QString& line : out.split(QLatin1Char('\n'))) {
-            if (line.startsWith(QStringLiteral("MOUNTPOINT="))) {
-                mp = line.mid(11).trimmed();
-            }
-        }
-        if (mp.isEmpty() || mp == QStringLiteral("none") || mp == QStringLiteral("-")) {
-            const QString why =
-                trk(QStringLiteral("t_pending_no_mountpoint_001"),
-                    QStringLiteral("El dataset destino se creó pero no tiene punto de "
-                                   "montaje utilizable (mountpoint=%1). Suele pasar cuando "
-                                   "el pool tiene mountpoint=none: asigne uno al dataset "
-                                   "antes de copiar."),
-                    QStringLiteral("The destination dataset was created but has no usable "
-                                   "mountpoint (mountpoint=%1). This usually happens when "
-                                   "the pool has mountpoint=none: set one on the dataset "
-                                   "before copying."))
-                    .arg(mp.isEmpty() ? QStringLiteral("?") : mp);
-            appLog(QStringLiteral("ERROR"),
-                   QStringLiteral("%1: %2").arg(etiqueta, why));
-            QMessageBox::warning(this, QStringLiteral("ZFSMgr"), why);
-            return false;
-        }
-    return true;
-}
-
 void MainWindow::actionAdvancedToDir() {
     actionAdvancedToDir(currentConnContentSelection(m_connContentTree));
 }

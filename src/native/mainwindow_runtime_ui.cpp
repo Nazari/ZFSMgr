@@ -100,22 +100,6 @@ bool MainWindow::actionsLocked() const {
     return m_actionsLocked;
 }
 
-void MainWindow::terminateProcessTree(qint64 rootPid) {
-    if (rootPid <= 0) {
-        return;
-    }
-    // Todo el recorrido vive en la capa base (`base::killDescendants`), que además es
-    // donde ya estaba la regla de no meter nunca un intérprete por medio.
-    //
-    // Antes esto era un guion de `sh -lc` que llamaba a `pgrep -P` una vez por proceso y
-    // por cada uno de OCHO niveles, y remataba con `sleep 0.3` y dos bucles de `kill`. La
-    // versión de ahora lee `ps` una sola vez y usa `kill()`, que es una llamada al sistema
-    // y no un proceso: se cambia una decena larga de lanzamientos por uno. El tope de ocho
-    // niveles desaparece de paso —no tenía por qué existir— y la rama de Windows, que era
-    // un `#ifdef` aquí arriba, se queda dentro de la misma función.
-    zfsmgr::base::killDescendants(static_cast<long long>(rootPid));
-}
-
 void MainWindow::closeEvent(QCloseEvent* event) {
     m_closing = true;
     flushAppLogFile();
@@ -261,27 +245,4 @@ void MainWindow::updateConnectivityMatrixButtonState() {
     }
     const bool enabled = !m_refreshInProgress && !m_connectivityMatrixInProgress;
     m_connectivityMatrixAction->setEnabled(enabled);
-}
-
-void MainWindow::setActionsLocked(bool locked) {
-    m_actionsLocked = locked;
-    updateBusyCursor();
-    if (m_menuExitAction) {
-        m_menuExitAction->setEnabled(!locked);
-    }
-    if (m_poolStatusRefreshBtn) {
-        const bool canRefresh = m_poolStatusRefreshBtn->property("zfsmgr_can_refresh").toBool();
-        m_poolStatusRefreshBtn->setEnabled(!locked && canRefresh);
-    }
-    if (m_poolStatusImportBtn) m_poolStatusImportBtn->setEnabled(!locked && m_poolStatusImportBtn->isEnabled());
-    if (m_poolStatusExportBtn) m_poolStatusExportBtn->setEnabled(!locked && m_poolStatusExportBtn->isEnabled());
-    if (m_poolStatusScrubBtn) m_poolStatusScrubBtn->setEnabled(!locked && m_poolStatusScrubBtn->isEnabled());
-    if (m_poolStatusDestroyBtn) m_poolStatusDestroyBtn->setEnabled(!locked && m_poolStatusDestroyBtn->isEnabled());
-    if (m_btnApplyConnContentProps) m_btnApplyConnContentProps->setEnabled(!locked && m_btnApplyConnContentProps->isEnabled());
-    if (!locked) {
-        updateApplyPropsButtonState();
-        refreshSelectedPoolDetails(false, false);
-        updatePoolManagementBoxTitle();
-    }
-    updateConnectionActionsState();
 }

@@ -50,54 +50,6 @@ using mwhelpers::sshUserHost;
 
 } // namespace
 
-bool MainWindow::runShellActionNow(const PendingShellActionDraft& draft, QString* errorOut) {
-    // Antes esto ENCOLABA. Ahora ejecuta.
-    //
-    // La lista de cambios pendientes se retira: una acción de menú se hace al pulsarla, como
-    // en cualquier otro sitio. Lo que se va con ella no es solo la espera, son tres cosas que
-    // solo existían por diferir:
-    //
-    //   - La advertencia de «esta orden la construyó una versión anterior»: una orden que
-    //     esperaba días en disco podía ser más vieja que el arreglo del código que la
-    //     construye. Ejecutando al instante, quien construye y quien ejecuta son el mismo
-    //     binario, siempre.
-    //   - La casilla «Activa» y la reactivación de una entrada ya ejecutada: pedir dos veces
-    //     lo mismo es, sencillamente, hacerlo dos veces.
-    //   - El rechazo por duplicado, que obligaba a ir a la lista a quitar la entrada antes
-    //     de poder repetir la acción.
-    //
-    // El registro del rechazo se queda AQUÍ y no en los llamantes: son veinte y ninguno lo
-    // hacía, así que un fallo salía en un diálogo y el log no decía nada.
-    auto fail = [this, errorOut, &draft](const QString& text) {
-        if (errorOut) {
-            *errorOut = text;
-        }
-        appLog(QStringLiteral("WARN"),
-               QStringLiteral("[accion] no se ejecutó «%1»: %2")
-                   .arg(draft.displayLabel.trimmed().isEmpty() ? draft.command.trimmed()
-                                                               : draft.displayLabel.trimmed(),
-                        text));
-        return false;
-    };
-    if (draft.command.trimmed().isEmpty() && draft.datasetActionName.trimmed().isEmpty()
-        && draft.rpcArgv.isEmpty()) {
-        return fail(QStringLiteral("No hay nada que ejecutar."));
-    }
-    if (!executeShellActionDraft(draft)) {
-        // Cancelar no es fallar: quien cancela ya sabe lo que ha hecho y un diálogo de error
-        // detrás asusta sin motivo.
-        if (m_lastActionWasCancelled) {
-            m_lastActionWasCancelled = false;
-            if (errorOut) {
-                errorOut->clear();
-            }
-            return false;
-        }
-        return fail(QStringLiteral("La acción falló; revise el registro."));
-    }
-    return true;
-}
-
 // La transfer entre máquinas encadena "zfs send | zfs recv" por SSH, y cuando eso no
 // aplica cae a un TAR con ACLs y atributos extendidos. Las dos son tuberías de shell Unix.
 // En Windows se ejecutaban a través del bash de MSYS2, que se ha retirado: la aplicación
@@ -114,19 +66,6 @@ QString MainWindow::streamingUnavailableReason(const QString& actionLabel) const
                QStringLiteral("%1 between machines is not available when either end is Windows: it needs "
                               "to stream through a pipe, and the Windows agent does not implement that yet."))
         .arg(actionLabel);
-}
-
-bool MainWindow::requireNonWindowsStreamingEndpoints(int srcConnIdx,
-                                                     int dstConnIdx,
-                                                     const QString& actionLabel) {
-    if (featureAvailable(srcConnIdx, zfsmgr::caps::Feature::SendRecvStreaming)
-        && featureAvailable(dstConnIdx, zfsmgr::caps::Feature::SendRecvStreaming)) {
-        return true;
-    }
-    const QString reason = streamingUnavailableReason(actionLabel);
-    appLog(QStringLiteral("WARN"), reason);
-    QMessageBox::warning(this, QStringLiteral("ZFSMgr"), reason);
-    return false;
 }
 
 void MainWindow::actionSendSnapshot() {
