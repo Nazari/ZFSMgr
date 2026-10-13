@@ -234,8 +234,9 @@ std::vector<std::string> zpoolGeneric(const std::string& argvCodificado) {
     return withOne("--mutate-zpool-generic", argvCodificado);
 }
 
-std::vector<std::string> createDataset(const std::string& argvCodificado) {
-    return withOne("--mutate-zfs-create", argvCodificado);
+std::vector<std::string> createDataset(const std::string& argvCodificado,
+                                       const std::string& frase) {
+    return {"--mutate-zfs-create", argvCodificado, zfsmgr::base::base64Encode(frase)};
 }
 
 std::vector<std::string> loadKey(const std::string& dataset, const std::string& frase) {

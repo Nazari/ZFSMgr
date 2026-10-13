@@ -249,7 +249,7 @@ PALABRA     ({LLAVE}|[^ \t=]){NE}*
 {LARGA}         {
                     ContextoLex* cx = (ContextoLex*)zfsmcliget_extra(yyscanner);
                     char* nombre = copia(yytext + 2, yyleng - 2);
-                    if (cx->llevaValor && cx->llevaValor(cx->verbo, nombre, cx->ctx)) {
+                    if (cx->llevaValor && cx->llevaValor(cx->verbo, nombre, cx->ctx) > 0) {
                         snprintf(cx->opcionPendiente, sizeof(cx->opcionPendiente), "%s", nombre);
                         free(nombre);
                         BEGIN(VALOR);
@@ -258,10 +258,15 @@ PALABRA     ({LLAVE}|[^ \t=]){NE}*
                     }
                 }
 {CORTA}/{ESPACIO}{ASIGNA} {
-                    /* `-o ashift=12`: opción corta CON valor, repetible. */
+                    /* `-o ashift=12`: opción corta CON valor, repetible. Unless it is a native
+                     * flag declared without one: then the assignment is lexed on its own. */
                     ContextoLex* cx = (ContextoLex*)zfsmcliget_extra(yyscanner);
-                    snprintf(cx->opcionPendiente, sizeof(cx->opcionPendiente), "%s", yytext);
-                    BEGIN(VALOR2);
+                    if (cx->llevaValor && cx->llevaValor(cx->verbo, yytext, cx->ctx) < 0) {
+                        astBandera(cx->res, copia(yytext, yyleng));
+                    } else {
+                        snprintf(cx->opcionPendiente, sizeof(cx->opcionPendiente), "%s", yytext);
+                        BEGIN(VALOR2);
+                    }
                 }
 {CORTA}         {
                     /* Una bandera corta también puede llevar valor —`import -d /dev`,
@@ -269,7 +274,7 @@ PALABRA     ({LLAVE}|[^ \t=]){NE}*
                      * verbo. Sin esto, el valor se leía como un argumento suelto. */
                     ContextoLex* cx = (ContextoLex*)zfsmcliget_extra(yyscanner);
                     char* nombre = copia(yytext, yyleng);
-                    if (cx->llevaValor && cx->llevaValor(cx->verbo, nombre, cx->ctx)) {
+                    if (cx->llevaValor && cx->llevaValor(cx->verbo, nombre, cx->ctx) > 0) {
                         /* Sin los guiones, igual que las largas: las opciones se guardan
                          * con UNA sola forma de clave. Guardándola con guiones, buscarla
                          * fallaba y el mensaje de error salía con tres. */

@@ -35,7 +35,7 @@ extern "C" int llevaValorLaOpcion(const char* verbo, const char* opcion, void* /
             f.erase(f.begin());
         }
         if (f == op) {
-            return n.valor ? 1 : 0;
+            return n.valor ? 1 : -1;
         }
     }
     for (const Parametro& par : o->params) {

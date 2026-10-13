@@ -659,7 +659,60 @@ bool cmdCreate(Estado& e, const LineaAnalizada& linea) {
     // `create datos` estando en `tank/casa` debe crear `tank/casa/datos`.
     const std::string hijo = d.nombre;
     argv.push_back(hijo.find('/') == std::string::npos ? destino.dataset + "/" + hijo : hijo);
-    if (!zfsGeneric(e, destino, argv)) {
+    // Encrypted with a passphrase that `zfs` would ask for: the shell asks it (twice, as
+    // `change-key`) or reads it from --password-fd, and the daemon's create verb hands it to
+    // `zfs` down a pipe. Never in argv.
+    std::map<std::string, std::string> props;
+    const std::vector<std::string> textos = pet.lista("texto");  // a copy: lista() returns one
+    for (std::size_t i = 1; i < textos.size(); ++i) {
+        const std::string& asig = textos[i];
+        const auto igual = asig.find('=');
+        if (igual != std::string::npos) {
+            props[B::toLowerAscii(asig.substr(0, igual))] = B::toLowerAscii(asig.substr(igual + 1));
+        }
+    }
+    const std::string cifrado = props["encryption"];
+    const bool pideFrase = (cifrado == "on" || cifrado.rfind("aes-", 0) == 0)
+                           && props["keyformat"] == "passphrase"
+                           && (props["keylocation"].empty() || props["keylocation"] == "prompt");
+    if (pideFrase) {
+        std::string frase;
+        std::string err;
+        const std::string fd = pet.valor("password-fd");
+        if (!fd.empty()) {
+            if (!leerSecretoDeDescriptor(std::atoi(fd.c_str()), frase, err)) {
+                std::fprintf(stderr, "%s\n", err.c_str());
+                return false;
+            }
+        } else {
+            std::string otra;
+            if (!pideSecreto(e, T("t_p_frase_nueva", "Frase de paso nueva: "), frase, err)
+                || !pideSecreto(e, T("t_p_frase_rep", "Repítala: "), otra, err)) {
+                std::fprintf(stderr, "%s\n", err.c_str());
+                return false;
+            }
+            const bool iguales = frase == otra;
+            std::fill(otra.begin(), otra.end(), '\0');
+            if (!iguales) {
+                std::fill(frase.begin(), frase.end(), '\0');
+                std::fputs(TC("t_frases_no_coinciden_crear",
+                              "las dos frases no coinciden; no se ha creado nada\n"),
+                           stderr);
+                return false;
+            }
+        }
+        if (frase.empty()) {
+            std::fputs(TC("t_frase_vacia", "la frase de paso no puede estar vacía\n"), stderr);
+            return false;
+        }
+        std::string out;
+        const bool ok =
+            agente(e, destino, PET::createDataset(B::helpers::agentArgv(argv), frase), out);
+        std::fill(frase.begin(), frase.end(), '\0');
+        if (!ok) {
+            return false;
+        }
+    } else if (!zfsGeneric(e, destino, argv)) {
         return false;
     }
     std::fprintf(stderr, TC("t_creado_s_ea96d0", "creado %s\n"), argv.back().c_str());

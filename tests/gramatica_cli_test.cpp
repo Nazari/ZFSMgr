@@ -394,6 +394,20 @@ int main(int argc, char** argv) {
               "«--name Casa»: sin comillas, el valor es el componente");
     }
     {
+        // A native flag declared without a value does not swallow the assignment after it:
+        // `create c -u compression=lz4` lost the property, taken as the value of `-u`.
+        const auto a = analizaLinea("create c -u compression=lz4");
+        comprueba(a.tiene("-u"), "«create c -u prop=v»: -u se reconoce");
+        const auto textos = a.lista("texto");
+        comprueba(textos.size() == 2 && textos[1] == "compression=lz4",
+                  "«create c -u prop=v»: la asignación sigue siendo un argumento");
+        // `-o` is not a native flag: it still takes the assignment.
+        const auto b = analizaLinea("create tank sda -o ashift=12");
+        comprueba(b.repetidas.size() == 1 && b.repetidas[0].first == "-o"
+                      && b.repetidas[0].second == "ashift=12",
+                  "«create tank sda -o ashift=12»: -o se lleva su valor");
+    }
+    {
         // Una opción SIN valor no se traga el componente siguiente.
         const auto a = analizaLinea("rsync --check /a/b");
         igual(a.uno("destino"), "/a/b", "«rsync --check <url>»: --check no se come la URL");

@@ -4595,7 +4595,7 @@ YY_RULE_SETUP
 {
                     ContextoLex* cx = (ContextoLex*)zfsmcliget_extra(yyscanner);
                     char* nombre = copia(yytext + 2, yyleng - 2);
-                    if (cx->llevaValor && cx->llevaValor(cx->verbo, nombre, cx->ctx)) {
+                    if (cx->llevaValor && cx->llevaValor(cx->verbo, nombre, cx->ctx) > 0) {
                         snprintf(cx->opcionPendiente, sizeof(cx->opcionPendiente), "%s", nombre);
                         free(nombre);
                         BEGIN(VALOR);
@@ -4609,22 +4609,27 @@ case 16:
 YY_RULE_SETUP
 #line 261 "gramatica.l"
 {
-                    /* `-o ashift=12`: opción corta CON valor, repetible. */
+                    /* `-o ashift=12`: opción corta CON valor, repetible. Unless it is a native
+                     * flag declared without one: then the assignment is lexed on its own. */
                     ContextoLex* cx = (ContextoLex*)zfsmcliget_extra(yyscanner);
-                    snprintf(cx->opcionPendiente, sizeof(cx->opcionPendiente), "%s", yytext);
-                    BEGIN(VALOR2);
+                    if (cx->llevaValor && cx->llevaValor(cx->verbo, yytext, cx->ctx) < 0) {
+                        astBandera(cx->res, copia(yytext, yyleng));
+                    } else {
+                        snprintf(cx->opcionPendiente, sizeof(cx->opcionPendiente), "%s", yytext);
+                        BEGIN(VALOR2);
+                    }
                 }
 	YY_BREAK
 case 17:
 YY_RULE_SETUP
-#line 267 "gramatica.l"
+#line 272 "gramatica.l"
 {
                     /* Una bandera corta también puede llevar valor —`import -d /dev`,
                      * `trim -r 100M`—: lo dicen las banderas nativas declaradas para ese
                      * verbo. Sin esto, el valor se leía como un argumento suelto. */
                     ContextoLex* cx = (ContextoLex*)zfsmcliget_extra(yyscanner);
                     char* nombre = copia(yytext, yyleng);
-                    if (cx->llevaValor && cx->llevaValor(cx->verbo, nombre, cx->ctx)) {
+                    if (cx->llevaValor && cx->llevaValor(cx->verbo, nombre, cx->ctx) > 0) {
                         /* Sin los guiones, igual que las largas: las opciones se guardan
                          * con UNA sola forma de clave. Guardándola con guiones, buscarla
                          * fallaba y el mensaje de error salía con tres. */
@@ -4640,44 +4645,44 @@ YY_RULE_SETUP
 case 18:
 /* rule 18 can match eol */
 YY_RULE_SETUP
-#line 285 "gramatica.l"
+#line 290 "gramatica.l"
 { yylval->texto = copia(yytext, yyleng); return URL; }
 	YY_BREAK
 case 19:
 /* rule 19 can match eol */
 YY_RULE_SETUP
-#line 286 "gramatica.l"
+#line 291 "gramatica.l"
 { yylval->texto = copia(yytext, yyleng); return ASIGNACION; }
 	YY_BREAK
 case 20:
 /* rule 20 can match eol */
 YY_RULE_SETUP
-#line 288 "gramatica.l"
+#line 293 "gramatica.l"
 { yylval->texto = sinComillas(yytext, yyleng); return PALABRA; }
 	YY_BREAK
 case 21:
 /* rule 21 can match eol */
 YY_RULE_SETUP
-#line 289 "gramatica.l"
+#line 294 "gramatica.l"
 { yylval->texto = sinComillas(yytext, yyleng); return PALABRA; }
 	YY_BREAK
 case 22:
 /* rule 22 can match eol */
 YY_RULE_SETUP
-#line 291 "gramatica.l"
+#line 296 "gramatica.l"
 { yylval->texto = copia(yytext, yyleng); return PALABRA; }
 	YY_BREAK
 case 23:
 YY_RULE_SETUP
-#line 293 "gramatica.l"
+#line 298 "gramatica.l"
 { return CARACTER_MALO; }
 	YY_BREAK
 case 24:
 YY_RULE_SETUP
-#line 295 "gramatica.l"
+#line 300 "gramatica.l"
 ECHO;
 	YY_BREAK
-#line 4681 "generado/gramatica.lex.c"
+#line 4686 "generado/gramatica.lex.c"
 			case YY_STATE_EOF(INITIAL):
 			case YY_STATE_EOF(VERBO):
 			case YY_STATE_EOF(VALOR):
@@ -5796,6 +5801,6 @@ void yyfree (void * ptr , yyscan_t yyscanner)
 
 #define YYTABLES_NAME "yytables"
 
-#line 295 "gramatica.l"
+#line 300 "gramatica.l"
 
 

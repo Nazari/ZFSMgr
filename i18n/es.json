@@ -685,6 +685,7 @@
     "t_formato_de_9610b7": "formato desconocido: %s (use text, tsv o json)\n",
     "t_frase_vacia": "la frase de paso no puede estar vacía\n",
     "t_frases_no_coinciden": "las dos frases no coinciden; no se ha cambiado nada\n",
+    "t_frases_no_coinciden_crear": "las dos frases no coinciden; no se ha creado nada\n",
     "t_from_inst_17782f": "--from <@inst>",
     "t_from_insta_ce64b3": "--from <@snapshot>",
     "t_from_url_325aa2": "--from <url>",

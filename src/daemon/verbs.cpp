@@ -639,8 +639,15 @@ const TablaDeVerbos& tablaDeVerbos() {
             // tenía dónde escribir y se quedaba colgada moviendo cero bytes sin explicar
             // nada. Con esto el cliente puede plantarse antes de arrancar la copia.
             const std::string created = trim(zfsArgs.back());
-            (void)runExecCapture("zfs", {"set", "canmount=on", created});
-            (void)runExecCapture("zfs", {"mount", created});
+            // Unless the caller said how it mounts: `-u` (do not mount) or its own canmount.
+            bool dichoMontaje = false;
+            for (const std::string& a : zfsArgs) {
+                dichoMontaje = dichoMontaje || a == "-u" || a.rfind("canmount=", 0) == 0;
+            }
+            if (!dichoMontaje) {
+                (void)runExecCapture("zfs", {"set", "canmount=on", created});
+                (void)runExecCapture("zfs", {"mount", created});
+            }
             const ExecResult mp = getDatasetMountpointCapture(created);
             cr.out += "MOUNTPOINT=" + ((mp.rc == 0) ? trim(mp.out) : std::string()) + "\n";
             return cr;

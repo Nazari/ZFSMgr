@@ -49,6 +49,8 @@ void astLibera(AnalisisCli* r);
  * que meterlas en las producciones obligaba a ponerlas al final y hacía ambiguo distinguir
  * `--user linarese` (opción con valor) de `--everyone linarese` (opción suelta más un
  * argumento). Sabiendo cuáles llevan valor, no hay ambigüedad y valen en cualquier sitio. */
+/* It answers 1 (takes a value), 0 (unknown or no value) or -1 (a native flag DECLARED without
+ * a value: `-u` in `create -u compression=lz4` is a flag, and the assignment is an argument). */
 typedef int (*ZfsmCliLlevaValor)(const char* verbo, const char* opcion, void* ctx);
 
 /* Analiza una línea. Devuelve 0 si fue bien. */

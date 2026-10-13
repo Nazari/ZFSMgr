@@ -24,7 +24,6 @@
 #include <functional>
 
 namespace {
-using mwhelpers::shSingleQuote;
 
 void setRequiredLabelState(QLabel* label, bool required) {
     if (!label) {
@@ -48,71 +47,7 @@ void bindRequiredLineEditLabel(QLineEdit* edit, QLabel* label, const std::functi
     refresh();
 }
 
-struct CreateDatasetOptions {
-    QString datasetPath;
-    QString dsType;
-    QString volsize;
-    QString blocksize;
-    bool parents{true};
-    bool sparse{false};
-    bool nomount{false};
-    bool snapshotRecursive{false};
-    QStringList properties;
-    QString extraArgs;
-    QString encryptionPassphrase;
-};
-
-QString buildZfsCreateCmd(const CreateDatasetOptions& opt) {
-    const QString dsType = opt.dsType.trimmed().toLower();
-    if (dsType == QStringLiteral("snapshot")) {
-        QStringList parts;
-        parts << QStringLiteral("zfs") << QStringLiteral("snapshot");
-        if (opt.snapshotRecursive) {
-            parts << QStringLiteral("-r");
-        }
-        for (const QString& p : opt.properties) {
-            const QString pp = p.trimmed();
-            if (!pp.isEmpty()) {
-                parts << QStringLiteral("-o") << shSingleQuote(pp);
-            }
-        }
-        if (!opt.extraArgs.trimmed().isEmpty()) {
-            parts << opt.extraArgs.trimmed();
-        }
-        parts << shSingleQuote(opt.datasetPath.trimmed());
-        return parts.join(' ');
-    }
-
-    QStringList parts;
-    parts << QStringLiteral("zfs") << QStringLiteral("create");
-    if (opt.parents) {
-        parts << QStringLiteral("-p");
-    }
-    if (opt.sparse) {
-        parts << QStringLiteral("-s");
-    }
-    if (opt.nomount) {
-        parts << QStringLiteral("-u");
-    }
-    if (!opt.blocksize.trimmed().isEmpty()) {
-        parts << QStringLiteral("-b") << shSingleQuote(opt.blocksize.trimmed());
-    }
-    if (dsType == QStringLiteral("volume") && !opt.volsize.trimmed().isEmpty()) {
-        parts << QStringLiteral("-V") << shSingleQuote(opt.volsize.trimmed());
-    }
-    for (const QString& p : opt.properties) {
-        const QString pp = p.trimmed();
-        if (!pp.isEmpty()) {
-            parts << QStringLiteral("-o") << shSingleQuote(pp);
-        }
-    }
-    if (!opt.extraArgs.trimmed().isEmpty()) {
-        parts << opt.extraArgs.trimmed();
-    }
-    parts << shSingleQuote(opt.datasetPath.trimmed());
-    return parts.join(' ');
-}
-} // namespace
+}  // namespace
 
 void MainWindow::actionCreateChildDataset(const QString& side) {
     actionCreateChildDataset(side, currentDatasetSelection(side));
@@ -238,26 +173,6 @@ void MainWindow::actionCreateChildDataset(const QString& side, const DatasetSele
     form->addWidget(extraEdit, row, 1, 1, 3);
     row++;
 
-    QLabel* encPassLabel = new QLabel(trk(QStringLiteral("t_create_ds_encpass_001"),
-                                          QStringLiteral("Passphrase cifrado"),
-                                          QStringLiteral("Encryption passphrase")),
-                                      formWidget);
-    QLineEdit* encPassEdit = new QLineEdit(formWidget);
-    encPassEdit->setEchoMode(QLineEdit::Password);
-    form->addWidget(encPassLabel, row, 0);
-    form->addWidget(encPassEdit, row, 1, 1, 3);
-    row++;
-
-    QLabel* encPass2Label = new QLabel(trk(QStringLiteral("t_create_ds_encpass_002"),
-                                           QStringLiteral("Repetir passphrase"),
-                                           QStringLiteral("Repeat passphrase")),
-                                       formWidget);
-    QLineEdit* encPass2Edit = new QLineEdit(formWidget);
-    encPass2Edit->setEchoMode(QLineEdit::Password);
-    form->addWidget(encPass2Label, row, 0);
-    form->addWidget(encPass2Edit, row, 1, 1, 3);
-    row++;
-
     root->addWidget(formWidget);
 
     QGroupBox* propsGroup = new QGroupBox(trk(QStringLiteral("t_props_tab_001"),
@@ -357,39 +272,6 @@ void MainWindow::actionCreateChildDataset(const QString& side, const DatasetSele
         }
         return QString();
     };
-    auto updateEncryptionPassphraseUi = [&]() {
-        const QString enc = propValue(QStringLiteral("encryption")).toLower();
-        const QString keyformat = propValue(QStringLiteral("keyformat")).toLower();
-        const QString keylocation = propValue(QStringLiteral("keylocation")).trimmed().toLower();
-        const bool needsPromptPassphrase =
-            (enc == QStringLiteral("on") || enc.startsWith(QStringLiteral("aes-")))
-            && keyformat == QStringLiteral("passphrase")
-            // Vacío cuenta como "prompt": es lo que hace ZFS por omisión cuando el
-            // formato de clave es una frase. Exigirlo explícito escondía los campos de
-            // la contraseña justo en la configuración más natural —cifrado + passphrase
-            // y keylocation sin tocar—, así que no había dónde escribirla.
-            && (keylocation.isEmpty() || keylocation == QStringLiteral("prompt"));
-        encPassLabel->setVisible(needsPromptPassphrase);
-        encPassEdit->setVisible(needsPromptPassphrase);
-        encPass2Label->setVisible(needsPromptPassphrase);
-        encPass2Edit->setVisible(needsPromptPassphrase);
-        setRequiredLabelState(encPassLabel, needsPromptPassphrase);
-        setRequiredLabelState(encPass2Label, needsPromptPassphrase);
-        if (!needsPromptPassphrase) {
-            encPassEdit->clear();
-            encPass2Edit->clear();
-        }
-    };
-    for (const PropEditor& pe : propEditors) {
-        if (pe.name.compare(QStringLiteral("encryption"), Qt::CaseInsensitive) == 0 && pe.combo) {
-            QObject::connect(pe.combo, qOverload<int>(&QComboBox::currentIndexChanged), &dlg, updateEncryptionPassphraseUi);
-        } else if (pe.name.compare(QStringLiteral("keyformat"), Qt::CaseInsensitive) == 0 && pe.combo) {
-            QObject::connect(pe.combo, qOverload<int>(&QComboBox::currentIndexChanged), &dlg, updateEncryptionPassphraseUi);
-        } else if (pe.name.compare(QStringLiteral("keylocation"), Qt::CaseInsensitive) == 0 && pe.edit) {
-            QObject::connect(pe.edit, &QLineEdit::textChanged, &dlg, updateEncryptionPassphraseUi);
-        }
-    }
-    updateEncryptionPassphraseUi();
     propsContainer->setLayout(propsGrid);
     propsScroll->setWidget(propsContainer);
     propsGroupLay->addWidget(propsScroll);
@@ -417,39 +299,10 @@ void MainWindow::actionCreateChildDataset(const QString& side, const DatasetSele
     }
     setRequiredLabelState(pathLabel, true);
     setRequiredLabelState(volsizeLabel, false);
-    setRequiredLabelState(encPassLabel, false);
-    setRequiredLabelState(encPass2Label, false);
     bindRequiredLineEditLabel(pathEdit, pathLabel, []() { return true; });
     bindRequiredLineEditLabel(volsizeEdit, volsizeLabel, [typeCombo]() {
         return typeCombo && typeCombo->currentData().toString() == QStringLiteral("volume");
     });
-    bindRequiredLineEditLabel(encPassEdit, encPassLabel, [&, typeCombo]() {
-        Q_UNUSED(typeCombo);
-        const QString enc = propValue(QStringLiteral("encryption")).toLower();
-        const QString keyformat = propValue(QStringLiteral("keyformat")).toLower();
-        const QString keylocation = propValue(QStringLiteral("keylocation")).trimmed().toLower();
-        return (enc == QStringLiteral("on") || enc.startsWith(QStringLiteral("aes-")))
-               && keyformat == QStringLiteral("passphrase")
-               // Vacío cuenta como "prompt": es lo que hace ZFS por omisión cuando el
-            // formato de clave es una frase. Exigirlo explícito escondía los campos de
-            // la contraseña justo en la configuración más natural —cifrado + passphrase
-            // y keylocation sin tocar—, así que no había dónde escribirla.
-            && (keylocation.isEmpty() || keylocation == QStringLiteral("prompt"));
-    });
-    bindRequiredLineEditLabel(encPass2Edit, encPass2Label, [&, typeCombo]() {
-        Q_UNUSED(typeCombo);
-        const QString enc = propValue(QStringLiteral("encryption")).toLower();
-        const QString keyformat = propValue(QStringLiteral("keyformat")).toLower();
-        const QString keylocation = propValue(QStringLiteral("keylocation")).trimmed().toLower();
-        return (enc == QStringLiteral("on") || enc.startsWith(QStringLiteral("aes-")))
-               && keyformat == QStringLiteral("passphrase")
-               // Vacío cuenta como "prompt": es lo que hace ZFS por omisión cuando el
-            // formato de clave es una frase. Exigirlo explícito escondía los campos de
-            // la contraseña justo en la configuración más natural —cifrado + passphrase
-            // y keylocation sin tocar—, así que no había dónde escribirla.
-            && (keylocation.isEmpty() || keylocation == QStringLiteral("prompt"));
-    });
-
     auto setSuggestedPath = [&]() {
         const QString t = typeCombo->currentData().toString();
         const bool isSnapshot = t == QStringLiteral("snapshot");
@@ -560,88 +413,50 @@ void MainWindow::actionCreateChildDataset(const QString& side, const DatasetSele
             }
         }
 
-        const QString enc = propValue(QStringLiteral("encryption")).toLower();
-        const QString keyformat = propValue(QStringLiteral("keyformat")).toLower();
-        const QString keylocation = propValue(QStringLiteral("keylocation")).trimmed().toLower();
-        const bool needsPromptPassphrase =
-            (enc == QStringLiteral("on") || enc.startsWith(QStringLiteral("aes-")))
-            && keyformat == QStringLiteral("passphrase")
-            // Vacío cuenta como "prompt": es lo que hace ZFS por omisión cuando el
-            // formato de clave es una frase. Exigirlo explícito escondía los campos de
-            // la contraseña justo en la configuración más natural —cifrado + passphrase
-            // y keylocation sin tocar—, así que no había dónde escribirla.
-            && (keylocation.isEmpty() || keylocation == QStringLiteral("prompt"));
-        if (needsPromptPassphrase) {
-            if (encPassEdit->text().isEmpty() || encPass2Edit->text().isEmpty()) {
-                QMessageBox::warning(&dlg, QStringLiteral("ZFSMgr"),
-                                     trk(QStringLiteral("t_create_ds_encpass_req_001"),
-                                         QStringLiteral("Debe indicar y repetir la passphrase de cifrado."),
-                                         QStringLiteral("You must enter and repeat the encryption passphrase.")));
-                return;
+        // The shell's `create`, run on the parent: it asks for a passphrase itself when the
+        // properties need one, and says what is wrong with the rest.
+        QStringList linea{QStringLiteral("create")};
+        QString padre = ctx.datasetName;
+        if (dsType == QStringLiteral("snapshot")) {
+            padre = path.section(QLatin1Char('@'), 0, 0);
+            linea << cliQuote(QLatin1Char('@') + path.section(QLatin1Char('@'), 1));
+            if (snapRecursiveChk->isChecked()) {
+                linea << QStringLiteral("-r");
             }
-            if (encPassEdit->text() != encPass2Edit->text()) {
-                QMessageBox::warning(&dlg, QStringLiteral("ZFSMgr"),
-                                     trk(QStringLiteral("t_create_ds_encpass_req_002"),
-                                         QStringLiteral("Las passphrases de cifrado no coinciden."),
-                                         QStringLiteral("Encryption passphrases do not match.")));
-                return;
+        } else {
+            linea << cliQuote(path);
+            if (parentsChk->isChecked()) {
+                linea << QStringLiteral("-p");
+            }
+            if (sparseChk->isChecked()) {
+                linea << QStringLiteral("-s");
+            }
+            if (nomountChk->isChecked()) {
+                linea << QStringLiteral("-u");
+            }
+            if (!blocksizeEdit->text().trimmed().isEmpty()) {
+                linea << QStringLiteral("-b") << cliQuote(blocksizeEdit->text().trimmed());
+            }
+            if (dsType == QStringLiteral("volume")) {
+                linea << QStringLiteral("-V") << cliQuote(volsize);
             }
         }
-
-        CreateDatasetOptions opt;
-        opt.datasetPath = path;
-        opt.dsType = dsType;
-        opt.volsize = volsize;
-        opt.blocksize = blocksizeEdit->text().trimmed();
-        opt.parents = parentsChk->isChecked();
-        opt.sparse = sparseChk->isChecked();
-        opt.nomount = nomountChk->isChecked();
-        opt.snapshotRecursive = snapRecursiveChk->isChecked();
-        opt.properties = properties;
-        opt.extraArgs = extraEdit->text().trimmed();
-        opt.encryptionPassphrase = needsPromptPassphrase ? encPassEdit->text() : QString();
-
-        const QString actionLabel = (opt.dsType == QStringLiteral("snapshot"))
-                                        ? trk(QStringLiteral("t_create_snap001"),
-                                              QStringLiteral("Crear snapshot"),
-                                              QStringLiteral("Create snapshot"))
-                                        : trk(QStringLiteral("t_create_ds_001"),
-                                              QStringLiteral("Crear dataset"),
-                                              QStringLiteral("Create dataset"));
-        const QString cmd = buildZfsCreateCmd(opt);
-        QByteArray stdinPayload;
-        if (!opt.encryptionPassphrase.isEmpty()) {
-            stdinPayload = opt.encryptionPassphrase.toUtf8();
-            stdinPayload += '\n';
-            stdinPayload += opt.encryptionPassphrase.toUtf8();
-            stdinPayload += '\n';
+        for (const QString& prop : std::as_const(properties)) {
+            linea << cliQuote(prop);
         }
-        const auto refreshAfterCreate = [this, side, ctx]() {
-            invalidatePoolDatasetListingCache(ctx.connIdx, ctx.poolName);
-            if (side == QStringLiteral("conncontent")) {
-                reloadConnContentPool(ctx.connIdx, ctx.poolName);
-            } else {
-                reloadDatasetSide(side);
+        if (!extraEdit->text().trimmed().isEmpty()) {
+            linea << extraEdit->text().trimmed();
+        }
+        linea << QStringLiteral("--on") << zfsmUrl(ctx.connIdx, padre);
+        if (runCliAndWait(linea.join(QLatin1Char(' '))).rc == 0) {
+            if (m_refreshAfterCli) {
+                invalidatePoolDatasetListingCache(ctx.connIdx, ctx.poolName);
+                if (side == QStringLiteral("conncontent")) {
+                    reloadConnContentPool(ctx.connIdx, ctx.poolName);
+                } else {
+                    reloadDatasetSide(side);
+                }
             }
-        };
-        // Encolada, salvo si lleva la frase de cifrado por la entrada estándar: eso
-        // obligaría a sostener el secreto en memoria mientras el cambio espera en la
-        // lista. Esas siguen ejecutándose en el acto, con la frase recién escrita.
-        if (stdinPayload.isEmpty()) {
-            if (queueDatasetAction(side, actionLabel,
-                                   QStringLiteral("%1 %2").arg(actionLabel, opt.datasetPath),
-                                   ctx, cmd)) {
-                dlg.accept();
-            }
-        } else if (executeDatasetAction(side,
-                                        actionLabel,
-                                        ctx,
-                                        cmd,
-                                        45000,
-                                        false,
-                                        stdinPayload,
-                                        false,
-                                        refreshAfterCreate)) {
             dlg.accept();
         }
     });

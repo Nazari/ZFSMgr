@@ -982,7 +982,7 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
         }
         const QByteArray argvJson = QJsonDocument(arr).toJson(QJsonDocument::Compact);
         createArgv = mwhelpers::argvQt(zfsmgr::commands::requests::createDataset(
-            QString::fromLatin1(argvJson.toBase64()).toStdString()));
+            QString::fromLatin1(argvJson.toBase64()).toStdString(), std::string()));
         createSecret = opt.encryptionPassphrase;
         // Montarlo sí puede ir por shell: no lleva secretos.
         steps.push_back(sshExecFromLocal(
@@ -1305,7 +1305,7 @@ bool MainWindow::applyFromDirCreateStep(int connIdx, const QStringList& rpcArgv,
         return true;  // no hay dataset que crear
     }
         QStringList argv = rpcArgv;
-        argv << QString::fromLatin1(secreto.toUtf8().toBase64());
+        argv.last() = QString::fromLatin1(secreto.toUtf8().toBase64());
         QString out;
         QString err;
         int rc = -1;

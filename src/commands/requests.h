@@ -142,7 +142,8 @@ std::vector<std::string> zpoolGeneric(const std::string& encodedArgv);
 // Creating a dataset is a verb of its own and not a generic `zfs create` **because it can
 // carry an encryption passphrase**: the daemon receives it in the RPC payload and hands it to
 // `zfs` down a pipe. Through the generic path it would end up in argv, visible in a `ps`.
-std::vector<std::string> createDataset(const std::string& encodedArgv);
+// `phrase` is the passphrase, empty when there is none to give.
+std::vector<std::string> createDataset(const std::string& encodedArgv, const std::string& phrase);
 
 // **These two carry their arguments in base64, and not out of whim.** A passphrase in argv
 // is visible to anyone with a `ps` on the machine; encoded, it travels inside the RPC

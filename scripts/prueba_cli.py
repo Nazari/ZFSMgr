@@ -300,6 +300,9 @@ def casos_crear_destruir(ctx):
     caso(ctx, "create: un dataset hijo",
          [f"cd Local/{P}", "create hijo"],
          estado=[("el dataset existe", f"zfs list -H -o name {P}/hijo", rf"^{P}/hijo$")])
+    caso(ctx, "create: una bandera sin valor no se come la propiedad que la sigue",
+         [f"cd Local/{P}", "create hijou -u compression=lz4"],
+         estado=[("con su propiedad", f"zfs get -H -o value compression {P}/hijou", r"^lz4$")])
     caso(ctx, "create: una instantánea con @",
          [f"cd Local/{P}/datos", "create @s2"],
          estado=[("la instantánea existe", f"zfs list -H -t snapshot -o name {P}/datos@s2",
@@ -1228,7 +1231,17 @@ def casos_load_key(ctx):
     caso(ctx, "el uso de una orden mal escrita sale en el idioma de la sesión",
          ["cd Local", "help send @a --wait -n"], rc=2, idioma="en",
          espera=[r"^usage: help"], no_espera=[r"^uso:"])
-    sh(ctx, f"bash -c 'zfs destroy -r {P}/cif; zfs destroy -r {P}/fich'", root=True)
+    caso(ctx, "create: cifrado con frase la lee del descriptor, nunca de argv",
+         [f"create cnueva encryption=on keyformat=passphrase --password-fd 8 --on Local/{P}"],
+         rc=0, frase=frase, espera=[rf"{P}/cnueva created|creado {P}/cnueva"],
+         estado=[("cifrado y con su clave", f"zfs get -H -o value encryptionroot,keystatus {P}/cnueva",
+                  rf"^{P}/cnueva\navailable$")])
+    sh(ctx, f"bash -c 'zfs unmount {P}/cnueva; zfs unload-key {P}/cnueva'", root=True)
+    caso(ctx, "create: y esa frase es la que abre la clave",
+         [f"load-key --on Local/{P}/cnueva --password-fd 8"], rc=0, frase=frase,
+         estado=[("la clave está cargada", f"zfs get -H -o value keystatus {P}/cnueva",
+                  r"^available$")])
+    sh(ctx, f"bash -c 'zfs destroy -r {P}/cif; zfs destroy -r {P}/fich; zfs destroy -r {P}/cnueva'", root=True)
 
 
 def casos_editor_ancho(ctx):
