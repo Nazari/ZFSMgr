@@ -156,7 +156,7 @@ struct LevelPlan {
         Conflict,      // sending would destroy something on the target: nothing is sent
     };
     Kind kind{Kind::Full};
-    std::string base;   // source name of the newest common snapshot
+    std::string base;  // source name of the newest common snapshot (empty: none is shared)
     // Common snapshots whose name differs: (name on the target, name it must take).
     std::vector<std::pair<std::string, std::string>> renameOnTarget;
     // GSA snapshots of the target, older than the base, that the source no longer has.
@@ -171,6 +171,10 @@ struct LevelPlan {
 // never the base.
 LevelPlan planLevel(const std::vector<SnapRef>& source, const std::vector<SnapRef>& target,
                     bool targetExists);
+
+// The «name\tguid» lines of `zfs list -t snapshot -o name,guid -d 1 <dataset>` as SnapRefs,
+// in the order given. Lines of other datasets are skipped.
+std::vector<SnapRef> parseSnapRefs(const std::string& zfsList, const std::string& dataset);
 
 // ── Pruning one class ────────────────────────────────────────────────────────
 

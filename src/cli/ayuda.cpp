@@ -713,6 +713,8 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
      {
       {"send zfsm://casa/tank/copia",
        {"t_ej_send_1", "manda el snapshot actual a otro dataset"}},
+      {"send zfsm://casa/tank/copia --level",
+       {"t_ej_send_level", "solo lo nuevo desde el último snapshot en común"}},
       {"send zfsm://unibody/sback/copia",
        {"t_ej_send_2", "a otra máquina"}},
       {"send zfsm://casa/tank/copia --from @ayer",
@@ -1389,6 +1391,7 @@ const std::vector<Orden> kOrdenes = {
      {"t_manda_una__2d0418", "Manda un snapshot a otro dataset, aquí o en otra máquina."},
      {{{"t_from_insta_ce64b3", "--from <@snapshot>"}, {"t_qu_se_mand_f75c70", "Qué se manda. Sin ella, el sitio actual. También un fichero con un flujo."}},
       {{"t_base_insta_074a40", "--base <@snapshot>"}, {"t_solo_viaja_e40f1d", "Solo viaja lo que cambió desde ahí («Nivelar»)."}},
+      {{"t_send_level", "--level"}, {"t_send_level_q", "La base es el snapshot más nuevo que comparten, por guid: lo que hace «Nivelar»."}},
       {{"t_wait_604867", "--wait"}, {"t_espera_aqu_fba1e7", "Espera aquí a que termine, en vez de devolver el trabajo."}},
       {{"t_send_resume", "--resume"}, {"t_send_resume_q", "Si el destino tiene una recepción que se cortó, la continúa desde donde quedó."}},
       {{"t_send_discard", "--discard-partial"}, {"t_send_discard_q", "Si el destino tiene una recepción que se cortó, la DESCARTA —se pierde lo ya recibido— y manda de cero."}},

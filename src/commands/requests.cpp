@@ -105,6 +105,10 @@ std::vector<std::string> guidMap(const std::string& objeto) {
     return withOne("--dump-zfs-guid-map", objeto);
 }
 
+std::vector<std::string> snapshotGuids(const std::string& dataset) {
+    return withOne("--dump-zfs-snapshot-guids", dataset);
+}
+
 std::vector<std::string> specificProperties(const std::vector<std::string>& propiedades,
                                               const std::string& objeto) {
     const std::string o = limpia(objeto);

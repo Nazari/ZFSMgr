@@ -346,6 +346,23 @@ std::string targetForScheduleMachine(const std::string& target, bool targetIsCli
     return "zfsm://" + trim(clientHost) + "/" + dataset;
 }
 
+std::vector<SnapRef> parseSnapRefs(const std::string& salida, const std::string& dataset) {
+    std::vector<SnapRef> out;
+    const std::string prefijo = dataset + "@";
+    for (const std::string& l : split(salida, "\n", true)) {
+        const std::size_t tab = l.find('\t');
+        if (tab == std::string::npos) {
+            continue;
+        }
+        const std::string nombre = trim(l.substr(0, tab));
+        if (nombre.rfind(prefijo, 0) != 0) {
+            continue;
+        }
+        out.push_back({nombre.substr(prefijo.size()), trim(l.substr(tab + 1))});
+    }
+    return out;
+}
+
 LevelPlan planLevel(const std::vector<SnapRef>& origen, const std::vector<SnapRef>& destino,
                     bool destinoExiste) {
     LevelPlan plan;
@@ -378,12 +395,13 @@ LevelPlan planLevel(const std::vector<SnapRef>& origen, const std::vector<SnapRe
     for (std::size_t i = static_cast<std::size_t>(base) + 1; i < destino.size(); ++i) {
         plan.conflicting.push_back(destino[i].name);
     }
-    if (!plan.conflicting.empty()) {
-        plan.kind = LevelPlan::Kind::Conflict;
-        return plan;
-    }
     const SnapRef& b = destino[static_cast<std::size_t>(base)];
     plan.base = nombreEnOrigen[b.guid];
+    if (!plan.conflicting.empty()) {
+        plan.kind =
+            LevelPlan::Kind::Conflict;  // with its base: what tells it from «nothing shared»
+        return plan;
+    }
     std::map<std::string, bool> nombresDelDestino;
     for (const SnapRef& s : destino) {
         nombresDelDestino[s.name] = true;

@@ -901,6 +901,45 @@ def casos_diff_relativo(ctx):
          [f"diff @s2 --from {U}@s1"], rc=0, espera=[r"^\+\s+\S*/nuevo\.txt"])
 
 
+def casos_send_level(ctx):
+    """`send --level`: the base is the newest snapshot both sides share, found by guid.
+
+    What the graphical interface's «Level» did on its own, now the shell's.
+    """
+    P = POOL_LOCAL
+    prepara(ctx)
+    U = f"zfsm://local/{P}"
+    snaps = f"zfs list -H -o name -t snapshot -s createtxg -d 1 {P}/nivel"
+    sh(ctx, f"zfs snapshot {P}/datos@n1", root=True)
+    sh(ctx, f"bash -c 'zfs create {P}/ajeno && zfs snapshot {P}/ajeno@suyo'", root=True)
+    caso(ctx, "send --level: sin nada en común lo dice y no manda",
+         [f"send {U}/ajeno --on {U}/datos@n1 --level --wait"], rc=1, idioma="es",
+         espera=[r"no comparte"])
+    caso(ctx, "send --level: la copia completa de partida, sin --level",
+         [f"send {U}/nivel --on {U}/datos@n1 --wait"], rc=0,
+         estado=[("el destino tiene n1", snaps, rf"{P}/nivel@n1$")])
+    sh(ctx, f"bash -c 'echo uno > /mnt/{P}/datos/n2.txt'", root=True)
+    sh(ctx, f"zfs snapshot {P}/datos@n2", root=True)
+    sh(ctx, f"zfs snapshot {P}/datos@n3", root=True)
+    # Renamed on the target: the guid still finds it as the base.
+    sh(ctx, f"zfs rename {P}/nivel@n1 {P}/nivel@otro-nombre", root=True)
+    caso(ctx, "send --level: hasta el snapshot pedido, con la base por guid",
+         [f"send {U}/nivel --on {U}/datos@n2 --level --wait"], rc=0, idioma="es",
+         espera=[rf"nivelar desde {P}/datos@n1"],
+         estado=[("llega n2 y no n3", snaps, rf"\A(?![\s\S]*@n3)[\s\S]*{P}/nivel@n2$")])
+    caso(ctx, "send --level: ya nivelado lo dice y no lanza nada",
+         [f"send {U}/nivel --on {U}/datos@n2 --level --wait"], rc=0, idioma="es",
+         espera=[r"ya está nivelado"], no_espera=[r"trabajo"])
+    sh(ctx, f"zfs snapshot {P}/nivel@propio", root=True)
+    caso(ctx, "send --level: un snapshot propio del destino lo para y lo nombra",
+         [f"send {U}/nivel --on {U}/datos@n3 --level --wait"], rc=1, idioma="es",
+         espera=[r"más nuevos que la base.*\(propio\)"])
+    caso(ctx, "send --level no va con --base",
+         [f"send {U}/nivel --on {U}/datos@n3 --level --base @n1"], rc=2, idioma="es",
+         espera=[r"busca la base por su cuenta"])
+    sh(ctx, f"bash -c 'zfs destroy -r {P}/nivel; zfs destroy -r {P}/ajeno'", root=True)
+
+
 def casos_recepcion_a_medias(ctx):
     """Una recepción cortada deja un testigo en el destino, y `send` tiene que decidir.
 
@@ -2949,7 +2988,7 @@ def casos_arranque(ctx):
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
 LOCALES = [casos_arranque, casos_identidad, casos_devices, casos_ayuda, casos_version_openzfs, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
-           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_recepcion_a_medias, casos_send_fichero, casos_send_comprimido, casos_gsa, casos_sin_montar, casos_cp_destino, casos_load_key, casos_editor_ancho, casos_tab_continua, casos_pantalla, casos_path, casos_info_labelclear, casos_servicio, casos_servicio_conexiones, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
+           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_send_level, casos_recepcion_a_medias, casos_send_fichero, casos_send_comprimido, casos_gsa, casos_sin_montar, casos_cp_destino, casos_load_key, casos_editor_ancho, casos_tab_continua, casos_pantalla, casos_path, casos_info_labelclear, casos_servicio, casos_servicio_conexiones, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
 ENTRE_MAQUINAS = [casos_entre_maquinas]

@@ -229,6 +229,70 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
         base = origen.dataset + base;
     }
 
+    // `--level`: the base is the newest snapshot both sides share, found by guid —a rename on
+    // one side does not hide it—, and what travels is everything up to the source snapshot.
+    // The same rule as a schedule's levelling (gsa::planLevel), asked here by hand.
+    if (pet.tiene("--level")) {
+        if (!base.empty() || !ficheroOrigen.empty() || !ficheroDestino.empty()
+            || pet.tiene("--resume") || pet.tiene("--discard-partial")) {
+            std::fputs(TC("t_send_level_solo",
+                          "«--level» busca la base por su cuenta: no va con «--base», con "
+                          "ficheros ni con «--resume»/«--discard-partial»\n"),
+                       stderr);
+            e.ultimoRc = 2;
+            return false;
+        }
+        std::string salida;
+        if (!agente(e, origen, PET::snapshotGuids(origen.dataset), salida, 30000)) {
+            return false;
+        }
+        std::vector<B::gsa::SnapRef> deOrigen = B::gsa::parseSnapRefs(salida, origen.dataset);
+        // Up to the snapshot asked for: what comes after it is not sent.
+        for (std::size_t i = 0; i < deOrigen.size(); ++i) {
+            if (deOrigen[i].name == origen.snapshot) {
+                deOrigen.resize(i + 1);
+                break;
+            }
+        }
+        if (!agente(e, destino, PET::snapshotGuids(destino.dataset), salida, 30000)) {
+            return false;
+        }
+        const std::vector<B::gsa::SnapRef> deDestino =
+            B::gsa::parseSnapRefs(salida, destino.dataset);
+        const B::gsa::LevelPlan plan = B::gsa::planLevel(deOrigen, deDestino, true);
+        switch (plan.kind) {
+            case B::gsa::LevelPlan::Kind::UpToDate:
+                std::fprintf(stderr, TC("t_send_level_al_dia", "%s ya está nivelado con %s\n"),
+                             destino.dataset.c_str(), origen.zfsName().c_str());
+                e.ultimoRc = 0;
+                return true;
+            case B::gsa::LevelPlan::Kind::Incremental:
+                base = origen.dataset + "@" + plan.base;
+                std::fprintf(stderr, TC("t_send_level_base", "nivelar desde %s\n"), base.c_str());
+                break;
+            case B::gsa::LevelPlan::Kind::Conflict:
+                // With no base, the conflict is that nothing is shared at all.
+                if (!plan.base.empty() && !plan.conflicting.empty()) {
+                    std::fprintf(stderr,
+                                 TC("t_send_level_conflicto",
+                                    "%s tiene snapshots más nuevos que la base que el origen no "
+                                    "tiene (%s): nivelar los destruiría\n"),
+                                 destino.dataset.c_str(), B::join(plan.conflicting, ", ").c_str());
+                    e.ultimoRc = 1;
+                    return false;
+                }
+                [[fallthrough]];
+            case B::gsa::LevelPlan::Kind::Full:
+                std::fprintf(stderr,
+                             TC("t_send_level_sin_comun",
+                                "%s no comparte ningún snapshot con %s: nivelar necesita uno; "
+                                "use «send» sin «--level»\n"),
+                             destino.dataset.c_str(), origen.dataset.c_str());
+                e.ultimoRc = 1;
+                return false;
+        }
+    }
+
     // ¿Una recepción a medias en el destino?
     //
     // Si la hay, `zfs recv` no acepta otro envío hasta que se decida qué hacer con ella, y lo

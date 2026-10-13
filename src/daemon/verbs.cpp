@@ -223,6 +223,18 @@ const TablaDeVerbos& tablaDeVerbos() {
                 p.params.size() > 2 ? std::strtoull(p.params[2].c_str(), nullptr, 10) : 0;
             return leeFichero(p.params[0], desde, cuanto);
         });
+        // `-s createtxg` and not `creation`: two snapshots of the same second keep their order.
+        t.pon({"--dump-zfs-snapshot-guids"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            if (p.params.size() < 1) {
+                r.rc = 2;
+                ponCodigo(r, "usage",
+                          {std::string(p.argv0) + " --dump-zfs-snapshot-guids <dataset>"});
+                return r;
+            }
+            return runExecCapture("zfs", {"list", "-H", "-p", "-t", "snapshot", "-o", "name,guid",
+                                          "-s", "createtxg", "-d", "1", p.params[0]});
+        });
         t.pon({"--dump-zfs-guid-map"}, [](const Peticion& p) -> ExecResult {
             ExecResult r;
             if (p.params.size() < 1) {

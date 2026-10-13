@@ -730,18 +730,7 @@ bool gsaSnapshotsDe(const std::string& ds, std::vector<zfsmgr::base::gsa::SnapRe
         error = trim(r.err).empty() ? "zfs list failed" : trim(r.err);
         return false;
     }
-    const std::string prefijo = ds + "@";
-    for (const std::string& l : splitLines(r.out)) {
-        const std::size_t tab = l.find('\t');
-        if (tab == std::string::npos) {
-            continue;
-        }
-        const std::string nombre = trim(l.substr(0, tab));
-        if (nombre.rfind(prefijo, 0) != 0) {
-            continue;
-        }
-        out.push_back({nombre.substr(prefijo.size()), trim(l.substr(tab + 1))});
-    }
+    out = zfsmgr::base::gsa::parseSnapRefs(r.out, ds);
     return true;
 }
 
