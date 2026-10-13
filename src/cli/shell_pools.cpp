@@ -276,7 +276,7 @@ bool cmdImport(Estado& e, const LineaAnalizada& linea) {
     if (!zpoolGeneric(e, destino, argv)) {
         return false;
     }
-    std::fprintf(stderr, "importado %s\n", pet.uno("texto").c_str());
+    std::fprintf(stderr, TC("t_importado", "importado %s\n"), pet.uno("texto").c_str());
     return true;
 }
 

@@ -2339,6 +2339,9 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
     QAction* aMount = nullptr;
     QAction* aUnmount = nullptr;
     QAction* aPromote = nullptr;
+    QAction* aDeleteR = nullptr;
+    QAction* aDeleteRR = nullptr;
+    QAction* aRollbackR = nullptr;
     QAction* aSelectOrigin = nullptr;
     QAction* aPermNewSet = nullptr;
     QAction* aPermNewDeleg = nullptr;
@@ -2361,7 +2364,19 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                 m_mainWindow->trk(QStringLiteral("t_ctx_delete_snapshot001"),
                                   QStringLiteral("Borrar snapshot"),
                                   QStringLiteral("Delete snapshot")));
+            aDeleteR = menu.addAction(
+                m_mainWindow->trk(QStringLiteral("t_ctx_delete_snap_r_001"),
+                                  QStringLiteral("Borrar snapshot en los descendientes (-r)"),
+                                  QStringLiteral("Delete snapshot in the descendants (-r)")));
+            aDeleteRR = menu.addAction(
+                m_mainWindow->trk(QStringLiteral("t_ctx_delete_snap_rr_001"),
+                                  QStringLiteral("Borrar snapshot y sus clones (-R)"),
+                                  QStringLiteral("Delete snapshot and its clones (-R)")));
             aRollback = menu.addAction(QStringLiteral("Rollback"));
+            aRollbackR = menu.addAction(m_mainWindow->trk(
+                QStringLiteral("t_ctx_rollback_r_001"),
+                QStringLiteral("Rollback borrando los snapshots posteriores (-r)"),
+                QStringLiteral("Rollback destroying later snapshots (-r)")));
             aNewHold = menu.addAction(m_mainWindow->trk(QStringLiteral("t_new_hold_title001"), QStringLiteral("Nuevo Hold")));
             aSelectOrigin = menu.addAction(
                 m_mainWindow->trk(QStringLiteral("t_ctx_select_as_origin_001"),
@@ -2379,6 +2394,14 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             aDelete = datasetMenuRoot->addAction(m_mainWindow->trk(QStringLiteral("t_ctx_ds_delete001"),
                               QStringLiteral("Borrar"),
                               QStringLiteral("Delete")));
+            aDeleteR = datasetMenuRoot->addAction(
+                m_mainWindow->trk(QStringLiteral("t_ctx_ds_delete_r_001"),
+                                  QStringLiteral("Borrar con descendientes (-r)"),
+                                  QStringLiteral("Delete with descendants (-r)")));
+            aDeleteRR = datasetMenuRoot->addAction(
+                m_mainWindow->trk(QStringLiteral("t_ctx_ds_delete_rr_001"),
+                                  QStringLiteral("Borrar con descendientes y clones (-R)"),
+                                  QStringLiteral("Delete with descendants and clones (-R)")));
             // Montar y desmontar viven en «Dataset», no en «Acciones»: son estado del
             // propio dataset, como crear o renombrar, y no operaciones de datos como
             // Desglosar o Hacia Dir. Desmontar no estaba en ningún menú pese a existir
@@ -2767,258 +2790,27 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             return;
         }
         if (picked == aScheduleSnapshots) {
-            const SelectionSnapshot actx = selectionForMenuContext();
-            if (!actx.valid || actx.datasetName.isEmpty() || !actx.snapshotName.isEmpty()) {
-                return;
-            }
-            for (const QString& prop : gsaUserPropsForScheduling()) {
-                const QString value = prop.compare(QStringLiteral("org.zfsmgr:schedule-enabled"), Qt::CaseInsensitive) == 0
-                                          ? QStringLiteral("on")
-                                          : gsaDefaultValueForScheduling(prop);
-                m_mainWindow->updateConnContentDraftInherit(token, actx.datasetName, prop, false);
-                m_mainWindow->updateConnContentDraftValue(token, actx.datasetName, prop, value);
-            }
-            m_mainWindow->m_propsDirty = true;
-            m_mainWindow->updateApplyPropsButtonState();
-            refreshAllTreesForTokenAndDataset(token, actx.datasetName);
-            // Esta acción PREPARA, no aplica: deja las propiedades en el borrador para que
-            // uno ajuste las retenciones y pulse Aplicar. Sin decirlo, y si las columnas de
-            // esas propiedades no están a la vista, no se ve absolutamente nada y parece
-            // que la orden no ha hecho nada.
-            m_mainWindow->appLog(
-                QStringLiteral("NORMAL"),
-                QStringLiteral("Programación preparada para %1 (diaria=7): ajuste las retenciones "
-                               "en las propiedades y pulse Aplicar").arg(actx.datasetName));
-            QMessageBox::information(
-                m_mainWindow, QStringLiteral("ZFSMgr"),
-                m_mainWindow->trk(
-                    QStringLiteral("t_sched_prepared_001"),
-                    QStringLiteral("Programación preparada para «%1»: activada, con 7 instantáneas "
-                                   "diarias.\n\nNo se ha aplicado todavía. Ajuste las retenciones en "
-                                   "las propiedades del dataset (org.zfsmgr:schedule-*) y pulse Aplicar.")
-                        .arg(actx.datasetName),
-                    QStringLiteral("Schedule prepared for «%1»: enabled, keeping 7 daily "
-                                   "snapshots.\n\nIt has not been applied yet. Adjust the retentions "
-                                   "in the dataset properties (org.zfsmgr:schedule-*) and press Apply.")
-                        .arg(actx.datasetName)
-                        .arg(actx.datasetName)));
+            // The shell's default schedule: 7 daily snapshots. Retentions are then adjusted in
+            // the Schedules tab.
+            m_mainWindow->cliRunOn(mwSelCtx, QStringLiteral("schedule"),
+                                   QStringLiteral("--daily 7"));
             return;
         }
         if (picked == aNewHold) {
-            createSnapshotHold(tree, item);
+            m_mainWindow->cliHold(mwSelCtx);
             return;
         }
         if (picked == aReleaseHold) {
             releaseSnapshotHold(tree, item);
             return;
         }
-        if (picked == aRollback) {
-            const SelectionSnapshot actx = selectionForMenuContext();
-            if (!actx.valid || actx.snapshotName.isEmpty()) {
-                return;
-            }
-            const QString snapObj = QStringLiteral("%1@%2").arg(actx.datasetName, actx.snapshotName);
-            QDialog dlg(m_mainWindow);
-            dlg.setWindowTitle(QStringLiteral("Rollback"));
-            dlg.setModal(true);
-            auto* vbox = new QVBoxLayout(&dlg);
-            auto* intro = new QLabel(
-                QStringLiteral("Configure los parámetros para rollback del snapshot:\n%1")
-                    .arg(snapObj),
-                &dlg);
-            intro->setWordWrap(true);
-            vbox->addWidget(intro);
-
-            auto* optsForm = new QFormLayout();
-            optsForm->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
-
-            QCheckBox* rollbackRecursiveCb = new QCheckBox(QStringLiteral("-r"), &dlg);
-            auto* rollbackRecursiveDesc = new QLabel(
-                QStringLiteral("Elimina snapshots más recientes del dataset para permitir el rollback."),
-                &dlg);
-            rollbackRecursiveDesc->setWordWrap(true);
-            rollbackRecursiveCb->setToolTip(rollbackRecursiveDesc->text());
-            optsForm->addRow(rollbackRecursiveCb, rollbackRecursiveDesc);
-
-            QCheckBox* rollbackRecursiveDestroyCb = new QCheckBox(QStringLiteral("-R"), &dlg);
-            auto* rollbackRecursiveDestroyDesc = new QLabel(
-                QStringLiteral("Como -r, y además elimina clones y dependencias de esos snapshots."),
-                &dlg);
-            rollbackRecursiveDestroyDesc->setWordWrap(true);
-            rollbackRecursiveDestroyCb->setToolTip(rollbackRecursiveDestroyDesc->text());
-            optsForm->addRow(rollbackRecursiveDestroyCb, rollbackRecursiveDestroyDesc);
-
-            QCheckBox* rollbackForceCb = new QCheckBox(QStringLiteral("-f"), &dlg);
-            auto* rollbackForceDesc = new QLabel(
-                QStringLiteral("Fuerza el desmontaje del filesystem si es necesario antes del rollback."),
-                &dlg);
-            rollbackForceDesc->setWordWrap(true);
-            rollbackForceCb->setToolTip(rollbackForceDesc->text());
-            optsForm->addRow(rollbackForceCb, rollbackForceDesc);
-
-            QObject::connect(rollbackRecursiveDestroyCb, &QCheckBox::toggled, &dlg,
-                             [rollbackRecursiveCb](bool on) {
-                                 if (on) {
-                                     rollbackRecursiveCb->setChecked(true);
-                                 }
-                             });
-
-            vbox->addLayout(optsForm);
-
-            auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
-            QObject::connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
-            QObject::connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
-            vbox->addWidget(bb);
-            if (dlg.exec() != QDialog::Accepted) {
-                return;
-            }
-            m_mainWindow->logUiAction(QStringLiteral("Rollback snapshot (menú Contenido)"));
-            QString q = snapObj;
-            q.replace('\'', "'\"'\"'");
-            QStringList rollbackFlags;
-            const bool rollbackForce = rollbackForceCb->isChecked();
-            QString rollbackRecursiveMode = QStringLiteral("none");
-            if (rollbackForceCb->isChecked()) {
-                rollbackFlags.push_back(QStringLiteral("-f"));
-            }
-            if (rollbackRecursiveDestroyCb->isChecked()) {
-                rollbackFlags.push_back(QStringLiteral("-R"));
-                rollbackRecursiveMode = QStringLiteral("R");
-            } else if (rollbackRecursiveCb->isChecked()) {
-                rollbackFlags.push_back(QStringLiteral("-r"));
-                rollbackRecursiveMode = QStringLiteral("r");
-            }
-            // La orden se compone desde `commands::snapshots`, que además comprueba que
-            // el objetivo SEA una instantánea —volver atrás a un dataset no significa nada—.
-            //
-            // Y de paso desaparece un entrecomillado a mano: aquí se ponían los apóstrofos
-            // con `'%1'`, sin pasar por `shSingleQuote`, así que un nombre con un apóstrofo
-            // dentro rompía la orden. `cadenaDeArgv` lo hace bien para todos los argumentos.
-            const QStringList argvRb = mwhelpers::argvRollback(
-                q, false, rollbackRecursiveMode != QStringLiteral("none"));
-            if (argvRb.isEmpty()) {
-                m_mainWindow->appLog(QStringLiteral("WARN"),
-                                     QStringLiteral("Rollback: %1 no es una instantánea").arg(q));
-                return;
-            }
-            QStringList argvZfs;
-            argvZfs << QStringLiteral("rollback") << rollbackFlags << q;
-            const QString cmd = mwhelpers::cadenaDeArgv(QStringLiteral("zfs"), argvZfs);
-            MainWindow::DatasetSelectionContext mwActx;
-            mwActx.valid = actx.valid;
-            mwActx.connIdx = actx.connIdx;
-            mwActx.poolName = actx.poolName;
-            mwActx.datasetName = actx.datasetName;
-            mwActx.snapshotName = actx.snapshotName;
-            ConnectionProfile cp = m_mainWindow->m_conns.profiles[actx.connIdx];
-            if (m_mainWindow->isLocalConnection(cp) && !m_mainWindow->isWindowsConnection(cp)) {
-                cp.useSudo = true;
-                if (!m_mainWindow->ensureLocalSudoCredentials(cp)) {
-                    m_mainWindow->appLog(QStringLiteral("INFO"), QStringLiteral("Rollback cancelada: faltan credenciales sudo locales"));
-                    return;
-                }
-            }
-            if (!m_mainWindow->requireDaemonForMutation(actx.connIdx,
-                                                        QStringLiteral("hacer un rollback"))) {
-                return;
-            }
-            QString queueCmd = cmd;
-            {
-                queueCmd = daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zfs-rollback %1 %2 %3")
-                               .arg(mwhelpers::shSingleQuote(snapObj),
-                                    rollbackForce ? QStringLiteral("1") : QStringLiteral("0"),
-                                    mwhelpers::shSingleQuote(rollbackRecursiveMode));
-            }
-            const QString fullCmd = m_mainWindow->sshExecFromLocal(
-                cp, m_mainWindow->withSudo(cp, mwhelpers::withUnixSearchPathCommand(queueCmd)));
-            MainWindow::DatasetSelectionContext refreshTarget = mwActx;
-            refreshTarget.snapshotName.clear();
-            const QString connLabel = cp.name.trimmed().isEmpty() ? cp.id.trimmed() : cp.name.trimmed();
-            QString errorText;
-            if (!m_mainWindow->runShellActionNow(MainWindow::PendingShellActionDraft{
-                    QStringLiteral("%1::%2").arg(connLabel, actx.poolName),
-                    QStringLiteral("Rollback snapshot %1").arg(snapObj),
-                    fullCmd,
-                    90000,
-                    false,
-                    {},
-                    refreshTarget,
-                    MainWindow::PendingShellActionDraft::RefreshScope::TargetOnly}, &errorText)) {
-                QMessageBox::warning(m_mainWindow, QStringLiteral("ZFSMgr"), errorText);
-                return;
-            }
-            m_mainWindow->appLog(QStringLiteral("NORMAL"),
-                                 QStringLiteral("Cambio pendiente añadido: %1::%2  Rollback snapshot %3")
-                                     .arg(connLabel, actx.poolName, snapObj));
-            m_mainWindow->updateApplyPropsButtonState();
+        if (picked == aRollback || picked == aRollbackR) {
+            m_mainWindow->cliRunOn(mwSelCtx, QStringLiteral("rollback"),
+                                   picked == aRollbackR ? QStringLiteral("-r") : QString());
             return;
         }
         if (picked == aPromote) {
-            const SelectionSnapshot actx = selectionForMenuContext();
-            if (!actx.valid || actx.datasetName.trimmed().isEmpty()
-                || !actx.snapshotName.trimmed().isEmpty()) {
-                return;
-            }
-            const QString ds = actx.datasetName.trimmed();
-            if (QMessageBox::question(
-                    m_mainWindow, QStringLiteral("ZFSMgr"),
-                    m_mainWindow->trk(QStringLiteral("t_promote_confirm001"),
-                        QStringLiteral("Promover %1 lo convierte en dataset independiente: pasa a ser "
-                                       "dueño de los datos y su instantánea de origen queda colgando "
-                                       "del dataset del que era clon.\n\nSolo tiene efecto si %1 es un "
-                                       "clon.\n\n¿Continuar?").arg(ds),
-                        QStringLiteral("Promoting %1 makes it an independent dataset: it takes ownership "
-                                       "of the data and its origin snapshot moves under the dataset it "
-                                       "was cloned from.\n\nIt only has an effect if %1 is a clone."
-                                       "\n\nContinue?").arg(ds).arg(ds)),
-                    QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) {
-                return;
-            }
-            ConnectionProfile cp = m_mainWindow->m_conns.profiles[actx.connIdx];
-            if (m_mainWindow->isLocalConnection(cp) && !m_mainWindow->isWindowsConnection(cp)) {
-                cp.useSudo = true;
-                if (!m_mainWindow->ensureLocalSudoCredentials(cp)) {
-                    m_mainWindow->appLog(QStringLiteral("INFO"),
-                                         QStringLiteral("Promote cancelado: faltan credenciales sudo locales"));
-                    return;
-                }
-            }
-            // Va por el mismo carril que las demás mutaciones de dataset: la orden se
-            // encola y `daemonMutationPlanForCommand` la convierte en RPC tipado —«promote»
-            // ya está en su lista de permitidas—.
-            //
-            // Aquí no había NINGUNA comprobación: sin daemon, la conversión no ocurría y el
-            // `zfs promote` salía por SSH con sudo sin que nada lo dijera. Ahora se exige.
-            if (!m_mainWindow->requireDaemonForMutation(actx.connIdx,
-                                                        QStringLiteral("promover un clon"))) {
-                return;
-            }
-            const QString cmd = QStringLiteral("zfs promote %1").arg(mwhelpers::shSingleQuote(ds));
-            const QString fullCmd = m_mainWindow->sshExecFromLocal(
-                cp, m_mainWindow->withSudo(cp, mwhelpers::withUnixSearchPathCommand(cmd)));
-            MainWindow::DatasetSelectionContext refreshTarget;
-            refreshTarget.valid = true;
-            refreshTarget.connIdx = actx.connIdx;
-            refreshTarget.poolName = actx.poolName;
-            refreshTarget.datasetName = ds;
-            const QString connLabel = cp.name.trimmed().isEmpty() ? cp.id.trimmed() : cp.name.trimmed();
-            QString errorText;
-            if (!m_mainWindow->runShellActionNow(MainWindow::PendingShellActionDraft{
-                    QStringLiteral("%1::%2").arg(connLabel, actx.poolName),
-                    QStringLiteral("Promover clon %1").arg(ds),
-                    fullCmd,
-                    90000,
-                    false,
-                    {},
-                    refreshTarget,
-                    MainWindow::PendingShellActionDraft::RefreshScope::TargetOnly}, &errorText)) {
-                QMessageBox::warning(m_mainWindow, QStringLiteral("ZFSMgr"), errorText);
-                return;
-            }
-            m_mainWindow->appLog(QStringLiteral("NORMAL"),
-                                 QStringLiteral("Cambio pendiente añadido: %1::%2  Promover clon %3")
-                                     .arg(connLabel, actx.poolName, ds));
-            m_mainWindow->updateApplyPropsButtonState();
+            m_mainWindow->cliRunOn(mwSelCtx, QStringLiteral("promote"));
             return;
         }
         if (picked == aCreate) {
@@ -3101,16 +2893,10 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             m_mainWindow->updateApplyPropsButtonState();
             return;
         }
-        if (picked == aDelete) {
-            const SelectionSnapshot actx = selectionForMenuContext();
-            MainWindow::DatasetSelectionContext mwActx;
-            mwActx.valid = actx.valid;
-            mwActx.connIdx = actx.connIdx;
-            mwActx.poolName = actx.poolName;
-            mwActx.datasetName = actx.datasetName;
-            mwActx.snapshotName = actx.snapshotName;
-            m_mainWindow->logUiAction(QStringLiteral("Borrar dataset/snapshot (menú Contenido)"));
-            m_mainWindow->actionDeleteDatasetOrSnapshot(QStringLiteral("conncontent"), mwActx);
+        if (picked == aDelete || picked == aDeleteR || picked == aDeleteRR) {
+            m_mainWindow->cliDestroy(mwSelCtx, picked == aDeleteRR  ? QStringLiteral("-R")
+                                               : picked == aDeleteR ? QStringLiteral("-r")
+                                                                    : QString());
             return;
         }
         // Las seis de origen+destino: el nodo pulsado ES el destino, así que se fija
@@ -3292,71 +3078,10 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
             return;
         }
         if (picked == aLoadKey || picked == aUnloadKey || picked == aChangeKey) {
-            QString actionName;
-            QString cmd;
-            QByteArray stdinPayload;
-            if (picked == aLoadKey) {
-                actionName = m_mainWindow->trk(QStringLiteral("t_load_key_001"),
-                                               QStringLiteral("Cargar clave"),
-                                               QStringLiteral("Load key"));
-                cmd = QStringLiteral("zfs load-key %1").arg(ctx.datasetName);
-            } else if (picked == aUnloadKey) {
-                actionName = QStringLiteral("Unload key");
-                cmd = QStringLiteral("zfs unload-key %1").arg(ctx.datasetName);
-            } else {
-                actionName = QStringLiteral("Change key");
-                cmd = QStringLiteral("zfs change-key -o keylocation=prompt%1 %2")
-                          .arg(keyFormat == QStringLiteral("passphrase")
-                                   ? QStringLiteral(" -o keyformat=passphrase")
-                                   : QString(),
-                               ctx.datasetName);
-            }
-            if (picked == aChangeKey) {
-                QString newPassphrase;
-                if (!promptNewPassphrase(actionName, newPassphrase)) {
-                    return;
-                }
-                stdinPayload = (newPassphrase + QStringLiteral("\n") + newPassphrase + QStringLiteral("\n")).toUtf8();
-                executeDatasetActionWithStdin(QStringLiteral("conncontent"),
-                                             actionName,
-                                             ctx.connIdx,
-                                             ctx.poolName,
-                                             ctx.datasetName,
-                                             ctx.snapshotName,
-                                             cmd,
-                                             stdinPayload,
-                                             90000);
-            } else if (picked == aLoadKey && keyLocation == QStringLiteral("prompt")) {
-                bool ok = false;
-                const QString passphrase = QInputDialog::getText(
-                    m_mainWindow,
-                    actionName,
-                    QStringLiteral("Clave"),
-                    QLineEdit::Password,
-                    QString(),
-                    &ok);
-                if (!ok || passphrase.isEmpty()) {
-                    return;
-                }
-                stdinPayload = (passphrase + QStringLiteral("\n")).toUtf8();
-                executeDatasetActionWithStdin(QStringLiteral("conncontent"),
-                                             actionName,
-                                             ctx.connIdx,
-                                             ctx.poolName,
-                                             ctx.datasetName,
-                                             ctx.snapshotName,
-                                             cmd,
-                                             stdinPayload,
-                                             90000);
-            } else {
-                MainWindow::DatasetSelectionContext mwCtx;
-                mwCtx.valid = ctx.valid;
-                mwCtx.connIdx = ctx.connIdx;
-                mwCtx.poolName = ctx.poolName;
-                mwCtx.datasetName = ctx.datasetName;
-                mwCtx.snapshotName = ctx.snapshotName;
-                m_mainWindow->executeDatasetAction(QStringLiteral("conncontent"), actionName, mwCtx, cmd, 90000);
-            }
+            // The shell asks for the passphrase itself, through the window (a secret event).
+            m_mainWindow->cliRunOn(mwSelCtx, picked == aLoadKey     ? QStringLiteral("load-key")
+                                             : picked == aUnloadKey ? QStringLiteral("unload-key")
+                                                                    : QStringLiteral("change-key"));
             return;
         }
         if (picked == aBreakdown) {

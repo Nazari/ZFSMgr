@@ -5,6 +5,8 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFileInfo>
+#include <QInputDialog>
+#include <QLineEdit>
 #include <QMessageBox>
 
 // Every action of the window runs a line of the shell through CliService. The window only
@@ -25,6 +27,13 @@ void MainWindow::initCliService() {
                      {QStringLiteral("--serve"), QStringLiteral("--lang"), m_language,
                       QStringLiteral("--config-dir"), m_conns.store.configDir()},
                      m_conns.store.masterPassword());
+    m_cli->setAskSecret([this](const QString& prompt, QString& secreto) {
+        bool ok = false;
+        secreto = QInputDialog::getText(this, QStringLiteral("ZFSMgr"), prompt, QLineEdit::Password,
+                                        QString(), &ok);
+        m_cliRefused = !ok;
+        return ok;
+    });
     m_cli->setConfirm([this](const QString& pregunta) {
         const bool si =
             QMessageBox::question(this, QStringLiteral("ZFSMgr"), pregunta) == QMessageBox::Yes;

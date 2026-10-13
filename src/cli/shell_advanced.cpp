@@ -62,10 +62,9 @@ bool cmdClaves(Estado& e, const LineaAnalizada& linea, const char* op) {
         const std::string dondeEsta = propRaiz("keylocation");
         if (dondeEsta == "prompt" || dondeEsta.empty() || dondeEsta == "-") {
             const std::string fd = pet.valor("password-fd");
-            const bool leida =
-                !fd.empty()
-                    ? leerSecretoDeDescriptor(std::atoi(fd.c_str()), frase, err)
-                    : preguntarSecretoPorTerminal(T("t_p_frase", "Frase de paso: "), frase, err);
+            const bool leida = !fd.empty()
+                                   ? leerSecretoDeDescriptor(std::atoi(fd.c_str()), frase, err)
+                                   : pideSecreto(e, T("t_p_frase", "Frase de paso: "), frase, err);
             if (!leida) {
                 std::fprintf(stderr, "%s\n", err.c_str());
                 return false;
@@ -102,9 +101,8 @@ bool cmdClaves(Estado& e, const LineaAnalizada& linea, const char* op) {
             // Se pide DOS veces: sin eco, un dedazo dejaría el dataset con una frase que
             // nadie conoce, y eso no tiene vuelta atrás.
             std::string otra;
-            if (!preguntarSecretoPorTerminal(T("t_p_frase_nueva", "Frase de paso nueva: "), frase,
-                                             err)
-                || !preguntarSecretoPorTerminal(T("t_p_frase_rep", "Repítala: "), otra, err)) {
+            if (!pideSecreto(e, T("t_p_frase_nueva", "Frase de paso nueva: "), frase, err)
+                || !pideSecreto(e, T("t_p_frase_rep", "Repítala: "), otra, err)) {
                 std::fprintf(stderr, "%s\n", err.c_str());
                 return false;
             }

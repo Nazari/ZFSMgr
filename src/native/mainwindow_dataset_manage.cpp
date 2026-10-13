@@ -656,113 +656,12 @@ void MainWindow::actionDeleteDatasetOrSnapshot(const QString& side) {
 }
 
 void MainWindow::actionDeleteDatasetOrSnapshot(const QString& side, const DatasetSelectionContext& explicitCtx) {
-    if (actionsLocked()) {
-        return;
-    }
+    // The shell's `destroy`: it asks with its own text. The variants with -r/-R are separate
+    // menu entries, so there is no dialog of options in front.
     const DatasetSelectionContext ctx = explicitCtx.valid ? explicitCtx : currentDatasetSelection(side);
-    if (!ctx.valid) {
-        return;
+    if (!actionsLocked() && ctx.valid) {
+        cliDestroy(ctx, QString());
     }
-    const QString target = ctx.snapshotName.isEmpty() ? ctx.datasetName : (ctx.datasetName + QStringLiteral("@") + ctx.snapshotName);
-    QDialog dlg(this);
-    dlg.setWindowTitle(trk(QStringLiteral("t_delete_params_title_001"),
-                           QStringLiteral("Borrar dataset/snapshot"),
-                           QStringLiteral("Delete dataset/snapshot")));
-    dlg.setModal(true);
-    dlg.setMinimumWidth(760);
-    auto* vbox = new QVBoxLayout(&dlg);
-    vbox->setSpacing(10);
-    vbox->setContentsMargins(12, 12, 12, 12);
-    auto* intro = new QLabel(
-        trk(QStringLiteral("t_delete_params_intro_001"),
-            QStringLiteral("Configure los parámetros de borrado para:\n%1"),
-            QStringLiteral("Configure delete parameters for:\n%1"))
-            .arg(target),
-        &dlg);
-    intro->setWordWrap(true);
-    intro->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    intro->setMinimumWidth(680);
-    vbox->addWidget(intro);
-
-    auto* form = new QFormLayout();
-    form->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
-    form->setLabelAlignment(Qt::AlignTop | Qt::AlignLeft);
-    form->setFormAlignment(Qt::AlignTop | Qt::AlignLeft);
-    form->setVerticalSpacing(10);
-    form->setHorizontalSpacing(12);
-    form->setContentsMargins(0, 4, 0, 4);
-
-    auto tuneDescLabel = [](QLabel* lbl) {
-        if (!lbl) {
-            return;
-        }
-        lbl->setWordWrap(true);
-        lbl->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-        lbl->setMinimumWidth(620);
-    };
-
-    QCheckBox* recursiveCb = new QCheckBox(QStringLiteral("-r"), &dlg);
-    auto* recursiveLbl = new QLabel(
-        trk(QStringLiteral("t_delete_params_r_desc_001"),
-            QStringLiteral("Borra recursivamente datasets/snapshots descendientes."),
-            QStringLiteral("Delete descendant datasets/snapshots recursively.")),
-        &dlg);
-    tuneDescLabel(recursiveLbl);
-    recursiveCb->setToolTip(recursiveLbl->text());
-    form->addRow(recursiveCb, recursiveLbl);
-
-    QCheckBox* recursiveDestroyCb = new QCheckBox(QStringLiteral("-R"), &dlg);
-    auto* recursiveDestroyLbl = new QLabel(
-        trk(QStringLiteral("t_delete_params_R_desc_001"),
-            QStringLiteral("Como -r, y además destruye clones/dependencias de snapshots."),
-            QStringLiteral("Like -r, and also destroys snapshot clones/dependencies.")),
-        &dlg);
-    tuneDescLabel(recursiveDestroyLbl);
-    recursiveDestroyCb->setToolTip(recursiveDestroyLbl->text());
-    form->addRow(recursiveDestroyCb, recursiveDestroyLbl);
-
-    QCheckBox* forceCb = new QCheckBox(QStringLiteral("-f"), &dlg);
-    auto* forceLbl = new QLabel(
-        trk(QStringLiteral("t_delete_params_f_desc_001"),
-            QStringLiteral("Fuerza el desmontaje previo si el filesystem está montado."),
-            QStringLiteral("Force unmount first if the filesystem is mounted.")),
-        &dlg);
-    tuneDescLabel(forceLbl);
-    forceCb->setToolTip(forceLbl->text());
-    form->addRow(forceCb, forceLbl);
-
-    QObject::connect(recursiveDestroyCb, &QCheckBox::toggled, &dlg, [recursiveCb](bool on) {
-        if (on) {
-            recursiveCb->setChecked(true);
-        }
-    });
-
-    vbox->addLayout(form);
-    auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
-    QObject::connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
-    QObject::connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
-    vbox->addWidget(bb);
-    dlg.resize(820, dlg.sizeHint().height());
-    if (dlg.exec() != QDialog::Accepted) {
-        return;
-    }
-    // The shell's `destroy` with what was chosen: it asks with its own text, checks and
-    // destroys; dependents with -R go as dependents (the window used to send them as -r).
-    QString linea =
-        QStringLiteral("destroy ") + zfsmUrl(ctx.connIdx, ctx.datasetName, ctx.snapshotName);
-    if (recursiveDestroyCb->isChecked()) {
-        linea += QStringLiteral(" -R");
-    } else if (recursiveCb->isChecked()) {
-        linea += QStringLiteral(" -r");
-    }
-    if (forceCb->isChecked()) {
-        linea += QStringLiteral(" -f");
-    }
-    runCli(linea, [this, ctx](const CliService::Result& r) {
-        if (r.rc == 0) {
-            refreshAfterCli(ctx);
-        }
-    });
 }
 
 // Soltar un hold de un snapshot, dicho por su nombre y no por el nodo del árbol donde se
@@ -770,82 +669,17 @@ void MainWindow::actionDeleteDatasetOrSnapshot(const QString& side, const Datase
 // eso ataba la acción a que los holds estuvieran DIBUJADOS en el árbol. Ahora también se
 // llega desde la pestaña Holds del detalle, así que lo que resuelve el nodo se queda en el
 // delegado y el trabajo está aquí.
-void MainWindow::releaseSnapshotHoldNamed(int connIdx,
-                                          const QString& poolName,
-                                          const QString& datasetName,
-                                          const QString& snapshotName,
+void MainWindow::releaseSnapshotHoldNamed(int connIdx, const QString& poolName,
+                                          const QString& datasetName, const QString& snapshotName,
                                           const QString& holdName) {
-    if (connIdx < 0 || connIdx >= m_conns.profiles.size() || poolName.trimmed().isEmpty()
-        || datasetName.trimmed().isEmpty() || snapshotName.trimmed().isEmpty()
-        || holdName.trimmed().isEmpty()) {
-        return;
-    }
-    const auto confirm = QMessageBox::question(
-        this,
-        trk(QStringLiteral("t_release_hold_title001"),
-                          QStringLiteral("Release")),
-        trk(QStringLiteral("t_release_hold_confirm001"),
-                          QStringLiteral("¿Liberar hold \"%1\" del snapshot \"%2@%3\"?")
-                              .arg(holdName, datasetName, snapshotName)),
-        QMessageBox::Yes | QMessageBox::No,
-        QMessageBox::No);
-    if (confirm != QMessageBox::Yes) {
-        return;
-    }
     DatasetSelectionContext ctx;
-    ctx.valid = true;
+    ctx.valid =
+        connIdx >= 0 && !datasetName.trimmed().isEmpty() && !snapshotName.trimmed().isEmpty();
     ctx.connIdx = connIdx;
     ctx.poolName = poolName;
-    ctx.datasetName = datasetName;
-    ctx.snapshotName = snapshotName;
-    auto shQuote = [](QString s) {
-        s.replace('\'', QStringLiteral("'\"'\"'"));
-        return QStringLiteral("'%1'").arg(s);
-    };
-    const QString objectName = QStringLiteral("%1@%2").arg(datasetName, snapshotName);
-    const QString cmd = QStringLiteral("zfs release %1 %2").arg(shQuote(holdName), shQuote(objectName));
-    ConnectionProfile cp = m_conns.profiles[connIdx];
-    if (isLocalConnection(cp) && !isWindowsConnection(cp)) {
-        cp.useSudo = true;
-        if (!ensureLocalSudoCredentials(cp)) {
-            appLog(QStringLiteral("INFO"), QStringLiteral("Release hold cancelada: faltan credenciales sudo locales"));
-            return;
-        }
+    ctx.datasetName = datasetName.trimmed();
+    ctx.snapshotName = snapshotName.trimmed();
+    if (ctx.valid && !holdName.trimmed().isEmpty()) {
+        cliRunOn(ctx, QStringLiteral("release"), holdName.trimmed());
     }
-    // Sin agente NO se ejecuta. Aquí `queueCmd` se quedaba con la orden `zfs` en crudo y
-    // salía por SSH con sudo; ahora se corta y se dice por qué.
-    if (!requireDaemonForMutation(connIdx, QStringLiteral("soltar un hold"))) {
-        return;
-    }
-    QString queueCmd = cmd;
-    {
-        QStringList arr;
-        arr.push_back(QStringLiteral("release"));
-        arr.push_back(holdName);
-        arr.push_back(objectName);
-        const QString payloadB64 = QString::fromUtf8(
-            mwhelpers::agentArgv(arr).toUtf8());
-        queueCmd = daemonpayload::unixBinPath() + QStringLiteral(" --mutate-zfs-generic %1")
-                       .arg(mwhelpers::shSingleQuote(payloadB64));
-    }
-    const QString fullCmd = sshExecFromLocal(
-        cp, withSudo(cp, mwhelpers::withUnixSearchPathCommand(queueCmd)));
-    const QString connLabel = cp.name.trimmed().isEmpty() ? cp.id.trimmed() : cp.name.trimmed();
-    QString errorText;
-    if (!runShellActionNow(PendingShellActionDraft{
-            QStringLiteral("%1::%2").arg(connLabel, poolName),
-            QStringLiteral("Release hold %1 en %2").arg(holdName, objectName),
-            fullCmd,
-            45000,
-            false,
-            {},
-            ctx,
-            PendingShellActionDraft::RefreshScope::TargetOnly}, &errorText)) {
-        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
-        return;
-    }
-    appLog(QStringLiteral("NORMAL"),
-                         QStringLiteral("Cambio pendiente añadido: %1::%2  Release hold %3 en %4")
-                             .arg(connLabel, poolName, holdName, objectName));
-    updateApplyPropsButtonState();
 }

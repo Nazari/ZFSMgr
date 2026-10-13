@@ -207,7 +207,8 @@ bool cmdClone(Estado& e, const LineaAnalizada& linea) {
     if (!agente(e, origen, INST::argvClone(origen.zfsName(), nuevo), out)) {
         return false;
     }
-    std::fprintf(stderr, "clonado %s -> %s\n", origen.zfsName().c_str(), nuevo.c_str());
+    std::fprintf(stderr, TC("t_clonado", "clonado %s -> %s\n"), origen.zfsName().c_str(),
+                 nuevo.c_str());
     return true;
 }
 
@@ -688,7 +689,8 @@ bool cmdRename(Estado& e, const LineaAnalizada& linea) {
     if (!zfsGeneric(e, destino, argvRen)) {
         return false;
     }
-    std::fprintf(stderr, "renombrado %s -> %s\n", destino.dataset.c_str(), completo.c_str());
+    std::fprintf(stderr, TC("t_renombrado", "renombrado %s -> %s\n"), destino.dataset.c_str(),
+                 completo.c_str());
     return true;
 }
 
@@ -719,7 +721,7 @@ bool cmdPromote(Estado& e, const LineaAnalizada& linea) {
     if (!zfsGeneric(e, destino, {"promote", destino.dataset})) {
         return false;
     }
-    std::fprintf(stderr, "promovido %s\n", destino.dataset.c_str());
+    std::fprintf(stderr, TC("t_promovido", "promovido %s\n"), destino.dataset.c_str());
     return true;
 }
 

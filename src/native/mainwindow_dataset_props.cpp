@@ -589,48 +589,26 @@ QString MainWindow::pendingDatasetRenameCommand(const PendingDatasetRenameDraft&
 }
 
 bool MainWindow::runDatasetRenameNow(const PendingDatasetRenameDraft& draft, QString* errorOut) {
-    // Renombrar deja de encolarse y se hace al momento, como el resto de las acciones.
-    //
-    // Con ello desaparecen dos reglas que solo tenían sentido en una cola: rechazar un
-    // segundo renombrado hacia el mismo nombre —dos entradas que chocarían al aplicarse— y
-    // sustituir el renombrado anterior del mismo dataset. Sin cola no hay nada que chocar:
-    // lo que decide si el nombre está libre es ZFS, en el momento, y su respuesta es la
-    // verdad en vez de una predicción nuestra.
-    auto fail = [this, errorOut, &draft](const QString& text) {
+    // `rename <new full name> --on <url>`, the shell's rule: a name with «/» is the full one.
+    DatasetSelectionContext ctx;
+    ctx.valid = draft.connIdx >= 0 && !draft.sourceName.trimmed().isEmpty();
+    ctx.connIdx = draft.connIdx;
+    ctx.poolName = draft.poolName;
+    ctx.datasetName = draft.sourceName.trimmed();
+    if (!ctx.valid || ctx.datasetName.contains(QLatin1Char('@'))) {
         if (errorOut) {
-            *errorOut = text;
+            *errorOut = trk(QStringLiteral("t_rename_only_datasets_001"),
+                            QStringLiteral("Solo se renombran datasets."),
+                            QStringLiteral("Only datasets are renamed."));
         }
-        appLog(QStringLiteral("WARN"),
-               QStringLiteral("[accion] no se renombró «%1»: %2").arg(draft.sourceName.trimmed(), text));
         return false;
-    };
-    if (draft.connIdx < 0 || draft.connIdx >= m_conns.profiles.size()) {
-        return fail(QStringLiteral("Conexión inválida para el renombrado."));
     }
-    const QString poolName = draft.poolName.trimmed();
-    const QString sourceName = draft.sourceName.trimmed();
-    const QString targetName = draft.targetName.trimmed();
-    if (poolName.isEmpty() || sourceName.isEmpty() || targetName.isEmpty()) {
-        return fail(QStringLiteral("Faltan datos para el renombrado."));
-    }
-    if (sourceName == targetName) {
-        return fail(QStringLiteral("El origen y el destino del renombrado son iguales."));
-    }
-    const PendingDatasetRenameDraft limpio{draft.connIdx, poolName, sourceName, targetName};
-    if (!executePendingDatasetRenameDraft(limpio, true, nullptr)) {
-        if (m_lastActionWasCancelled) {
-            m_lastActionWasCancelled = false;
-            if (errorOut) {
-                errorOut->clear();
-            }
-            return false;
+    if (!cliRunOn(ctx, QStringLiteral("rename"), draft.targetName.trimmed())) {
+        if (errorOut) {
+            errorOut->clear();  // the shell's message was already shown
         }
-        return fail(QStringLiteral("El renombrado falló; revise el registro."));
+        return false;
     }
-    invalidatePoolDatasetListingCache(limpio.connIdx, limpio.poolName);
-    reloadConnContentPool(limpio.connIdx, limpio.poolName);
-    reloadDatasetSide(QStringLiteral("origin"));
-    reloadDatasetSide(QStringLiteral("dest"));
     return true;
 }
 

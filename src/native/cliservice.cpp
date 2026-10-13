@@ -106,6 +106,15 @@ void CliService::onOutput() {
             ans[QStringLiteral("id")] = ev.value(QStringLiteral("id"));
             ans[QStringLiteral("answer")] = si;
             m_proc->write(QJsonDocument(ans).toJson(QJsonDocument::Compact) + "\n");
+        } else if (tipo == QStringLiteral("secret")) {
+            QString secreto;
+            const bool dado =
+                m_askSecret && m_askSecret(ev.value(QStringLiteral("text")).toString(), secreto);
+            QJsonObject ans;
+            ans[QStringLiteral("id")] = ev.value(QStringLiteral("id"));
+            ans[QStringLiteral("secret")] = dado ? QJsonValue(secreto) : QJsonValue();
+            m_proc->write(QJsonDocument(ans).toJson(QJsonDocument::Compact) + "\n");
+            secreto.fill(QLatin1Char('\0'));
         } else if (tipo == QStringLiteral("result")) {
             Result r;
             r.rc = ev.value(QStringLiteral("rc")).toInt(-1);

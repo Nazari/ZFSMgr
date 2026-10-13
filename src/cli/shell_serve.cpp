@@ -139,6 +139,26 @@ int servirOrdenes(Sesion& ses) {
         return J::parse(respuesta, r, &err) && r["answer"].toBool(false);
     };
 
+    // A secret: asked as an event, the answer comes back as a line {"id","secret"}.
+    e.pideSecretoServicio = [&idActual](const std::string& texto, std::string& secreto) {
+        J::Value ev;
+        ev.set("id", J::Value(idActual));
+        ev.set("type", J::Value(std::string("secret")));
+        ev.set("text", J::Value(texto));
+        emite(ev);
+        std::string respuesta;
+        if (!std::getline(std::cin, respuesta)) {
+            return false;
+        }
+        J::Value r;
+        std::string err;
+        if (!J::parse(respuesta, r, &err) || !r["secret"].isString()) {
+            return false;
+        }
+        secreto = r["secret"].toString();
+        return true;
+    };
+
     J::Value listo;
     listo.set("type", J::Value(std::string("ready")));
     if (!e.conns.aviso.empty()) {

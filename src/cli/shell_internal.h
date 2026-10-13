@@ -189,6 +189,9 @@ struct Estado {
     // In service mode (--serve), how a confirmation is asked: as an event to the client, whose
     // answer comes back on standard input. Empty in the terminal.
     std::function<bool(const std::string&)> preguntaServicio;
+    // And how a SECRET is asked for (a passphrase, a password): an event whose answer comes
+    // back down the pipe, never in argv. Empty in the terminal.
+    std::function<bool(const std::string&, std::string&)> pideSecretoServicio;
     bool salir{false};
     int ultimoRc{0};
 };
@@ -287,6 +290,8 @@ bool prepara(Estado& e, const LineaAnalizada& linea, Peticion& p);
 // "connection":…}` with --format json, so a program reading the output can follow it.
 void imprimeTrabajo(const Estado& e, const std::string& id, const std::string& conexion);
 bool confirma(const Estado& e, const std::string& que);
+// A secret the command needs: from the client in service mode, from the terminal otherwise.
+bool pideSecreto(const Estado& e, const std::string& prompt, std::string& out, std::string& err);
 bool aplicaFiltro(Estado& e, Tabla& t, std::initializer_list<std::size_t> columnas = {0});
 void olvidaVersionDaemon(Estado& e, const B::ConnectionProfile& p);
 void olvidaEstadoDeConexion(Estado& e, const B::ConnectionProfile& p);

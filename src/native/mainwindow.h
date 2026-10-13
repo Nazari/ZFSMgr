@@ -174,6 +174,11 @@ public:
     void refreshAllJobsForTest() { refreshAllJobsAsync(); }
     void setCliFakeForTest(CliService::Fake fake) { m_cli->setFakeForTest(std::move(fake)); }
     QStringList cliLinesForTest() const { return m_cli->linesForTest(); }
+    bool mountDatasetForTest(int connIdx, const QString& ds);
+    void destroyForTest(int connIdx, const QString& ds, const QString& snap, const QString& flags);
+    bool renameForTest(int connIdx, const QString& src, const QString& target);
+    void releaseHoldForTest(int connIdx, const QString& ds, const QString& snap,
+                            const QString& tag);
     QString zfsmUrlForTest(int connIdx, const QString& ds, const QString& snap) const {
         return zfsmUrl(connIdx, ds, snap);
     }
@@ -235,6 +240,9 @@ private:
         QString datasetName;
         QString snapshotName;
     };
+    // A dataset (and snapshot) of a connection, as a selection context.
+    static DatasetSelectionContext selectionFor(int connIdx, const QString& dataset,
+                                                const QString& snapshot);
 
     struct ConnContentTreeState {
         QStringList expandedDatasets;
@@ -963,6 +971,13 @@ private:
                     const QString& snapshot = QString()) const;
     // After a line that changed something under `ctx`: what the tree shows is read again.
     void refreshAfterCli(const DatasetSelectionContext& ctx);
+    // The same, waiting for the answer (mainwindow_cli_actions.cpp).
+    CliService::Result runCliAndWait(const QString& line);
+    // `<verb> <rest> --on <url of ctx>`; refreshes on success.
+    bool cliRunOn(const DatasetSelectionContext& ctx, const QString& verb,
+                  const QString& rest = QString());
+    void cliDestroy(const DatasetSelectionContext& ctx, const QString& flags);
+    void cliHold(const DatasetSelectionContext& ctx);
     void buildStatusBar();
     void composeStatusBar();
     void refreshStatusBarSchedulesAsync();

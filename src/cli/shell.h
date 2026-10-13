@@ -35,7 +35,9 @@ namespace zfsmgr::cli {
 // line on standard input, `{"id":N,"line":"<a shell command>"}`, and on standard output one
 // JSON event per line: `{"type":"ready"}` once, `{"id":N,"type":"confirm","text":…}` when the
 // command asks (answered with `{"id":N,"answer":true|false}`), and
-// `{"id":N,"type":"result","rc":…,"stdout":…,"stderr":…}`. A command that fails does not end
+// `{"id":N,"type":"result","rc":…,"stdout":…,"stderr":…}`. A secret the command needs (a
+// passphrase) is asked with `{"id":N,"type":"secret","text":…}` and answered with
+// `{"id":N,"secret":"…"}` (or `{"id":N,"secret":null}` to refuse). A command that fails does not end
 // the service. Output is JSON (`--format json` tables) unless a line changes it.
 int servirOrdenes(Sesion& ses);
 

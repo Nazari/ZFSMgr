@@ -844,6 +844,17 @@ void imprimeTrabajo(const Estado& e, const std::string& id, const std::string& c
     std::fprintf(stdout, "%s\n", id.c_str());
 }
 
+bool pideSecreto(const Estado& e, const std::string& prompt, std::string& out, std::string& err) {
+    if (e.pideSecretoServicio) {
+        if (!e.pideSecretoServicio(prompt, out)) {
+            err = T("t_secreto_no_dado", "no se dio el secreto");
+            return false;
+        }
+        return true;
+    }
+    return preguntarSecretoPorTerminal(prompt, out, err);
+}
+
 bool confirma(const Estado& e, const std::string& que) {
     if (e.asumirSi) {
         return true;

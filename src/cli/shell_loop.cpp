@@ -718,7 +718,9 @@ bool ejecutaLinea(Estado& e, const std::string& linea, LectorDeLinea* lector) {
     }
     if (orden == "yes") {
         e.asumirSi = args.empty() || B::toLowerAscii(args.front()) != "off";
-        std::fprintf(stderr, "confirmaciones %s\n", e.asumirSi ? "desactivadas" : "activadas");
+        std::fputs(e.asumirSi ? TC("t_confirm_off", "confirmaciones desactivadas\n")
+                              : TC("t_confirm_on", "confirmaciones activadas\n"),
+                   stderr);
         return false;
     }
 

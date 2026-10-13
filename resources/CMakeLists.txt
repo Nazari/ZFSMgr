@@ -461,6 +461,7 @@ set(ZFSMGR_CORE_SOURCES
     ../src/native/mainwindow_jobs.cpp
     ../src/native/mainwindow_schedules_tab.cpp
     ../src/native/mainwindow_cli.cpp
+    ../src/native/mainwindow_cli_actions.cpp
     ../src/native/cliservice.cpp
     ../src/native/cliservice.h
     ../src/native/mainwindow_remote.cpp

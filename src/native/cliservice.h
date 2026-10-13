@@ -35,6 +35,9 @@ public:
     // How to start the service; nothing is started until the first line.
     void configure(const QString& executable, const QStringList& arguments, const QString& master);
     void setConfirm(Confirm confirm) { m_confirm = std::move(confirm); }
+    // A secret the command asks for (a passphrase): false to refuse.
+    using AskSecret = std::function<bool(const QString& prompt, QString& secret)>;
+    void setAskSecret(AskSecret ask) { m_askSecret = std::move(ask); }
     void run(const QString& line, Done done);
 
     // For the tests: no process; each line is answered by `fake`, and remembered.
@@ -60,6 +63,7 @@ private:
     QStringList m_arguments;
     QString m_master;
     Confirm m_confirm;
+    AskSecret m_askSecret;
     Fake m_fake;
     QStringList m_lines;
     QProcess* m_proc{nullptr};

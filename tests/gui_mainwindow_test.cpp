@@ -482,6 +482,35 @@ private Q_SLOTS:
         QCOMPARE(res[2].rc, 0);
     }
 
+    // The window's actions send the shell's command lines, not strings of their own.
+    void actionsRunTheShellsCommandLines() {
+        MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
+        ConnectionProfile profile;
+        profile.id = QStringLiteral("local");
+        profile.name = QStringLiteral("Local");
+        profile.connType = QStringLiteral("Local");
+        window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank1")}, {});
+        window.setCliFakeForTest([](const QString&) {
+            CliService::Result r;
+            r.rc = 0;
+            return r;
+        });
+        QVERIFY(window.mountDatasetForTest(0, QStringLiteral("tank1/user")));
+        window.destroyForTest(0, QStringLiteral("tank1/user"), QStringLiteral("s1"),
+                              QStringLiteral("-R"));
+        QVERIFY(window.renameForTest(0, QStringLiteral("tank1/user"),
+                                     QStringLiteral("tank1/other/user")));
+        window.releaseHoldForTest(0, QStringLiteral("tank1/user"), QStringLiteral("s1"),
+                                  QStringLiteral("keep"));
+        const QStringList esperado = {
+            QStringLiteral("mount --on zfsm://local/tank1/user"),
+            QStringLiteral("destroy -R --on zfsm://local/tank1/user@s1"),
+            QStringLiteral("rename tank1/other/user --on zfsm://local/tank1/user"),
+            QStringLiteral("release keep --on zfsm://local/tank1/user@s1"),
+        };
+        QCOMPARE(window.cliLinesForTest(), esperado);
+    }
+
     void selectionBecomesAZfsmUrl() {
         MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
         ConnectionProfile profile;
