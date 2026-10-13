@@ -1214,6 +1214,7 @@
     "t_se_comprue_d745a0": "Se comprueba que el destino EXISTA, como el cd de cualquier intérprete.",
     "t_se_guarda__a5a7bd": "Se guarda cifrada con la contraseña maestra. Sin ella no se guarda en claro.",
     "t_se_necesit_50a033": "Se necesita la contraseña de sudo de esta máquina.\n",
+    "t_seccion_desconocida": "«#%1» no es una sección; las que hay: #content, #properties, #permissions y #path",
     "t_secreto_fd_ilegible": "no se pudo leer del descriptor: ",
     "t_seleccione_615ce3": "Seleccione un dataset activo para aplicar cambios.",
     "t_send_action_001": "Enviar",

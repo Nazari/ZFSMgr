@@ -404,6 +404,18 @@ bool resuelve(const Estado& e, const std::string& texto, ZfsmUrl& out, std::stri
         error = CS::labelOf(CS::Failure::PathOnDataset);
         return false;
     }
+    // The URL layer accepts any section and leaves it to whoever resolves it; these are the
+    // ones the shell handles. Anything else is refused HERE, so a typo fails at `cd` and not
+    // later at whatever command runs inside it.
+    const std::string sec = B::toLowerAscii(out.section);
+    if (!sec.empty() && sec != B::zfsmSection::kContent && sec != B::zfsmSection::kPath
+        && sec != B::zfsmSection::kProperties && sec != B::zfsmSection::kPermissions) {
+        error = B::format(T("t_seccion_desconocida",
+                            "«#%1» no es una sección; las que hay: #content, #properties, "
+                            "#permissions y #path"),
+                          {out.section});
+        return false;
+    }
     return true;
 }
 

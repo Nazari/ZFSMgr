@@ -1596,6 +1596,11 @@ def casos_path(ctx):
          [f"destroy {U}#content/sub -y"], rc=2, espera=[r"es un directorio"],
          estado=[("el dataset sigue", f"zfs list -H -o name {P}/datos", rf"^{P}/datos$"),
                  ("y el directorio", f"bash -c 'test -d /mnt/{P}/datos/sub && echo SI'", r"^SI$")])
+    # Una sección mal escrita se rechaza en el `cd`, no después en lo que se haga dentro.
+    caso(ctx, "sección desconocida: cd la rechaza",
+         [f"cd {U}#xonten"], rc=1, espera=[r"«#xonten» no es una sección"])
+    caso(ctx, "sección desconocida: y cualquier otra orden también",
+         [f"ls {U}#prop"], rc=1, espera=[r"«#prop» no es una sección"])
     caso(ctx, "path: una ruta suelta no es una máquina",
          ["devices zfsm://local#path/dev"], rc=1, espera=[r"no es una conexión"])
     caso(ctx, "path: #path en un dataset se rechaza",
