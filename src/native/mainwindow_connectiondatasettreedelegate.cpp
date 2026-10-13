@@ -87,30 +87,6 @@ bool isGsaProp(const QString& prop) {
     return false;
 }
 
-QString gsaDefaultValueForScheduling(const QString& prop) {
-    const QString p = prop.trimmed();
-    if (p.compare(QStringLiteral("org.zfsmgr:schedule-target"), Qt::CaseInsensitive) == 0) {
-        return QString();
-    }
-    // Una diaria de siete días como punto de partida.
-    //
-    // Antes se preparaban las CINCO retenciones a 0 y `activado=on`, y esa combinación la
-    // rechaza la propia validación al aplicar —«activada y no guarda ninguna instantánea»,
-    // regla que existe desde marzo—. O sea que la orden preparaba algo que el programa se
-    // negaba a aceptar, y quien la usaba veía o nada o un error sin haber tocado un valor.
-    // Siete diarias es lo que uno quiere el 90 % de las veces y se cambia en el sitio.
-    if (p.compare(QStringLiteral("org.zfsmgr:schedule-daily"), Qt::CaseInsensitive) == 0) {
-        return QStringLiteral("7");
-    }
-    if (p.compare(QStringLiteral("org.zfsmgr:schedule-hourly"), Qt::CaseInsensitive) == 0
-        || p.compare(QStringLiteral("org.zfsmgr:schedule-weekly"), Qt::CaseInsensitive) == 0
-        || p.compare(QStringLiteral("org.zfsmgr:schedule-monthly"), Qt::CaseInsensitive) == 0
-        || p.compare(QStringLiteral("org.zfsmgr:schedule-yearly"), Qt::CaseInsensitive) == 0) {
-        return QStringLiteral("0");
-    }
-    return QStringLiteral("off");
-}
-
 bool gsaValueOn(const QString& raw) {
     const QString v = raw.trimmed().toLower();
     return v == QStringLiteral("on")
@@ -160,7 +136,6 @@ QString debugConnTreeNodePath(QTreeWidgetItem* item) {
     }
     return parts.join(QStringLiteral(" / "));
 }
-
 
 void logContextMenuPerf(MainWindow* mw,
                         const QString& phase,
@@ -253,7 +228,6 @@ MainWindowConnectionDatasetTreeDelegate::currentSelection(QTreeWidget* tree, con
     snapshot.snapshotName = ctx.snapshotName;
     return snapshot;
 }
-
 
 void MainWindowConnectionDatasetTreeDelegate::refreshTreeForTokenAndDataset(QTreeWidget* tree,
                                                                             const QString& token,
@@ -400,8 +374,6 @@ void MainWindowConnectionDatasetTreeDelegate::rehydrateExpandedDatasetNodes(QTre
         }
     }
 }
-
-
 
 MainWindowConnectionDatasetTreeDelegate::PoolRootMenuActions
 MainWindowConnectionDatasetTreeDelegate::buildPoolRootMenu(QMenu& menu, QTreeWidget* tree) {
@@ -2123,7 +2095,6 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
         endBusy();
         return;
     }
-
 
     int poolRow = -1;
     QString poolAction;

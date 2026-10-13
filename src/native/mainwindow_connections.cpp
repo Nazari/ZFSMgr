@@ -64,121 +64,6 @@ constexpr int kIsConnectionRootRole = Qt::UserRole + 36;
 constexpr int kConnRootSectionRole = Qt::UserRole + 37;
 constexpr int kPoolNameRole = Qt::UserRole + 11;
 constexpr int kIsPoolRootRole = Qt::UserRole + 12;
-QString stripLeadingSudoForExecution(QString cmd) {
-    cmd = cmd.trimmed();
-    if (cmd.startsWith(QStringLiteral("sudo "))) {
-        cmd = cmd.mid(5).trimmed();
-    }
-    cmd.replace(QStringLiteral("&& sudo "), QStringLiteral("&& "));
-    cmd.replace(QStringLiteral("; sudo "), QStringLiteral("; "));
-    cmd.replace(QStringLiteral("\n sudo "), QStringLiteral("\n "));
-    return cmd.trimmed();
-}
-
-QString normalizedTargetPlatformId(bool isMac, bool isFreeBsd, bool isWindows) {
-    if (isWindows) {
-        return QStringLiteral("windows");
-    }
-    if (isMac) {
-        return QStringLiteral("macos");
-    }
-    if (isFreeBsd) {
-        return QStringLiteral("freebsd");
-    }
-    return QStringLiteral("linux");
-}
-
-QStringList archAliasesForTarget(const QString& archHintRaw) {
-    const QString arch = archHintRaw.trimmed().toLower();
-    if (arch.contains(QStringLiteral("aarch64")) || arch.contains(QStringLiteral("arm64"))) {
-        return {QStringLiteral("arm64"), QStringLiteral("aarch64")};
-    }
-    if (arch.contains(QStringLiteral("x86_64")) || arch.contains(QStringLiteral("amd64"))) {
-        return {QStringLiteral("x86_64"), QStringLiteral("amd64")};
-    }
-    if (arch.contains(QStringLiteral("i686")) || arch.contains(QStringLiteral("i386"))) {
-        return {QStringLiteral("i686"), QStringLiteral("i386")};
-    }
-    QStringList out;
-    if (!arch.isEmpty()) {
-        out << arch;
-    }
-    out << QStringLiteral("x86_64") << QStringLiteral("amd64") << QStringLiteral("arm64") << QStringLiteral("aarch64");
-    out.removeDuplicates();
-    return out;
-}
-
-QString findDeployableAgentBinaryPath(const QString& platformId, const QString& archHintRaw) {
-    const QString ext = (platformId == QStringLiteral("windows")) ? QStringLiteral(".exe") : QString();
-    const QString appDir = QCoreApplication::applicationDirPath();
-    QStringList roots = {
-        appDir,
-        QDir(appDir).absoluteFilePath(QStringLiteral("..")),
-        QDir(appDir).absoluteFilePath(QStringLiteral("../..")),
-        QDir::currentPath()
-    };
-    for (QString& r : roots) {
-        r = QDir::cleanPath(r);
-    }
-    roots.removeDuplicates();
-
-    const QStringList archAliases = archAliasesForTarget(archHintRaw);
-
-    // 1) Buscar primero en bundle empaquetado dentro de la propia app/instalación.
-    for (const QString& arch : archAliases) {
-        const QString rel = platformId + QStringLiteral("-") + arch + QStringLiteral("/zfsmgr_agent") + ext;
-        const QStringList packagedCandidates = {
-            QDir::cleanPath(appDir + QStringLiteral("/agents/") + rel),
-            QDir::cleanPath(appDir + QStringLiteral("/../agents/") + rel),
-            QDir::cleanPath(appDir + QStringLiteral("/../Resources/agents/") + rel),
-            QDir::cleanPath(appDir + QStringLiteral("/../share/zfsmgr/agents/") + rel),
-            QDir::cleanPath(appDir + QStringLiteral("/../../share/zfsmgr/agents/") + rel)
-        };
-        for (const QString& c : packagedCandidates) {
-            const QFileInfo fi(c);
-            if (fi.exists() && fi.isFile()) {
-                return fi.absoluteFilePath();
-            }
-        }
-    }
-
-    // 2) Buscar en artefactos/builds locales del workspace (entorno dev).
-    for (const QString& root : roots) {
-        for (const QString& arch : archAliases) {
-            const QString stable = QDir::cleanPath(
-                root + QStringLiteral("/builds/agents/") + platformId + QStringLiteral("-") + arch
-                + QStringLiteral("/zfsmgr_agent") + ext);
-            const QFileInfo fi(stable);
-            if (fi.exists() && fi.isFile()) {
-                return fi.absoluteFilePath();
-            }
-        }
-        for (const QString& arch : archAliases) {
-            const QString crossDir =
-                QDir::cleanPath(root + QStringLiteral("/builds/cross-") + platformId + QStringLiteral("-") + arch);
-            const QFileInfo fi(QDir::cleanPath(crossDir + QStringLiteral("/zfsmgr_agent") + ext));
-            if (fi.exists() && fi.isFile()) {
-                return fi.absoluteFilePath();
-            }
-        }
-        const QFileInfo genericCross(
-            QDir::cleanPath(root + QStringLiteral("/builds/cross-") + platformId + QStringLiteral("/zfsmgr_agent") + ext));
-        if (genericCross.exists() && genericCross.isFile()) {
-            return genericCross.absoluteFilePath();
-        }
-    }
-
-    const QFileInfo localFi(QDir::cleanPath(appDir + QStringLiteral("/zfsmgr_agent") + ext));
-    if (localFi.exists() && localFi.isFile()) {
-        return localFi.absoluteFilePath();
-    }
-    return QString();
-}
-
-
-
-
-
 QString normalizeHostToken(QString host) {
     host = host.trimmed().toLower();
     if (host.startsWith('[') && host.endsWith(']') && host.size() > 2) {
@@ -660,8 +545,6 @@ bool MainWindow::isConnectionRedirectedToLocal(int idx) const {
 
 namespace {
 
-
-
 QString connPersistKeyFromProfiles(const QVector<ConnectionProfile>& profiles, int connIdx) {
     if (connIdx < 0 || connIdx >= profiles.size()) {
         return QString();
@@ -714,7 +597,6 @@ QString connectivityMatrixRemoteProbe(const ConnectionProfile& target, bool verb
 }
 
 }
-
 
 int MainWindow::connectionIndexByNameOrId(const QString& value) const {
     const QString wanted = value.trimmed();
@@ -807,7 +689,6 @@ void MainWindow::removeDuplicateMachineConnections(int keepIdx) {
     }
     loadConnections();
 }
-
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
     Q_UNUSED(watched);
@@ -1362,7 +1243,6 @@ void MainWindow::fillConnectionsMenu(QMenu* menu) {
     }
 }
 
-
 void MainWindow::refreshAllConnections() {
     if (actionsLocked()) {
         appLog(QStringLiteral("INFO"),
@@ -1837,7 +1717,6 @@ void MainWindow::onAsyncRefreshDone(int generation) {
         m_autoRefreshTimer->stop();
     }
 }
-
 
 void MainWindow::rebuildConnectionEntityTabs() {
     // Los dos paneles, y antes sus desplegables: la lista de conexiones y la de pools
@@ -2626,7 +2505,6 @@ bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool intera
         QStringLiteral("text"));
     return true;
 }
-
 
 void MainWindow::deleteConnection() {
     if (actionsLocked()) {

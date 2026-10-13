@@ -526,7 +526,6 @@ QString MainWindow::poolStableId(const PoolKey& key) const {
     return key.poolName.trimmed();
 }
 
-
 DSKind MainWindow::dsKindFromNames(const QString& fullName, const QString& datasetType) {
     const QString trimmedType = datasetType.trimmed().toLower();
     if (trimmedType == QStringLiteral("filesystem")) {
@@ -859,10 +858,6 @@ bool MainWindow::datasetMountedFromModel(int connIdx, const QString& poolName, c
     return !mountedValue.isEmpty();
 }
 
-bool MainWindow::datasetExistsInModel(int connIdx, const QString& poolName, const QString& datasetName) const {
-    return findDsInfo(connIdx, poolName, datasetName) != nullptr;
-}
-
 QVector<DatasetPropCacheRow> MainWindow::datasetPropertyRowsFromModelOrCache(int connIdx,
                                                                                          const QString& poolName,
                                                                                          const QString& objectName) const {
@@ -908,7 +903,6 @@ QMap<QString, QString> MainWindow::datasetPropertyValuesForNames(int connIdx,
     }
     return values;
 }
-
 
 bool MainWindow::ensureDatasetAllPropertiesLoaded(int connIdx,
                                                   const QString& poolName,
@@ -1791,65 +1785,6 @@ void MainWindow::applyPoolAutoSnapshotInfoLoadResult(
     }
 }
 
-bool MainWindow::executePoolCommand(int connIdx,
-                                    const QString& poolName,
-                                    const QString& actionName,
-                                    const QString& remoteCmd,
-                                    int timeoutMs,
-                                    QString* failureDetailOut,
-                                    bool refreshPoolsTable,
-                                    bool refreshSelectedPoolDetailsAfter) {
-    const QString trimmedPool = poolName.trimmed();
-    const QString trimmedAction = actionName.trimmed();
-    if (connIdx < 0 || connIdx >= m_conns.profiles.size() || trimmedPool.isEmpty() || trimmedAction.isEmpty()) {
-        if (failureDetailOut) {
-            *failureDetailOut = QStringLiteral("invalid pool command context");
-        }
-        return false;
-    }
-    if (isPoolSuspended(connIdx, trimmedPool)) {
-        const QString detail = QStringLiteral("pool is suspended");
-        if (failureDetailOut) {
-            *failureDetailOut = detail;
-        }
-        appLog(QStringLiteral("WARN"),
-               QStringLiteral("Bloqueado %1 sobre %2::%3 (%4)")
-                   .arg(trimmedAction, m_conns.profiles[connIdx].name, trimmedPool, detail));
-        return false;
-    }
-
-    const ConnectionProfile p = m_conns.profiles[connIdx];
-    appLog(QStringLiteral("NORMAL"),
-           QStringLiteral("Inicio %1 %2::%3").arg(trimmedAction.toLower(), p.name, trimmedPool));
-    setActionsLocked(true);
-    QString out;
-    QString err;
-    int rc = -1;
-    const bool ok = runSsh(p, remoteCmd, timeoutMs, out, err, rc) && rc == 0;
-    setActionsLocked(false);
-    if (!ok) {
-        const QString detail = mwhelpers::oneLine(err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err);
-        appLog(QStringLiteral("NORMAL"),
-               QStringLiteral("Error %1 %2::%3 -> %4")
-                   .arg(trimmedAction.toLower(), p.name, trimmedPool, detail));
-        if (failureDetailOut) {
-            *failureDetailOut = err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err;
-        }
-        return false;
-    }
-
-    appLog(QStringLiteral("NORMAL"),
-           QStringLiteral("Fin %1 %2::%3").arg(trimmedAction.toLower(), p.name, trimmedPool));
-    refreshConnectionByIndex(connIdx);
-    if (refreshPoolsTable) {
-        populateAllPoolsTables();
-    }
-    if (refreshSelectedPoolDetailsAfter) {
-        refreshSelectedPoolDetails(true, true);
-    }
-    return true;
-}
-
 // QProcess::splitCommand only handles double-quoted strings; single-quoted arguments
 // (produced by shSingleQuote) would be passed to execvp with literal quote characters.
 static QStringList splitShellCommand(const QString& cmd) {
@@ -2014,151 +1949,6 @@ QStringList MainWindow::daemonizeZfsMutationArgs(int connIdx, const QString& raw
         zfsmgr::commands::requests::zfsGeneric(payloadB64.toStdString()));
 }
 
-QStringList MainWindow::daemonizeLocalSendRecvArgs(int connIdx,
-                                                  const QString& sendRawCmd,
-                                                  const QString& recvRawCmd) const {
-    if (connIdx < 0 || connIdx >= m_conns.profiles.size() || connIdx >= m_conns.states.size()) {
-        return {};
-    }
-    const ConnectionProfile p = m_conns.profiles[connIdx];
-    // El agente de Windows no sirve --zfs-pipe-local (responde "unknown command",
-    // comprobado por RPC), así que la mutación se queda en el camino clásico.
-    if (isWindowsConnection(p)) {
-        return {};
-    }
-    const ConnectionRuntimeState& st = m_conns.states[connIdx];
-    if (!st.daemonInstalled || !st.daemonActive) {
-        return {};
-    }
-    if (st.daemonApiVersion.trimmed() != agentversion::expectedApiVersion().trimmed()) {
-        return {};
-    }
-
-    // Both sides must be plain `zfs send ...` / `zfs recv ...` with no shell
-    // operators; anything else keeps the shell path so its semantics are honored.
-    auto toArgv = [](const QString& rawCmd, const QString& expectOp) -> QStringList {
-        const QString trimmed = rawCmd.trimmed();
-        if (trimmed.contains(QLatin1Char('&')) || trimmed.contains(QLatin1Char('|'))
-            || trimmed.contains(QLatin1Char('`')) || trimmed.contains(QLatin1Char('>'))
-            || trimmed.contains(QLatin1Char('<')) || trimmed.contains(QStringLiteral("$("))) {
-            return QStringList();
-        }
-        const QStringList parts = splitShellCommand(trimmed);
-        if (parts.size() < 2 || parts.first().trimmed() != QStringLiteral("zfs")) {
-            return QStringList();
-        }
-        if (parts.at(1).trimmed().toLower() != expectOp) {
-            return QStringList();
-        }
-        QStringList argv;
-        for (int i = 1; i < parts.size(); ++i) {
-            argv.push_back(parts.at(i));
-        }
-        return argv;
-    };
-
-    const QStringList sendArgv = toArgv(sendRawCmd, QStringLiteral("send"));
-    const QStringList recvArgv = toArgv(recvRawCmd, QStringLiteral("recv"));
-    if (sendArgv.isEmpty() || recvArgv.isEmpty()) {
-        return {};
-    }
-
-    QStringList outer;
-    outer.push_back(mwhelpers::agentArgv(sendArgv));
-    outer.push_back(mwhelpers::agentArgv(recvArgv));
-    const QString payloadB64 = mwhelpers::agentArgv(outer);
-    return {QStringLiteral("--zfs-pipe-local"), payloadB64};
-}
-
-QStringList MainWindow::daemonizeRsyncSyncArgs(int connIdx,
-                                              const QList<QPair<QString, QString>>& pathPairs,
-                                              bool useDelete,
-                                              bool dryRun,
-                                              const QString& rsh,
-                                              const QString& dstHost) const {
-    if (connIdx < 0 || connIdx >= m_conns.profiles.size() || connIdx >= m_conns.states.size()) {
-        return {};
-    }
-    const ConnectionProfile p = m_conns.profiles[connIdx];
-    if (isWindowsConnection(p)) {
-        return {};
-    }
-    const ConnectionRuntimeState& st = m_conns.states[connIdx];
-    if (!st.daemonInstalled || !st.daemonActive) {
-        return {};
-    }
-    if (st.daemonApiVersion.trimmed() != agentversion::expectedApiVersion().trimmed()) {
-        return {};
-    }
-    if (pathPairs.isEmpty()) {
-        return {};
-    }
-    // Entre máquinas se hacía con rsync por SSH desde el agente de origen, y rsync ya no se
-    // usa. El CLI lo hace con el árbol entre daemons; la interfaz lo tendrá en la 2.0.
-    (void)rsh;
-    if (!dstHost.isEmpty()) {
-        return {};
-    }
-
-    // La carga la arma la capa base: el orden de los campos es un contrato del DAEMON.
-    std::vector<std::pair<std::string, std::string>> pares;
-    for (const QPair<QString, QString>& pair : pathPairs) {
-        pares.push_back({pair.first.trimmed().toStdString(), pair.second.trimmed().toStdString()});
-    }
-    const std::string carga = zfsmgr::base::syncing::copyLocalPayload(pares, useDelete, dryRun);
-    if (carga.empty()) {
-        return {};
-    }
-    return mwhelpers::argvQt(zfsmgr::commands::requests::copyLocal(carga));
-}
-
-// Sincronizar dos directorios de la MISMA máquina con la copia propia del agente, sin
-// rsync. Es lo que hace posible Sincronizar en Windows, donde rsync no existe y el
-// respaldo por tar/ssh no puede funcionar: el stdio de un comando remoto por SSH se
-// corta a 132 KiB, y además ese respaldo nunca borraba lo que sobraba, así que no
-// sincronizaba, copiaba.
-//
-// Solo para la misma máquina. Entre máquinas distintas rsync manda solo las
-// diferencias por la red, y sustituirlo por esto sería un retroceso.
-QStringList MainWindow::daemonizeCopyTreeSyncArgs(int connIdx,
-                                                  const QString& srcPath,
-                                                  const QString& dstPath,
-                                                  bool useDelete,
-                                                  bool dryRun) const {
-    if (connIdx < 0 || connIdx >= m_conns.profiles.size() || connIdx >= m_conns.states.size()) {
-        return {};
-    }
-    const ConnectionRuntimeState& st = m_conns.states[connIdx];
-    if (!st.daemonInstalled || !st.daemonActive) {
-        return {};
-    }
-    if (st.daemonApiVersion.trimmed() != agentversion::expectedApiVersion().trimmed()) {
-        return {};
-    }
-    const QString src = srcPath.trimmed();
-    const QString dst = dstPath.trimmed();
-    if (src.isEmpty() || dst.isEmpty()) {
-        return {};
-    }
-    // Misma comprobación que isUsableMountPath: en Windows un punto de montaje lleva
-    // letra de unidad y no empieza por '/'.
-    const bool win = isWindowsConnection(m_conns.profiles[connIdx]);
-    const auto absolute = [win](const QString& v) {
-        return win ? v.contains(QLatin1Char(':')) : v.startsWith(QLatin1Char('/'));
-    };
-    if (!absolute(src) || !absolute(dst)) {
-        return {};
-    }
-    QStringList args{QStringLiteral("--mutate-copy-tree"), src, dst};
-    if (useDelete) {
-        args << QStringLiteral("--delete");
-    }
-    if (dryRun) {
-        args << QStringLiteral("--dry-run");
-    }
-    return args;
-}
-
 QStringList MainWindow::daemonizeShellMutationArgs(int connIdx, const QString& rawShell) const {
     if (connIdx < 0 || connIdx >= m_conns.profiles.size()) {
         return {};
@@ -2185,44 +1975,6 @@ QStringList MainWindow::daemonizeShellMutationArgs(int connIdx, const QString& r
     }
     const QString payloadB64 = QString::fromLatin1(utf8.toBase64());
     return {QStringLiteral("--mutate-shell-generic"), payloadB64};
-}
-
-bool MainWindow::fetchPoolCommandOutput(int connIdx,
-                                        const QString& poolName,
-                                        const QString& actionName,
-                                        const QString& remoteCmd,
-                                        QString* outputOut,
-                                        QString* failureDetailOut,
-                                        int timeoutMs) {
-    const QString trimmedPool = poolName.trimmed();
-    const QString trimmedAction = actionName.trimmed();
-    if (connIdx < 0 || connIdx >= m_conns.profiles.size() || trimmedPool.isEmpty() || trimmedAction.isEmpty()) {
-        if (failureDetailOut) {
-            *failureDetailOut = QStringLiteral("invalid pool query context");
-        }
-        return false;
-    }
-
-    const ConnectionProfile p = m_conns.profiles[connIdx];
-    appLog(QStringLiteral("NORMAL"),
-           QStringLiteral("Consulta %1 %2::%3").arg(trimmedAction.toLower(), p.name, trimmedPool));
-    QString out;
-    QString err;
-    int rc = -1;
-    if (!runSsh(p, remoteCmd, timeoutMs, out, err, rc) || rc != 0) {
-        const QString detail = err.isEmpty() ? QStringLiteral("exit %1").arg(rc) : err;
-        appLog(QStringLiteral("NORMAL"),
-               QStringLiteral("Error %1 %2::%3 -> %4")
-                   .arg(trimmedAction.toLower(), p.name, trimmedPool, mwhelpers::oneLine(detail)));
-        if (failureDetailOut) {
-            *failureDetailOut = detail;
-        }
-        return false;
-    }
-    if (outputOut) {
-        *outputOut = out;
-    }
-    return true;
 }
 
 bool MainWindow::executeConnectionCommand(int connIdx,

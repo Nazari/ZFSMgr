@@ -257,21 +257,6 @@ void MainWindow::actionCreateChildDataset(const QString& side, const DatasetSele
         propEditors.push_back(editor);
     }
 
-    auto propValue = [&](const QString& name) -> QString {
-        for (const PropEditor& pe : propEditors) {
-            if (pe.name.compare(name, Qt::CaseInsensitive) != 0) {
-                continue;
-            }
-            if (pe.combo) {
-                return pe.combo->currentText().trimmed();
-            }
-            if (pe.edit) {
-                return pe.edit->text().trimmed();
-            }
-            return QString();
-        }
-        return QString();
-    };
     propsContainer->setLayout(propsGrid);
     propsScroll->setWidget(propsContainer);
     propsGroupLay->addWidget(propsScroll);

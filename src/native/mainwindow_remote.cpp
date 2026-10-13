@@ -59,9 +59,6 @@ struct LocalAgentConfig {
 
 QMutex s_remoteDaemonTlsPersistMutex;
 
-
-
-
 // Whether an agent invocation changes remote state. Re-sending a `--dump-*` costs
 // nothing, but re-sending a mutation that may already be running is how a single
 // destructive operation ends up executed twice.
@@ -178,9 +175,6 @@ bool runSshRawNoLog(const ConnectionProfile& p,
 }
 
 namespace {
-
-
-
 
 using mwhelpers::isMountedValueTrue;
 using mwhelpers::findLocalExecutable;
@@ -420,36 +414,6 @@ bool MainWindow::persistDaemonTlsMaterialForConnection(const ConnectionProfile& 
     return true;
 }
 
-bool MainWindow::cacheDaemonTlsMaterialForConnection(const ConnectionProfile& p, QString* errorOut) {
-    if (errorOut) {
-        errorOut->clear();
-    }
-    BT::RemoteTlsMaterial mat;
-    BT::FailureReason fetchReason;
-    if (!BT::fetchRemoteDaemonTlsMaterial(toBaseProfile(p), true, mat, &fetchReason)) {
-        if (errorOut) {
-            *errorOut = transportFailureText(fetchReason);
-            if (errorOut->isEmpty()) {
-                *errorOut = transportFailureText({BT::Failure::MaterialCannotBeRead, {}});
-            }
-        }
-        return false;
-    }
-    QString persistErr;
-    if (!persistDaemonTlsMaterialForConnection(
-            p, QByteArray::fromStdString(mat.serverCertPem),
-            QByteArray::fromStdString(mat.clientCertPem),
-            QByteArray::fromStdString(mat.clientKeyPem), mat.daemonPort, &persistErr)) {
-        if (errorOut) {
-            *errorOut = persistErr.isEmpty() ? QStringLiteral("no se pudo persistir TLS en config")
-                                             : persistErr;
-        }
-        return false;
-    }
-    return true;
-}
-
-
 // Intenta servir una invocación del agente por el túnel RPC y decide qué hacer si no
 // puede. Devuelve true si la ha atendido (con éxito, o abortando a propósito para no
 // duplicar una mutación); false significa "ejecútala por SSH".
@@ -562,7 +526,6 @@ QVector<MainWindow::AgentCallForTest> MainWindow::agentCallsForTest() const {
     }
     return v;
 }
-
 
 bool MainWindow::runAgentCommand(const ConnectionProfile& p,
                                  const QStringList& agentArgs,
@@ -699,28 +662,6 @@ void MainWindow::closeAllSshControlMasters() {
         proc.start(QStringLiteral("ssh"), args);
         proc.waitForFinished(1500);
     }
-}
-
-void MainWindow::clearDaemonRpcStateForConnection(const ConnectionProfile& p) {
-    // Se cierra el túnel para que tras reiniciar el daemon se abra uno nuevo.
-    BT::closeTunnelForConnection(m_transport, toBaseProfile(p));
-    const std::string key = BT::remoteDaemonTlsCacheKey(toBaseProfile(p));
-    {
-        // Y se quita la espera, para que el primer RPC tras el reinicio no salga suprimido.
-        std::lock_guard<std::mutex> lock(m_transport.mutex);
-        m_transport.retryAfterByConnKey.erase(key);
-        m_transport.retryReasonByConnKey.erase(key);
-    }
-    // La caché en memoria del material TLS, SOLO la de esta conexión: vaciar la de todas
-    // obligaría a las demás máquinas a una ida y vuelta por SSH sin motivo.
-    BT::clearRemoteDaemonTlsCacheForConnection(toBaseProfile(p));
-}
-
-void MainWindow::clearDaemonRpcBackoffForConnection(const ConnectionProfile& p) {
-    const std::string key = BT::remoteDaemonTlsCacheKey(toBaseProfile(p));
-    std::lock_guard<std::mutex> lock(m_transport.mutex);
-    m_transport.retryAfterByConnKey.erase(key);
-    m_transport.retryReasonByConnKey.erase(key);
 }
 
 void MainWindow::closeAllRemoteDaemonRpcTunnels() {
@@ -1099,79 +1040,6 @@ bool MainWindow::getDatasetProperty(int connIdx, const QString& dataset, const Q
     return true;
 }
 
-bool MainWindow::ensureObjectGuidLoaded(int connIdx,
-                                        const QString& poolName,
-                                        const QString& objectName,
-                                        QString* guidOut) {
-    if (guidOut) {
-        guidOut->clear();
-    }
-    const QString trimmedPool = poolName.trimmed();
-    const QString trimmedObject = objectName.trimmed();
-    if (connIdx < 0 || connIdx >= m_conns.profiles.size() || trimmedPool.isEmpty() || trimmedObject.isEmpty()) {
-        return false;
-    }
-    if (!ensureDatasetsLoaded(connIdx, trimmedPool, true)) {
-        return false;
-    }
-    const QString key = datasetCacheKey(connIdx, trimmedPool);
-    QString guid;
-    {
-        // Scoped so the iterator cannot survive the runSsh() below: runSsh pumps
-        // the event loop, and a queued refresh can erase entries from
-        // m_conns.poolDatasetCache, leaving the iterator dangling.
-        auto cacheIt = m_conns.poolDatasetCache.find(key);
-        if (cacheIt == m_conns.poolDatasetCache.end()) {
-            return false;
-        }
-        guid = cacheIt->objectGuidByName.value(trimmedObject).trimmed();
-    }
-    if (guid.isEmpty() || guid == QStringLiteral("-")) {
-        // Copy, not a reference: m_conns.profiles is reassigned wholesale by
-        // loadConnections(), which a queued event can trigger during runSsh().
-        const ConnectionProfile p = m_conns.profiles[connIdx];
-        QString out;
-        QString err;
-        int rc = -1;
-        const bool daemonReadApiOk =
-            connIdx >= 0
-            && connIdx < m_conns.states.size()
-            && m_conns.states[connIdx].daemonInstalled
-            && m_conns.states[connIdx].daemonActive
-            && m_conns.states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
-        if (!daemonReadApiOk
-            && !requireDaemonForRead(connIdx, QStringLiteral("leer el GUID de un objeto"))) {
-            return false;
-        }
-        const bool ok = runAgentCommand(
-                            p, mwhelpers::argvQt(zfsmgr::commands::requests::datasetProperty("guid", trimmedObject.toStdString())),
-                            15000, out, err, rc)
-                        && rc == 0;
-        if (!ok) {
-            m_transport.log(TransportSession::Level::Warn,
-                   QStringLiteral("No se pudo cargar GUID de objeto %1::%2/%3 -> %4")
-                       .arg(p.name, trimmedPool, trimmedObject, oneLine(err.isEmpty() ? out : err)));
-            return false;
-        }
-        guid = out.section('\n', 0, 0).trimmed();
-        if (guid.isEmpty() || guid == QStringLiteral("-")) {
-            return false;
-        }
-        // Re-look up after the yield: the entry may have been erased or replaced.
-        auto refreshedIt = m_conns.poolDatasetCache.find(key);
-        if (refreshedIt != m_conns.poolDatasetCache.end()) {
-            refreshedIt->objectGuidByName.insert(trimmedObject, guid);
-        }
-        if (DSInfo* dsInfo = findDsInfo(connIdx, trimmedPool, trimmedObject)) {
-            dsInfo->runtime.properties.insert(QStringLiteral("guid"), guid);
-        }
-    }
-    if (guidOut) {
-        *guidOut = guid;
-    }
-    return !guid.isEmpty() && guid != QStringLiteral("-");
-}
-
 QString MainWindow::effectiveMountPath(int connIdx,
                                        const QString& poolName,
                                        const QString& datasetName,
@@ -1416,7 +1284,6 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
         m_conns.poolDatasetCache[key].loadFailed = true;
         return false;
     }
-
 
     for (auto it = snapshotMetaByDataset.begin(); it != snapshotMetaByDataset.end(); ++it) {
         auto rows = it.value();

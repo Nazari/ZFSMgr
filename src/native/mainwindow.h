@@ -619,13 +619,9 @@ private:
     bool persistDaemonTlsMaterialForConnection(const ConnectionProfile& p,
                                                const QByteArray& serverCertPem,
                                                const QByteArray& clientCertPem,
-                                               const QByteArray& clientKeyPem,
-                                               quint16 daemonPort,
+                                               const QByteArray& clientKeyPem, quint16 daemonPort,
                                                QString* errorOut = nullptr);
-    bool cacheDaemonTlsMaterialForConnection(const ConnectionProfile& p, QString* errorOut = nullptr);
     void closeAllRemoteDaemonRpcTunnels();
-    void clearDaemonRpcStateForConnection(const ConnectionProfile& p);
-    void clearDaemonRpcBackoffForConnection(const ConnectionProfile& p);
     QString daemonRpcBackoffTextForConnection(const ConnectionProfile& p) const;
     QString daemonRpcBackoffTextForConnection(int connIdx) const;
     // El texto de un motivo de fallo del transporte. La capa base lo devuelve TIPIFICADO
@@ -647,15 +643,8 @@ private:
                               const QString& remoteCmd) const;
     QString sshExecFromLocal(const ConnectionProfile& p,
                              const QString& remoteCmd) const;
-    bool getDatasetProperty(int connIdx, const QString& dataset, const QString& prop, QString& valueOut);
-    // Testigo de reanudación del destino, o cadena vacía si no hay transfer a
-    // medias. Se lee con --dump-zfs-get-prop, que ya existía: no hace falta un verbo
-    // nuevo, y por tanto tampoco cambiar la versión del esquema del agente.
-    // Devuelve el testigo de reanudación del destino, o vacío. holderOut recibe el
-    // dataset que lo tiene, que NO tiene por qué ser el de destino: en una copia
-    // recursiva el testigo queda en el descendiente que se estaba recibiendo.
-    QString transferResumeTokenFor(int connIdx, const QString& dataset,
-                                   QString* holderOut = nullptr);
+    bool getDatasetProperty(int connIdx, const QString& dataset, const QString& prop,
+                            QString& valueOut);
     QString effectiveMountPath(int connIdx, const QString& poolName, const QString& datasetName, const QString& mountpointHint, const QString& mountedValue);
     QString datasetCacheKey(int connIdx, const QString& poolName) const;
     QString datasetPermissionsCacheKey(int connIdx, const QString& poolName, const QString& datasetName) const;
@@ -758,31 +747,16 @@ private:
     DatasetSelectionContext currentConnContentSelection(const QTreeWidget* tree) const;
     DatasetSelectionContext normalizeDatasetSelectionContext(const DatasetSelectionContext& ctx,
                                                             const QTreeWidget* treeHint = nullptr) const;
-    bool executeDatasetAction(const QString& side,
-                              const QString& actionName,
-                              const DatasetSelectionContext& ctx,
-                              const QString& cmd,
-                              int timeoutMs = 45000,
-                              bool allowWindowsScript = false,
-                              const QByteArray& stdinPayload = {},
-                              bool invalidatePoolCache = true,
+    bool executeDatasetAction(const QString& side, const QString& actionName,
+                              const DatasetSelectionContext& ctx, const QString& cmd,
+                              int timeoutMs = 45000, bool allowWindowsScript = false,
+                              const QByteArray& stdinPayload = {}, bool invalidatePoolCache = true,
                               const std::function<void()>& onSuccessRefresh = {},
                               // Argumentos del agente cuando el llamante los tiene. Con
                               // ellos la orden viaja por RPC sin pasar por el parseo de
                               // la cadena, y el ciclo de trabajos usa el túnel ya
                               // abierto en vez de un SSH con sudo por segundo.
                               const QStringList& agentArgvIn = {});
-    bool executePendingDatasetRenameDraft(const PendingDatasetRenameDraft& draft,
-                                          bool interactiveErrorDialog = true,
-                                          QString* failureDetailOut = nullptr);
-    bool executePoolCommand(int connIdx,
-                            const QString& poolName,
-                            const QString& actionName,
-                            const QString& remoteCmd,
-                            int timeoutMs,
-                            QString* failureDetailOut = nullptr,
-                            bool refreshPoolsTable = false,
-                            bool refreshSelectedPoolDetailsAfter = false);
     QStringList daemonizeZfsMutationArgs(int connIdx, const QString& rawCmd) const;
     QStringList daemonizeZfsMutationArgs(int connIdx, const QStringList& argv) const;
     // El LOTE de permisos, en una sola llamada al daemon.
@@ -795,27 +769,6 @@ private:
     QStringList daemonizeZpoolMutationArgs(int connIdx, const QString& rawCmd) const;
     QStringList daemonizeZpoolMutationArgs(int connIdx, const QStringList& argv) const;
     QStringList daemonizeShellMutationArgs(int connIdx, const QString& rawShell) const;
-    QStringList daemonizeLocalSendRecvArgs(int connIdx,
-                                          const QString& sendRawCmd,
-                                          const QString& recvRawCmd) const;
-    QStringList daemonizeCopyTreeSyncArgs(int connIdx,
-                                          const QString& srcPath,
-                                          const QString& dstPath,
-                                          bool useDelete,
-                                          bool dryRun) const;
-    QStringList daemonizeRsyncSyncArgs(int connIdx,
-                                      const QList<QPair<QString, QString>>& pathPairs,
-                                      bool useDelete,
-                                      bool dryRun,
-                                      const QString& rsh,
-                                      const QString& dstHost) const;
-    bool fetchPoolCommandOutput(int connIdx,
-                                const QString& poolName,
-                                const QString& actionName,
-                                const QString& remoteCmd,
-                                QString* outputOut,
-                                QString* failureDetailOut = nullptr,
-                                int timeoutMs = 45000);
     bool executeConnectionCommand(int connIdx,
                                   const QString& actionName,
                                   const QString& remoteCmd,
@@ -872,15 +825,7 @@ private:
     // Las que llevan un secreto por la entrada estándar —montar un dataset cifrado,
     // crear uno cifrado— NO deben pasar por aquí: encolarlas obliga a sostener la frase
     // en memoria mientras el cambio espera en la lista, que puede ser minutos.
-    bool queueDatasetAction(const QString& side,
-                            const QString& actionName,
-                            const QString& displayLabel,
-                            const DatasetSelectionContext& ctx,
-                            const QString& cmd,
-                            bool allowWindowsScript = false,
-                            const QStringList& agentArgv = {});
     bool runShellActionNow(const PendingShellActionDraft& draft, QString* errorOut = nullptr);
-    QString pendingTransferScopeLabel(const DatasetSelectionContext& src, const DatasetSelectionContext& dst) const;
     void executeConnectionTransferAction(const QString& action);
     void runTransferVerb(const QString& action);
     void setConnectionOriginSelection(const DatasetSelectionContext& ctx);
@@ -911,9 +856,8 @@ private:
     void actionCreateChildDataset(const QString& side);
     void actionCreateChildDataset(const QString& side, const DatasetSelectionContext& explicitCtx);
     void actionDeleteDatasetOrSnapshot(const QString& side);
-    void actionDeleteDatasetOrSnapshot(const QString& side, const DatasetSelectionContext& explicitCtx);
-    bool ensureParentMountedBeforeMount(const DatasetSelectionContext& ctx);
-    bool ensureNoMountpointConflictsBeforeMount(const DatasetSelectionContext& ctx, bool includeDescendants);
+    void actionDeleteDatasetOrSnapshot(const QString& side,
+                                       const DatasetSelectionContext& explicitCtx);
     void onDatasetPropsCellChanged(int row, int col);
     void applyDatasetPropertyChanges();
     void updateApplyPropsButtonState();
@@ -935,12 +879,6 @@ private:
     void refreshConnectionDaemonLogAsync(int idx, bool fullReset = false, bool userAsked = false);
     void runDaemonHeartbeat(const QString& connId);
     void pollDaemonZedAllConnections();
-    bool launchDaemonJobTransfer(const QString& srcSnap, const QString& recvTarget,
-                                 const QString& fromSnap, const QString& sendFlags,
-                                 int srcConnIdx, int dstConnIdx,
-                                 // Testigo de reanudación: cuando viene, el emisor
-                                 // continúa donde se cortó en vez de mandarlo todo.
-                                 const QString& resumeToken = QString());
     void pollDaemonJobs();
     void scanOrphanedJobsForConnection(int connIdx);
     void updateJobsListWidget();
@@ -1130,9 +1068,8 @@ private:
     const DSInfo* findDsInfo(int connIdx, const QString& poolName, const QString& fullName) const;
     DSInfo* findDsInfo(int connIdx, const QString& poolName, const QString& fullName);
     QStringList datasetSnapshotsFromModel(int connIdx, const QString& poolName, const QString& datasetName) const;
-    bool datasetMountedFromModel(int connIdx, const QString& poolName, const QString& datasetName, QString* mountedValueOut = nullptr) const;
-    bool datasetExistsInModel(int connIdx, const QString& poolName, const QString& datasetName) const;
-    bool ensureObjectGuidLoaded(int connIdx, const QString& poolName, const QString& objectName, QString* guidOut = nullptr);
+    bool datasetMountedFromModel(int connIdx, const QString& poolName, const QString& datasetName,
+                                 QString* mountedValueOut = nullptr) const;
     QVector<DatasetPropCacheRow> datasetPropertyRowsFromModelOrCache(int connIdx, const QString& poolName, const QString& objectName) const;
     QVector<DatasetPropCacheRow> datasetPropertyRowsForNames(int connIdx,
                                                              const QString& poolName,
