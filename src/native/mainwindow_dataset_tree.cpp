@@ -2397,12 +2397,6 @@ void MainWindow::ensureConnectionRootAuxNodes(QTreeWidget* tree, QTreeWidgetItem
         }
     };
 
-    auto listOrNone = [&](const QStringList& values) -> QString {
-        return values.isEmpty() ? trk(QStringLiteral("t_none_001"),
-                                      QStringLiteral("(ninguno)"),
-                                      QStringLiteral("(none)"))
-                                : values.join(QStringLiteral(", "));
-    };
     const QString statusText = st.status.trimmed().isEmpty() ? QStringLiteral("-") : st.status.trimmed();
     const QString colorReason = connectionStateColorReason(connIdx).trimmed();
     const QString osText = st.osLine.trimmed().isEmpty() ? QStringLiteral("-") : st.osLine.trimmed();
@@ -2414,58 +2408,16 @@ void MainWindow::ensureConnectionRootAuxNodes(QTreeWidget* tree, QTreeWidgetItem
                                        ? QStringLiteral("-")
                                        : QStringLiteral("OpenZFS %1").arg(st.zfsVersion.trimmed()))
                                 : st.zfsVersionFull.trimmed();
-    const QString packageMgrText = st.helperPackageManagerLabel.trimmed().isEmpty()
-                                       ? QStringLiteral("-")
-                                       : QStringLiteral("%1%2")
-                                             .arg(st.helperPackageManagerLabel.trimmed(),
-                                                  st.helperPackageManagerDetected
-                                                      ? trk(QStringLiteral("t_detected_001"),
-                                                            QStringLiteral(" (detectado)"),
-                                                            QStringLiteral(" (detected)"))
-                                                      : trk(QStringLiteral("t_not_detected_001"),
-                                                            QStringLiteral(" (no detectado)"),
-                                                            QStringLiteral(" (not detected)")));
     QVector<QPair<QString, QString>> infoProps = {
-        {trk(QStringLiteral("t_status_001"),
-             QStringLiteral("Estado"),
-             QStringLiteral("Status")),
+        {trk(QStringLiteral("t_status_001"), QStringLiteral("Estado"), QStringLiteral("Status")),
          statusText},
-        {trk(QStringLiteral("t_os_001"),
-             QStringLiteral("Sistema operativo"),
+        {trk(QStringLiteral("t_os_001"), QStringLiteral("Sistema operativo"),
              QStringLiteral("Operating system")),
          osText},
-        {trk(QStringLiteral("t_conn_method_001"),
-             QStringLiteral("Método de conexión"),
+        {trk(QStringLiteral("t_conn_method_001"), QStringLiteral("Método de conexión"),
              QStringLiteral("Connection method")),
          methodText},
-        {QStringLiteral("OpenZFS"), zfsText},
-        {trk(QStringLiteral("t_helper_platform_001"),
-             QStringLiteral("Plataforma instalación auxiliar"),
-             QStringLiteral("Helper install platform")),
-         st.helperPlatformLabel.trimmed().isEmpty() ? QStringLiteral("-") : st.helperPlatformLabel.trimmed()},
-        {trk(QStringLiteral("t_package_manager_001"),
-             QStringLiteral("Gestor de paquetes"),
-             QStringLiteral("Package manager")),
-         packageMgrText},
-        {trk(QStringLiteral("t_assisted_install_001"),
-             QStringLiteral("Instalación asistida"),
-             QStringLiteral("Assisted install")),
-         st.helperInstallSupported
-             ? trk(QStringLiteral("t_yes_001"),
-                   QStringLiteral("sí"),
-                   QStringLiteral("yes"))
-             : trk(QStringLiteral("t_no_001"),
-                   QStringLiteral("no"),
-                   QStringLiteral("no"))},
-        {trk(QStringLiteral("t_installable_commands_001"),
-             QStringLiteral("Comandos instalables desde ZFSMgr"),
-             QStringLiteral("Commands installable from ZFSMgr")),
-         listOrNone(st.helperInstallableCommands)},
-        {trk(QStringLiteral("t_unsupported_installer_commands_001"),
-             QStringLiteral("Comandos no soportados por instalador"),
-             QStringLiteral("Commands not supported by installer")),
-         listOrNone(st.helperUnsupportedCommands)}
-    };
+        {QStringLiteral("OpenZFS"), zfsText}};
     if (!colorReason.isEmpty()) {
         infoProps.insert(1,
                          {trk(QStringLiteral("t_color_reason_001"),

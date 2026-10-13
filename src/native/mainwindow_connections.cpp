@@ -344,26 +344,6 @@ QString MainWindow::connectionStateTooltipHtml(int connIdx) const {
                          .arg(unavailable.join(QStringLiteral("; ")));
         }
     }
-    lines << QStringLiteral("Plataforma instalación auxiliar: %1")
-                 .arg(st.helperPlatformLabel.trimmed().isEmpty() ? QStringLiteral("-")
-                                                                 : st.helperPlatformLabel.trimmed());
-    lines << QStringLiteral("Gestor de paquetes: %1")
-                 .arg(st.helperPackageManagerLabel.trimmed().isEmpty()
-                          ? QStringLiteral("-")
-                          : QStringLiteral("%1%2")
-                                .arg(st.helperPackageManagerLabel.trimmed(),
-                                     st.helperPackageManagerDetected ? QStringLiteral(" (detectado)")
-                                                                     : QStringLiteral(" (no detectado)")));
-    lines << QStringLiteral("Instalación asistida: %1")
-                 .arg(st.helperInstallSupported ? QStringLiteral("sí") : QStringLiteral("no"));
-    lines << QStringLiteral("Comandos instalables desde ZFSMgr: %1")
-                 .arg(st.helperInstallableCommands.isEmpty()
-                          ? QStringLiteral("(ninguno)")
-                          : st.helperInstallableCommands.join(QStringLiteral(", ")));
-    lines << QStringLiteral("Comandos no soportados por instalador: %1")
-                 .arg(st.helperUnsupportedCommands.isEmpty()
-                          ? QStringLiteral("(ninguno)")
-                          : st.helperUnsupportedCommands.join(QStringLiteral(", ")));
     if (!st.helperInstallReason.trimmed().isEmpty()) {
         lines << QStringLiteral("Motivo instalación asistida: %1").arg(st.helperInstallReason.trimmed());
     }

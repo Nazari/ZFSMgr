@@ -543,12 +543,6 @@ QVector<QPair<QString, QString>> MainWindow::connectionInfoRows(int connIdx) con
         return rows;
     }
     const ConnectionRuntimeState& st = m_conns.states.at(connIdx);
-    const auto listOrNone = [this](const QStringList& values) -> QString {
-        return values.isEmpty() ? trk(QStringLiteral("t_none_001"),
-                                      QStringLiteral("(ninguno)"),
-                                      QStringLiteral("(none)"))
-                                : values.join(QStringLiteral(", "));
-    };
     const QString dash = QStringLiteral("-");
     rows.push_back({trk(QStringLiteral("t_status_001"),
                         QStringLiteral("Estado"),
@@ -577,39 +571,18 @@ QVector<QPair<QString, QString>> MainWindow::connectionInfoRows(int connIdx) con
                                ? dash
                                : QStringLiteral("OpenZFS %1").arg(st.zfsVersion.trimmed()))
                         : st.zfsVersionFull.trimmed()});
-    rows.push_back({trk(QStringLiteral("t_conn_agent_001"),
-                        QStringLiteral("Daemon"),
-                        QStringLiteral("Daemon")),
-                    !st.daemonInstalled
-                        ? trk(QStringLiteral("t_conn_agent_not_installed_001"),
-                              QStringLiteral("no instalado"),
-                              QStringLiteral("not installed"))
-                        : QStringLiteral("%1 | %2")
-                              .arg(st.daemonVersion.trimmed().isEmpty()
-                                       ? dash
-                                       : st.daemonVersion.trimmed(),
-                                   st.daemonActive
-                                       ? trk(QStringLiteral("t_conn_agent_running_001"),
-                                             QStringLiteral("en marcha"),
-                                             QStringLiteral("running"))
-                                       : trk(QStringLiteral("t_conn_agent_stopped_001"),
-                                             QStringLiteral("parado"),
-                                             QStringLiteral("stopped")))});
-    rows.push_back({trk(QStringLiteral("t_helper_platform_001"),
-                        QStringLiteral("Plataforma instalación auxiliar"),
-                        QStringLiteral("Helper install platform")),
-                    st.helperPlatformLabel.trimmed().isEmpty() ? dash
-                                                               : st.helperPlatformLabel.trimmed()});
-    rows.push_back({trk(QStringLiteral("t_package_manager_001"),
-                        QStringLiteral("Gestor de paquetes"),
-                        QStringLiteral("Package manager")),
-                    st.helperPackageManagerLabel.trimmed().isEmpty()
-                        ? dash
-                        : st.helperPackageManagerLabel.trimmed()});
-    rows.push_back({trk(QStringLiteral("t_installable_commands_001"),
-                        QStringLiteral("Comandos instalables desde ZFSMgr"),
-                        QStringLiteral("Commands installable from ZFSMgr")),
-                    listOrNone(st.helperInstallableCommands)});
+    rows.push_back(
+        {trk(QStringLiteral("t_conn_agent_001"), QStringLiteral("Daemon"),
+             QStringLiteral("Daemon")),
+         !st.daemonInstalled
+             ? trk(QStringLiteral("t_conn_agent_not_installed_001"), QStringLiteral("no instalado"),
+                   QStringLiteral("not installed"))
+             : QStringLiteral("%1 | %2").arg(
+                   st.daemonVersion.trimmed().isEmpty() ? dash : st.daemonVersion.trimmed(),
+                   st.daemonActive ? trk(QStringLiteral("t_conn_agent_running_001"),
+                                         QStringLiteral("en marcha"), QStringLiteral("running"))
+                                   : trk(QStringLiteral("t_conn_agent_stopped_001"),
+                                         QStringLiteral("parado"), QStringLiteral("stopped")))});
     return rows;
 }
 
