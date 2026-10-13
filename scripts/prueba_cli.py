@@ -1999,6 +1999,12 @@ def casos_instantaneas(ctx):
          [f"cd Local/{P}/datos@s1", "release prueba"], idioma="en",
          espera=[r"hold «prueba» released"], no_espera=[r"quitad"],
          estado=[("ya no hay hold", f"zfs holds -H {P}/datos@s1", r"^$")])
+    caso(ctx, "clone: con propiedades, -p y -u",
+         [f"cd Local/{P}/datos", f"clone {P}/nuevo/padre/clon2 compression=zstd -p -u --from @s1"],
+         estado=[("con su propiedad y sin montar",
+                  f"zfs get -H -o value compression,mounted {P}/nuevo/padre/clon2",
+                  r"^zstd\nno$")])
+    sh(ctx, f"zfs destroy -r {P}/nuevo", root=True)
     caso(ctx, "clone: se crea un dataset desde la instantánea",
          [f"cd Local/{P}/datos", "clone clonado --from @s1"],
          estado=[("el clon existe", f"zfs list -H -o name {P}/datos/clonado",

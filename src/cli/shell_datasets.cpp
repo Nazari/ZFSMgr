@@ -185,8 +185,10 @@ bool cmdClone(Estado& e, const LineaAnalizada& linea) {
         return false;
     }
     if (pet.lista("texto").empty()) {
-        std::fputs(TC("t_uso_clone__ea5ed7", "uso: clone <nuevo-dataset> [--from <@snapshot>]\n"),
-                   stderr);
+        std::fputs(
+            TC("t_uso_clone2",
+               "uso: clone <nuevo-dataset> [prop=valor...] [-p] [-u] [--from <@snapshot>]\n"),
+            stderr);
         return false;
     }
     const ZfsmUrl& origen = pet.objetivo;
@@ -203,8 +205,20 @@ bool cmdClone(Estado& e, const LineaAnalizada& linea) {
     const std::string nombre = pet.uno("texto");
     const std::string nuevo =
         nombre.find('/') == std::string::npos ? origen.dataset + "/" + nombre : nombre;
+    // `-p`, `-u` and `prop=valor` after the name, as in `create`: they go by the generic
+    // path, the only one that takes flags. Without them, the typed verb.
+    std::vector<std::string> banderas = pet.nativas();
+    const std::vector<std::string> textos = pet.lista("texto");
+    for (std::size_t i = 1; i < textos.size(); ++i) {
+        banderas.push_back("-o");
+        banderas.push_back(textos[i]);
+    }
     std::string out;
-    if (!agente(e, origen, INST::argvClone(origen.zfsName(), nuevo), out)) {
+    if (banderas.empty()) {
+        if (!agente(e, origen, INST::argvClone(origen.zfsName(), nuevo), out)) {
+            return false;
+        }
+    } else if (!zfsGeneric(e, origen, INST::argvZfsClone(origen.zfsName(), nuevo, banderas))) {
         return false;
     }
     std::fprintf(stderr, TC("t_clonado", "clonado %s -> %s\n"), origen.zfsName().c_str(),

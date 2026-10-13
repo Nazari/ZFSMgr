@@ -483,8 +483,27 @@ void MainWindow::executeConnectionTransferAction(const QString& action) {
     m_transferSelectionOverrideOrigin = src;
     m_transferSelectionOverrideDest = dst;
 
+    runTransferVerb(action);
+    m_transferSelectionOverrideActive = false;
+    m_transferSelectionOverrideOrigin = DatasetSelectionContext{};
+    m_transferSelectionOverrideDest = DatasetSelectionContext{};
+    updateConnectionActionsState();
+}
+
+// The transfer the menu entry names, on the origin and destination already chosen.
+void MainWindow::runTransferVerb(const QString& action) {
     if (action == QStringLiteral("send")) {
         actionSendSnapshot();
+    } else if (action == QStringLiteral("send-R")) {
+        cliSend(QStringLiteral("-R"));
+    } else if (action == QStringLiteral("send-w")) {
+        cliSend(QStringLiteral("-w"));
+    } else if (action == QStringLiteral("send-resume")) {
+        cliSend(QStringLiteral("--resume"));
+    } else if (action == QStringLiteral("send-discard")) {
+        cliSend(QStringLiteral("--discard-partial"));
+    } else if (action == QStringLiteral("sync-delete")) {
+        cliSync(QStringLiteral("--delete"));
     } else if (action == QStringLiteral("clone")) {
         actionCloneSnapshot();
     } else if (action == QStringLiteral("diff")) {
@@ -494,8 +513,23 @@ void MainWindow::executeConnectionTransferAction(const QString& action) {
     } else if (action == QStringLiteral("sync")) {
         actionSyncDatasets();
     }
+}
+
+void MainWindow::transferForTest(int srcConn, const QString& srcDs, const QString& srcSnap,
+                                 int dstConn, const QString& dstDs, const QString& dstSnap,
+                                 const QString& verb) {
+    const auto ctx = [](int conn, const QString& ds, const QString& snap) {
+        DatasetSelectionContext c;
+        c.valid = true;
+        c.connIdx = conn;
+        c.poolName = ds.section(QLatin1Char('/'), 0, 0);
+        c.datasetName = ds;
+        c.snapshotName = snap;
+        return c;
+    };
+    m_transferSelectionOverrideActive = true;
+    m_transferSelectionOverrideOrigin = ctx(srcConn, srcDs, srcSnap);
+    m_transferSelectionOverrideDest = ctx(dstConn, dstDs, dstSnap);
+    runTransferVerb(verb);
     m_transferSelectionOverrideActive = false;
-    m_transferSelectionOverrideOrigin = DatasetSelectionContext{};
-    m_transferSelectionOverrideDest = DatasetSelectionContext{};
-    updateConnectionActionsState();
 }

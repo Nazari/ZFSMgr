@@ -519,6 +519,47 @@ private Q_SLOTS:
         QCOMPARE(window.cliLinesForTest(), esperado);
     }
 
+    // The transfer entries of the menu run the shell's send/rsync/diff lines.
+    void transfersRunTheShellsCommandLines() {
+        MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
+        ConnectionProfile profile;
+        profile.id = QStringLiteral("local");
+        profile.name = QStringLiteral("Local");
+        profile.connType = QStringLiteral("Local");
+        window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank1")}, {});
+        window.setCliFakeForTest([](const QString&) {
+            CliService::Result r;
+            r.rc = 0;
+            return r;
+        });
+        const QString src = QStringLiteral("tank1/datos");
+        const QString dst = QStringLiteral("tank1/copias");
+        window.transferForTest(0, src, QStringLiteral("s1"), 0, dst, QString(),
+                               QStringLiteral("send"));
+        window.transferForTest(0, src, QStringLiteral("s1"), 0, dst, QString(),
+                               QStringLiteral("send-R"));
+        window.transferForTest(0, src, QStringLiteral("s1"), 0, dst, QString(),
+                               QStringLiteral("send-discard"));
+        window.transferForTest(0, src, QStringLiteral("s2"), 0, dst + QStringLiteral("/datos"),
+                               QString(), QStringLiteral("level"));
+        window.transferForTest(0, src, QString(), 0, dst, QString(), QStringLiteral("sync-delete"));
+        window.transferForTest(0, src, QStringLiteral("s1"), 0, src, QStringLiteral("s2"),
+                               QStringLiteral("diff"));
+        const QStringList esperado = {
+            QStringLiteral("send zfsm://local/tank1/copias/datos --on zfsm://local/tank1/datos@s1"),
+            QStringLiteral(
+                "send zfsm://local/tank1/copias/datos --on zfsm://local/tank1/datos@s1 -R"),
+            QStringLiteral("send zfsm://local/tank1/copias/datos --on zfsm://local/tank1/datos@s1 "
+                           "--discard-partial"),
+            QStringLiteral("send zfsm://local/tank1/copias/datos --on zfsm://local/tank1/datos@s2 "
+                           "--level"),
+            QStringLiteral(
+                "rsync zfsm://local/tank1/copias --on zfsm://local/tank1/datos --delete"),
+            QStringLiteral("diff zfsm://local/tank1/datos@s2 --from zfsm://local/tank1/datos@s1"),
+        };
+        QCOMPARE(window.cliLinesForTest(), esperado);
+    }
+
     // What the connection dialog holds becomes the options of the shell's create/edit.
     void connectionDialogBecomesTheShellsOptions() {
         ConnectionProfile p;

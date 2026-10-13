@@ -190,6 +190,8 @@ public:
     bool renameForTest(int connIdx, const QString& src, const QString& target);
     void releaseHoldForTest(int connIdx, const QString& ds, const QString& snap,
                             const QString& tag);
+    void transferForTest(int srcConn, const QString& srcDs, const QString& srcSnap, int dstConn,
+                         const QString& dstDs, const QString& dstSnap, const QString& verb);
     static QString cliConnectionOptionsForTest(const ConnectionProfile& p, bool editing) {
         return cliConnectionOptions(p, editing);
     }
@@ -880,6 +882,7 @@ private:
     bool runShellActionNow(const PendingShellActionDraft& draft, QString* errorOut = nullptr);
     QString pendingTransferScopeLabel(const DatasetSelectionContext& src, const DatasetSelectionContext& dst) const;
     void executeConnectionTransferAction(const QString& action);
+    void runTransferVerb(const QString& action);
     void setConnectionOriginSelection(const DatasetSelectionContext& ctx);
     void setConnectionDestinationSelection(const DatasetSelectionContext& ctx);
     bool connAdvancedDatasetActionAllowed(const DatasetSelectionContext& ctx) const;
@@ -887,6 +890,10 @@ private:
     QString connContentTokenForTree(const QTreeWidget* tree) const;
     bool runLocalCommand(const QString& displayLabel, const QString& command, int timeoutMs = 0, bool forceConfirmDialog = false, bool streamProgress = false);
     void actionSendSnapshot();
+    // `send` with extra words: "-R", "-w", "--resume", "--discard-partial".
+    void cliSend(const QString& extra);
+    // `rsync` with extra words: "--delete".
+    void cliSync(const QString& extra);
     void actionCloneSnapshot();
     void actionDiffSnapshot();
     void actionLevelSnapshot();

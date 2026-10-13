@@ -491,6 +491,8 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
        {"t_ej_clone_2", "con nombre completo, en otro sitio del pool"}},
       {"clone tank/recuperado --from /casa/tank/datos@ayer",
        {"t_ej_clone_3", "desde cualquier sitio"}},
+      {"clone tank/a/recuperado compression=zstd -p -u",
+       {"t_ej_clone_props", "con propiedades propias, y sus padres si faltan"}},
      }},
     {"holds",
      {
@@ -1151,9 +1153,10 @@ const std::vector<Orden> kOrdenes = {
      Objetivo::Snapshot,
      {},
      {{"-r", false, {"t_nat_rollback_r", "Destruye los snapshots posteriores a ese."}}, {"-R", false, {"t_nat_rollback_Rmay", "Y además los clones que dependan de ellas."}}, {"-f", false, {"t_nat_rollback_f", "Fuerza el desmontaje de los clones."}}}},
-    {"clone", {"t_grupo_snapshots", "Snapshots"}, {"t_nuevo_from_463e13", "<nuevo> [--from <@snapshot>]"},
+    {"clone", {"t_grupo_snapshots", "Snapshots"}, {"t_clone_uso2", "<nuevo> [prop=valor...] [-p] [-u] [--from <@snapshot>]"},
      {"t_crea_un_da_97befd", "Crea un dataset a partir de un snapshot."},
-     {{{"t_from_inst_17782f", "--from <@inst>"}, {"t_cu_l_se_cl_b311bf", "Cuál se clona. Sin ella, el sitio actual."}}},
+     {{{"t_from_inst_17782f", "--from <@inst>"}, {"t_cu_l_se_cl_b311bf", "Cuál se clona. Sin ella, el sitio actual."}},
+      {{"t_prop_valor_4ef240", "prop=valor"}, {"t_clone_props_q", "Propiedades del clon."}}},
      {{"t_clone_det1", "Un nombre RELATIVO cuelga del dataset del snapshot: estando en "
        "`tank/datos@ayer`, «clone copia» deja `tank/datos/copia`. Para ponerlo en otro "
        "sitio se da el nombre ZFS entero: «clone tank/copia»."},
@@ -1165,7 +1168,8 @@ const std::vector<Orden> kOrdenes = {
        "  clone recuperado\n"
        "o desde cualquier sitio: «clone tank/recuperado --from /local/tank/datos@ayer»."}},
      Objetivo::Snapshot,
-     {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::UnaOMas}}},
+     {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::UnaOMas}},
+     {{"-p", false, {"t_nat_clone_p", "Crea también los padres que falten."}}, {"-u", false, {"t_nat_clone_u", "No lo monta al crearlo."}}}},
     {"holds", {"t_grupo_snapshots", "Snapshots"}, {"t_destino_132a32", "[destino]"}, {"t_las_retenc_db1367", "Los holds de un snapshot."}, {}, {},
      Objetivo::Snapshot,
      {}},
