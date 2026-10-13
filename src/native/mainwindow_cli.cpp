@@ -29,8 +29,7 @@ void MainWindow::initCliService() {
                      m_conns.store.masterPassword());
     m_cli->setAskSecret([this](const QString& prompt, QString& secreto) {
         if (m_cliPresetSecret) {
-            secreto = *m_cliPresetSecret;
-            m_cliPresetSecret.reset();
+            secreto = *m_cliPresetSecret;  // every ask of that line: a passphrase is asked twice
             return true;
         }
         bool ok = false;

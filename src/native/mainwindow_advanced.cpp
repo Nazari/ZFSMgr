@@ -437,20 +437,7 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
                                              .arg(d, nameColumn.chosen.value(d, d)));
     }
 
-    QString cmd;
-    bool allowWindowsScript = false;
-    // **Desglosar no está disponible en Windows, y aquí se dice.**
-    //
-    // Antes había 40 líneas de PowerShell que hacían el trabajo... y lo hacían MAL sin
-    // avisar: allí los datasets se montan planos bajo la letra del pool y no admiten un punto
-    // de montaje propio, así que desglosar «Z:\\des\\fotos» dejaba el dataset nuevo montado
-    // en «Z:\\fotos», en la raíz de la unidad. Comprobado contra OldLau: los ficheros seguían
-    // ahí pero ya no donde el usuario los tenía, y la operación decía «ok».
-    //
-    // El agente ya no anuncia el verbo en Windows, así que la tabla de capacidades deshabilita
-    // la acción con su motivo antes de llegar aquí. Esto es la red por si se llega igualmente.
     if (isWindowsConnection(p)) {
-        stopBusy();
         QMessageBox::information(
             this, QStringLiteral("ZFSMgr"),
             trk(QStringLiteral("t_desglosar_no_win_001"),
@@ -464,97 +451,19 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
                                "where the directory is.")));
         return;
     }
-    {
-        // Los pares (subdirectorio, dataset nuevo) los empareja `commands::advanced`,
-        // que además descarta ENTERO el que venga a medias: el verbo los lee de dos en
-        // dos, y uno incompleto desplazaría todos los siguientes.
-        QStringList subdirs;
-        QStringList nombres;
-        for (const QString& d : selectedDirs) {
-            subdirs << d;
-            nombres << nameColumn.chosen.value(d, d);
-        }
-        const QStringList argv = mwhelpers::argvBreakdown(ds, subdirs, nombres);
-        if (argv.isEmpty()) {
-            appLog(QStringLiteral("WARN"),
-                   QStringLiteral("Desglosar: ningún par utilizable para %1").arg(ds));
-            return;
-        }
-        cmd = mwhelpers::agentShellCommand(p, argv);
-        // Encolado, no ejecutado en el acto. Era la única familia de acciones que se
-        // saltaba la lista de cambios pendientes, así que no había forma de revisarla
-        // antes ni de quitarla de la cola. Al aplicarla conserva todo lo suyo:
-        // confirmación, envío como trabajo del daemon y progreso en tiempo real.
-        PendingShellActionDraft draft;
-        // "conexión::pool", como el resto de entradas de la lista.
-        draft.scopeLabel = [&]() {
-            if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_conns.profiles.size()) {
-                return QString();
-            }
-            const ConnectionProfile& cp = m_conns.profiles.at(ctx.connIdx);
-            const QString conn = cp.name.trimmed().isEmpty() ? cp.id.trimmed()
-                                                             : cp.name.trimmed();
-            return QStringLiteral("%1::%2").arg(conn, ctx.poolName.trimmed());
-        }();
-        draft.displayLabel = QStringLiteral("Desglosar %1").arg(ds);
-        draft.command = cmd;
-        draft.timeoutMs = 0;
-        draft.streamProgress = true;
-        draft.refreshTarget = ctx;
-        draft.refreshScope = PendingShellActionDraft::RefreshScope::TargetOnly;
-        draft.datasetActionSide = QStringLiteral("conncontent");
-        draft.datasetActionName = QStringLiteral("Desglosar");
-        draft.datasetActionCtx = ctx;
-        draft.datasetActionArgv = argv;
-        QString errorText;
-        if (!runShellActionNow(draft, &errorText)) {
-            QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
-            return;
-        }
-        appLog(QStringLiteral("NORMAL"),
-               QStringLiteral("Cambio pendiente añadido: %1  %2")
-                   .arg(draft.scopeLabel, draft.displayLabel));
-        updateApplyPropsButtonState();
-        return;
-
-        // El respaldo por shell vivía aquí y era INALCANZABLE: el `if` de arriba se
-        // cumple siempre dentro de este `else` y retorna. Además la acción exige daemon
-        // (requiresDaemon), así que sin agente se rechaza antes de llegar. La ayuda ya
-        // decía "no hay alternativa por shell"; ahora el código coincide.
+    // The shell's `breakdown`, in pairs: each directory with the dataset that replaces it. It
+    // runs as a job of the daemon; the Jobs box follows it.
+    QStringList linea{QStringLiteral("breakdown")};
+    for (const QString& d : selectedDirs) {
+        linea << cliQuote(d) << cliQuote(nameColumn.chosen.value(d, d));
     }
-    // Igual que el camino con daemon: encolado, no ejecutado en el acto. Si no, la
-    // acción se comportaría de una forma u otra según la conexión.
-    {
-        PendingShellActionDraft draft;
-        draft.scopeLabel = [&]() {
-            if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_conns.profiles.size()) {
-                return QString();
-            }
-            const ConnectionProfile& cp = m_conns.profiles.at(ctx.connIdx);
-            const QString conn = cp.name.trimmed().isEmpty() ? cp.id.trimmed() : cp.name.trimmed();
-            return QStringLiteral("%1::%2").arg(conn, ctx.poolName.trimmed());
-        }();
-        draft.displayLabel = QStringLiteral("Desglosar %1").arg(ds);
-        draft.command = cmd;
-        draft.timeoutMs = 0;
-        draft.streamProgress = true;
-        draft.refreshTarget = ctx;
-        draft.refreshScope = PendingShellActionDraft::RefreshScope::TargetOnly;
-        draft.datasetActionSide = QStringLiteral("conncontent");
-        draft.datasetActionName = QStringLiteral("Desglosar");
-        draft.datasetActionCtx = ctx;
-        draft.datasetActionAllowWindowsScript = allowWindowsScript;
-        draft.datasetActionStdin = QByteArray();
-        QString errorText;
-        if (!runShellActionNow(draft, &errorText)) {
-            QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
-            return;
+    linea << QStringLiteral("--on") << zfsmUrl(ctx.connIdx, ds);
+    runCli(linea.join(QLatin1Char(' ')), [this, ctx](const CliService::Result& r) {
+        if (r.rc == 0 && m_refreshAfterCli) {
+            refreshAllJobsAsync();
+            refreshAfterCli(ctx);
         }
-        appLog(QStringLiteral("NORMAL"),
-               QStringLiteral("Cambio pendiente añadido: %1  %2")
-                   .arg(draft.scopeLabel, draft.displayLabel));
-        updateApplyPropsButtonState();
-    }
+    });
 }
 
 
@@ -706,96 +615,17 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
     for (const QString& child : selectedChildren) {
         appLog(QStringLiteral("NORMAL"), QStringLiteral("[ASSEMBLE] pendiente: %1").arg(child));
     }
-    QString cmd;
-    bool allowWindowsScript = false;
-    QByteArray mountStdinPayload;
-    // **Por el mismo verbo que en Unix.** Aquí había 36 líneas de PowerShell que resolvían
-    // la letra de unidad y movían los directorios a mano. `--mutate-advanced-assemble`
-    // funciona en Windows —comprobado contra OldLau: los datasets vuelven a ser directorios
-    // en su sitio, «Z:\\des\\fotos\\a.txt» donde tenía que estar— y el agente lo anuncia allí.
-    // El argv y la regla de los nombres completos salen de `commands::advanced`,
-    // que es lo que usa también el intérprete. Aquí llegaban ya
-    // completos por otro camino —un mapa del árbol—, así que la regla no se aplicaba
-    // sino que se cumplía por casualidad: si ese mapa devolviera alguna vez un
-    // relativo, la operación diría que sí y no haría nada.
-    const QStringList argv = mwhelpers::argvAssemble(ds, selectedChildren);
-    if (argv.isEmpty()) {
-        appLog(QStringLiteral("WARN"),
-               QStringLiteral("Ensamblar: ningún hijo utilizable para %1").arg(ds));
-        return;
+    // The shell's `assemble`: the children go back to being directories, as a job.
+    QStringList linea{QStringLiteral("assemble")};
+    for (const QString& child : std::as_const(selectedChildren)) {
+        linea << cliQuote(child);
     }
-    cmd = mwhelpers::agentShellCommand(p, argv);
-    // Encolado, no ejecutado en el acto. Era la única familia de acciones que se
-    // saltaba la lista de cambios pendientes, así que no había forma de revisarla
-    // antes ni de quitarla de la cola. Al aplicarla conserva todo lo suyo:
-    // confirmación, envío como trabajo del daemon y progreso en tiempo real.
-    PendingShellActionDraft draft;
-    // "conexión::pool", como el resto de entradas de la lista.
-    draft.scopeLabel = [&]() {
-        if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_conns.profiles.size()) {
-            return QString();
+    linea << QStringLiteral("--on") << zfsmUrl(ctx.connIdx, ds);
+    runCli(linea.join(QLatin1Char(' ')), [this, ctx](const CliService::Result& r) {
+        if (r.rc == 0 && m_refreshAfterCli) {
+            refreshAllJobsAsync();
+            refreshAfterCli(ctx);
         }
-        const ConnectionProfile& cp = m_conns.profiles.at(ctx.connIdx);
-        const QString conn = cp.name.trimmed().isEmpty() ? cp.id.trimmed()
-                                                         : cp.name.trimmed();
-        return QStringLiteral("%1::%2").arg(conn, ctx.poolName.trimmed());
-    }();
-    draft.displayLabel = QStringLiteral("Ensamblar %1").arg(ds);
-    draft.command = cmd;
-    draft.timeoutMs = 0;
-    draft.streamProgress = true;
-    draft.refreshTarget = ctx;
-    draft.refreshScope = PendingShellActionDraft::RefreshScope::TargetOnly;
-    draft.datasetActionSide = QStringLiteral("conncontent");
-    draft.datasetActionName = QStringLiteral("Ensamblar");
-    draft.datasetActionCtx = ctx;
-    draft.datasetActionArgv = argv;
-    QString errorText;
-    if (!runShellActionNow(draft, &errorText)) {
-        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
-        return;
-    }
-    appLog(QStringLiteral("NORMAL"),
-           QStringLiteral("Cambio pendiente añadido: %1  %2")
-               .arg(draft.scopeLabel, draft.displayLabel));
-    updateApplyPropsButtonState();
-    return;
-
-    return;
-    // El respaldo por shell vivía aquí y era INALCANZABLE, por lo mismo que en
-    // Desglosar: el `if` de arriba se cumple siempre dentro de este `else` y retorna.
-    // Igual que el camino con daemon: encolado, no ejecutado en el acto. Si no, la
-    // acción se comportaría de una forma u otra según la conexión.
-    {
-        PendingShellActionDraft draft;
-        draft.scopeLabel = [&]() {
-            if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_conns.profiles.size()) {
-                return QString();
-            }
-            const ConnectionProfile& cp = m_conns.profiles.at(ctx.connIdx);
-            const QString conn = cp.name.trimmed().isEmpty() ? cp.id.trimmed() : cp.name.trimmed();
-            return QStringLiteral("%1::%2").arg(conn, ctx.poolName.trimmed());
-        }();
-        draft.displayLabel = QStringLiteral("Ensamblar %1").arg(ds);
-        draft.command = cmd;
-        draft.timeoutMs = 0;
-        draft.streamProgress = true;
-        draft.refreshTarget = ctx;
-        draft.refreshScope = PendingShellActionDraft::RefreshScope::TargetOnly;
-        draft.datasetActionSide = QStringLiteral("conncontent");
-        draft.datasetActionName = QStringLiteral("Ensamblar");
-        draft.datasetActionCtx = ctx;
-        draft.datasetActionAllowWindowsScript = allowWindowsScript;
-        draft.datasetActionStdin = mountStdinPayload;
-        QString errorText;
-        if (!runShellActionNow(draft, &errorText)) {
-            QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
-            return;
-        }
-        appLog(QStringLiteral("NORMAL"),
-               QStringLiteral("Cambio pendiente añadido: %1  %2")
-                   .arg(draft.scopeLabel, draft.displayLabel));
-        updateApplyPropsButtonState();
-    }
+    });
 }
 

@@ -1232,8 +1232,8 @@ private:
     QList<LogWindow> m_logWindows;
     CliService* m_cli{nullptr};
     bool m_cliRefused{false};  // the user answered «no» to the last confirmation
-    // The answer to the next secret the shell asks for, when a dialog already took it (the
-    // password of the connection dialog). Used once.
+    // The answer to the secrets the shell asks for while one line runs, when a dialog already
+    // took it (the password of the connection dialog). The caller resets it afterwards.
     std::optional<QString> m_cliPresetSecret;
     bool m_refreshAfterCli{true};  // off only in tests, where no machine is behind
     QLabel* m_statusBarLabel{nullptr};

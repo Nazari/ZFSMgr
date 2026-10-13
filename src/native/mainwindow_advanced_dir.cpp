@@ -574,13 +574,6 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
         dirsGroup);
     dirsHint->setWordWrap(true);
     dirsLay->addWidget(dirsHint);
-    QCheckBox* deleteSourceDirChk = new QCheckBox(
-        trk(QStringLiteral("t_advdir_del_src01"),
-            QStringLiteral("Borrar directorios fuente tras copiar"),
-            QStringLiteral("Delete source directories after copy")),
-        dirsGroup);
-    deleteSourceDirChk->setChecked(false);
-    dirsLay->addWidget(deleteSourceDirChk);
 
     QTabWidget* dirTabsWidget = new QTabWidget(dirsGroup);
     dirsLay->addWidget(dirTabsWidget, 1);
@@ -831,464 +824,60 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
         return;
     }
 
-    const bool deleteSourceDir = deleteSourceDirChk->isChecked();
-    // Solo Windows: en Unix la creación va por RPC y la frase no toca ninguna orden.
-    // La variante de shell para Unix —`printf '%s\\n%s\\n' 'FRASE' 'FRASE' | zfs create`—
-    // se ha borrado, no desactivado: dejarla ahí era invitar a volver a usarla.
-    const QString createCmd = buildZfsCreateCmd(opt);
-    const QString createCmdWithPassphrase = [&]() {
-        if (opt.encryptionPassphrase.isEmpty() || !isWindowsConnection(ctx.connIdx)) {
-            return createCmd;
-        }
-        return QStringLiteral(
-                   "$pp=%1; "
-                   "$payload=$pp + \"`n\" + $pp + \"`n\"; "
-                   "$bytes=[System.Text.Encoding]::UTF8.GetBytes($payload); "
-                   "$ms=New-Object System.IO.MemoryStream(,$bytes); "
-                   "$sr=New-Object System.IO.StreamReader($ms,[System.Text.Encoding]::UTF8); "
-                   "$old=[Console]::In; [Console]::SetIn($sr); "
-                   "try { %2 } finally { [Console]::SetIn($old); $sr.Dispose(); $ms.Dispose(); }")
-            .arg(psSingle(opt.encryptionPassphrase), createCmd);
-    }();
-
-    QHash<int, ConnectionProfile> execProfiles;
-    auto profileFor = [&](int connIdx) -> ConnectionProfile {
-        if (execProfiles.contains(connIdx)) {
-            return execProfiles.value(connIdx);
-        }
-        ConnectionProfile p = m_conns.profiles.value(connIdx);
-        if (isLocalConnection(p) && !isWindowsConnection(p)) {
-            p.useSudo = true;
-            if (!ensureLocalSudoCredentials(p)) {
-                return ConnectionProfile{};
-            }
-        }
-        execProfiles.insert(connIdx, p);
-        return p;
-    };
-
-    ConnectionProfile dstProfile = profileFor(ctx.connIdx);
-    if (dstProfile.name.trimmed().isEmpty()) {
-        appLog(QStringLiteral("INFO"), QStringLiteral("Desde Dir cancelado: faltan credenciales sudo locales"));
+    // First the dataset, with the shell's `create` on its parent; a passphrase it asks for is
+    // the one typed in the dialog.
+    QStringList crear{QStringLiteral("create"), cliQuote(opt.datasetPath)};
+    if (opt.parents) {
+        crear << QStringLiteral("-p");
+    }
+    if (!opt.blocksize.isEmpty()) {
+        crear << QStringLiteral("-b") << cliQuote(opt.blocksize);
+    }
+    for (const QString& prop : std::as_const(opt.properties)) {
+        crear << cliQuote(prop);
+    }
+    if (!opt.extraArgs.isEmpty()) {
+        crear << opt.extraArgs;
+    }
+    crear << QStringLiteral("--on")
+          << zfsmUrl(ctx.connIdx, ctx.datasetName.isEmpty() ? ctx.poolName : ctx.datasetName);
+    m_cliPresetSecret = opt.encryptionPassphrase;
+    const int rcCrear = runCliAndWait(crear.join(QLatin1Char(' ')), QStringLiteral("text")).rc;
+    m_cliPresetSecret.reset();
+    if (rcCrear != 0) {
         return;
     }
-
-    // Dónde cae cada origen DENTRO del dataset.
-    //
-    // Antes se usaba la ruta absoluta sin la barra inicial, así que copiar
-    // /Users/linarese/.chirp reconstruía «Users/linarese/.chirp» entero dentro del
-    // dataset. Eso replica la jerarquía de la máquina de origen, que no es lo que se
-    // pide al elegir un directorio: el dataset ES el directorio.
-    //
-    // La regla ahora:
-    //   - un solo directorio de origen  -> su CONTENIDO va a la raíz del dataset;
-    //   - varios                        -> cada uno a un subdirectorio con su nombre;
-    //   - si dos comparten nombre       -> se le antepone el de su conexión.
-    //
-    // Se registra el mapa completo antes de empezar: es una copia entre máquinas y
-    // adivinar dónde acabó cada cosa no debería hacer falta.
-    // Dónde cae cada origen DENTRO del dataset.
-    //
-    // La regla vivía aquí, en cuarenta líneas de lambdas dentro de esta función, y tenía un
-    // fallo que solo se ve escribiendo los casos: anteponer el nombre de la máquina desempata
-    // cuando las máquinas son DISTINTAS, pero dos directorios llamados «docs» de la misma
-    // conexión daban los dos «fc16-docs» y el segundo tar se extraía encima del primero.
-    // En una operación cuyo trabajo es copiar, eso es perder contenido sin decir nada.
-    //
-    // Ahora la regla es `commands::advanced::destinationSubdirs`, con un caso de prueba
-    // por variante, y garantiza que los destinos son únicos.
-    //
-    // Se registra el mapa completo antes de empezar: es una copia entre máquinas y adivinar
-    // dónde acabó cada cosa no debería hacer falta.
-    QHash<QString, QString> destSubdirByKey;
-    {
-        std::vector<zfsmgr::commands::advanced::FromDirSource> origenes;
-        QVector<QPair<int, QString>> conRuta;
-        for (const auto& e : std::as_const(selectedSources)) {
-            if (e.second.trimmed().isEmpty()) {
-                continue;
-            }
-            const QString connName = (e.first >= 0 && e.first < m_conns.profiles.size())
-                                         ? (m_conns.profiles.at(e.first).name.trimmed().isEmpty()
-                                                ? m_conns.profiles.at(e.first).id.trimmed()
-                                                : m_conns.profiles.at(e.first).name.trimmed())
-                                         : QString();
-            origenes.push_back({e.second.trimmed().toStdString(), connName.toStdString(),
-                                isWindowsConnection(e.first)});
-            conRuta.push_back(e);
-        }
-        const std::vector<std::string> subs =
-            zfsmgr::commands::advanced::destinationSubdirs(origenes);
-        for (int i = 0; i < conRuta.size() && i < static_cast<int>(subs.size()); ++i) {
-            const QString sub = QString::fromStdString(subs[static_cast<std::size_t>(i)]);
-            destSubdirByKey.insert(
-                QStringLiteral("%1|%2").arg(conRuta[i].first).arg(conRuta[i].second.trimmed()), sub);
-            appLog(QStringLiteral("NORMAL"),
-                   QStringLiteral("[FROMDIR] %1 -> %2")
-                       .arg(conRuta[i].second.trimmed(),
-                            sub.isEmpty() ? QStringLiteral("(raíz del dataset)") : sub));
-        }
-    }
-
-    const auto destSubdirFor = [&](int connIdx, const QString& path) {
-        return destSubdirByKey.value(QStringLiteral("%1|%2").arg(connIdx).arg(path.trimmed()));
-    };
-
-    // ¿Puede ir por el ÁRBOL entre daemons en vez de por una tubería de shell?
-    //
-    // Con daemon en las dos puntas, sí: el destino prepara el directorio y se pone a
-    // escuchar, y el origen le manda el árbol directamente. Los datos NO pasan por esta
-    // máquina —hoy sí: `ssh origen tar | ssh destino agente` mueve todo el contenido por el
-    // equipo de quien manda—, va como trabajo del daemon con progreso y cancelación, y la
-    // copia es incremental en vez de reenviar el árbol entero.
-    //
-    // Se decide para la operación ENTERA y no origen a origen: media operación por un camino
-    // y media por otro daría dos comportamientos distintos ante un fallo a mitad.
-    // Se pregunta por la CAPACIDAD, no por la versión. El agente publica en `--health` qué
-    // verbos sirve, y eso manda: añadir un verbo no cambia la versión de API, así que un
-    // daemon al día en versión puede no conocerlo todavía. Preguntando por el verbo, un
-    // agente sin actualizar simplemente se va por la tubería en vez de fallar.
-    const auto daemonListo = [&](int idx) {
-        return zfsmgr::caps::featureAvailability(zfsmgr::caps::Feature::DirFromDirTree,
-                                                 capabilityPlatform(idx))
-            .available;
-    };
-    // **Con «borrar los directorios de origen» marcado, NO.** Por el árbol la copia es un
-    // trabajo asíncrono: el borrado se lanzaría sin saber si el envío terminó. La tubería
-    // encadena con `&&`, así que allí el borrado va después de que el tar acabe bien. Entre
-    // perder la mejora y borrar un origen que quizá no llegó a copiarse, no hay duda.
-    bool porElArbol = daemonListo(ctx.connIdx) && !deleteSourceDir;
+    // Then each directory into it with the shell's `fromdir`: one alone fills the root,
+    // several go each into a subdirectory —the rule of commands::advanced—.
+    std::vector<zfsmgr::commands::advanced::FromDirSource> origenes;
+    QVector<QPair<int, QString>> conRuta;
     for (const auto& e : std::as_const(selectedSources)) {
-        if (!e.second.trimmed().isEmpty()) {
-            porElArbol = porElArbol
-                         && zfsmgr::commands::advanced::canUseTreeTransfer(daemonListo(e.first),
-                                                                          daemonListo(ctx.connIdx));
-        }
-    }
-
-    QStringList steps;
-    // Paso previo por RPC, no por shell: la frase de cifrado iba incrustada en la orden
-    // (`printf '%s\\n%s\\n' 'FRASE' 'FRASE' | zfs create ...`), así que quedaba en argv
-    // —visible en `ps` en las dos máquinas—, en la vista previa y en el registro. Por el
-    // RPC viaja dentro de la carga cifrada por mTLS y el daemon se la da a `zfs` por una
-    // tubería. Se rellena más abajo, junto al resto del cambio pendiente.
-    QStringList createArgv;
-    QString createSecret;
-    if (!isWindowsConnection(ctx.connIdx)) {
-        const QStringList zfsArgs = buildZfsCreateArgv(opt);
-        QJsonArray arr;
-        for (const QString& a : zfsArgs) {
-            arr.append(a);
-        }
-        const QByteArray argvJson = QJsonDocument(arr).toJson(QJsonDocument::Compact);
-        createArgv = mwhelpers::argvQt(zfsmgr::commands::requests::createDataset(
-            QString::fromLatin1(argvJson.toBase64()).toStdString(), std::string()));
-        createSecret = opt.encryptionPassphrase;
-        // Montarlo sí puede ir por shell: no lleva secretos.
-        steps.push_back(sshExecFromLocal(
-            dstProfile,
-            withSudo(dstProfile,
-                     QStringLiteral("DATASET=%1; "
-                                    "zfs set canmount=on \"$DATASET\" >/dev/null 2>&1 || true; "
-                                    "zfs mount \"$DATASET\" >/dev/null 2>&1 || true")
-                         .arg(shSingleQuote(opt.datasetPath)))));
-    } else {
-        const QString dstSetup = QStringLiteral(
-                                     "$ErrorActionPreference='Stop'; "
-                                     "$dataset=%1; "
-                                     "%2; "
-                                     "zfs set canmount=on $dataset 2>$null | Out-Null; "
-                                     "zfs mount $dataset 2>$null | Out-Null")
-                                     .arg(psSingle(opt.datasetPath), createCmdWithPassphrase);
-        steps.push_back(sshExecFromLocal(dstProfile, withSudo(dstProfile, dstSetup)));
-    }
-
-    QVector<QPair<int, QString>> deleteQueue = selectedSources;
-    std::sort(deleteQueue.begin(), deleteQueue.end(), [](const QPair<int, QString>& a, const QPair<int, QString>& b) {
-        return a.second.size() > b.second.size();
-    });
-
-    for (const auto& srcEntry : std::as_const(selectedSources)) {
-        const int srcConnIdx = srcEntry.first;
-        const QString srcPath = srcEntry.second.trimmed();
-        if (srcPath.isEmpty()) {
+        if (e.second.trimmed().isEmpty() || e.first < 0 || e.first >= m_conns.profiles.size()) {
             continue;
         }
-        ConnectionProfile srcProfile = profileFor(srcConnIdx);
-        if (srcProfile.name.trimmed().isEmpty()) {
-            appLog(QStringLiteral("INFO"), QStringLiteral("Desde Dir cancelado: faltan credenciales sudo locales"));
-            return;
-        }
-
-        const QString rel = destSubdirFor(srcConnIdx, srcPath);
-        const QString srcTarCmd = mwhelpers::buildTarSourceCommand(isWindowsConnection(srcConnIdx),
-                                                                   srcPath,
-                                                                   mwhelpers::StreamCodec::None);
-        const QString srcSeg = sshExecFromLocal(srcProfile, withSudo(srcProfile, srcTarCmd));
-
-        QString dstRecvCmd;
-        if (!isWindowsConnection(ctx.connIdx)) {
-            // Typed RPC instead of an inline shell script: the agent mounts the
-            // dataset, resolves the mountpoint, creates the subdirectory and runs tar
-            // itself with execvp. withSudoStreamInput() keeps stdin wired to the
-            // incoming tar stream.
-            // El argv lo compone el módulo, que además comprueba el subdirectorio ANTES de
-            // abrir la tubería. Antes solo lo miraba el daemon, y para entonces el tar del
-            // origen ya estaba corriendo: la mitad del contenido podía haber salido ya de la
-            // otra máquina.
-            const std::vector<std::string> fdArgv =
-                zfsmgr::commands::advanced::argvFromDir(opt.datasetPath.toStdString(),
-                                                          rel.toStdString());
-            if (fdArgv.empty()) {
-                appLog(QStringLiteral("WARN"),
-                       QStringLiteral("Desde Dir: destino no válido para %1 (subdirectorio «%2»)")
-                           .arg(opt.datasetPath, rel));
-                return;
-            }
-            QStringList fdQt;
-            for (const std::string& a : fdArgv) {
-                fdQt << QString::fromStdString(a);
-            }
-            dstRecvCmd = mwhelpers::cadenaDeArgv(daemonpayload::unixBinPath(), fdQt);
-        } else {
-            const QString relWin = rel;
-            dstRecvCmd = QStringLiteral(
-                             "$ErrorActionPreference='Stop'; "
-                             "$dataset=%1; "
-                             "zfs set canmount=on $dataset 2>$null | Out-Null; "
-                             "zfs mount $dataset 2>$null | Out-Null; "
-                             "$mp=''; "
-                             "foreach ($line in @(zfs mount 2>$null)) { "
-                             "  if ($line -match '^\\s*(\\S+)\\s+(.+)$' -and $Matches[1] -eq $dataset) { $mp=$Matches[2].Trim(); break; } "
-                             "} "
-                             "if ([string]::IsNullOrWhiteSpace($mp)) { throw 'could not resolve effective mountpoint'; } "
-                             "$rel=%2; "
-                             "$dst = [string]::IsNullOrWhiteSpace($rel) ? $mp : (Join-Path $mp $rel.Replace('/','\\\\')); "
-                             "if (!(Test-Path -LiteralPath $dst)) { New-Item -ItemType Directory -Force -Path $dst | Out-Null; } "
-                             "Write-Output ('[FROMDIR] tar recv -> ' + $dst); "
-                             "tar -xpf - -C $dst")
-                             .arg(psSingle(opt.datasetPath), psSingle(relWin));
-        }
-        const QString dstSeg = sshExecFromLocal(dstProfile, withSudoStreamInput(dstProfile, dstRecvCmd));
-        steps.push_back(mwhelpers::buildPipedTransferCommand(srcSeg, dstSeg));
+        origenes.push_back({e.second.trimmed().toStdString(), cliConnName(e.first).toStdString(),
+                            isWindowsConnection(e.first)});
+        conRuta.push_back(e);
     }
-
-    if (deleteSourceDir) {
-        for (const auto& srcEntry : std::as_const(deleteQueue)) {
-            const int srcConnIdx = srcEntry.first;
-            const QString srcPath = srcEntry.second.trimmed();
-            if (srcPath.isEmpty()) {
-                continue;
-            }
-            ConnectionProfile srcProfile = profileFor(srcConnIdx);
-            if (srcProfile.name.trimmed().isEmpty()) {
-                appLog(QStringLiteral("INFO"), QStringLiteral("Desde Dir cancelado: faltan credenciales sudo locales"));
-                return;
-            }
-            QString delCmd;
-            if (!isWindowsConnection(srcConnIdx)) {
-                delCmd = QStringLiteral("rm -rf %1").arg(shSingleQuote(srcPath));
-            } else {
-                delCmd = QStringLiteral(
-                             "if (Test-Path -LiteralPath %1) { Remove-Item -LiteralPath %1 -Recurse -Force }")
-                             .arg(psSingle(srcPath));
-            }
-            steps.push_back(sshExecFromLocal(srcProfile, withSudo(srcProfile, delCmd)));
+    const std::vector<std::string> subs = zfsmgr::commands::advanced::destinationSubdirs(origenes);
+    const QString destino = zfsmUrl(ctx.connIdx, opt.datasetPath);
+    for (int n = 0; n < conRuta.size(); ++n) {
+        QString linea = QStringLiteral("fromdir %1 --from %2")
+                            .arg(cliQuote(conRuta[n].second.trimmed()), zfsmUrl(conRuta[n].first));
+        const QString sub = n < static_cast<int>(subs.size())
+                                ? QString::fromStdString(subs[static_cast<std::size_t>(n)])
+                                : QString();
+        if (!sub.isEmpty()) {
+            linea += QStringLiteral(" --subdir ") + cliQuote(sub);
         }
+        linea += QStringLiteral(" --on ") + destino;
+        runCli(linea, [this, ctx](const CliService::Result& r) {
+            if (r.rc == 0 && m_refreshAfterCli) {
+                refreshAllJobsAsync();
+                refreshAfterCli(ctx);
+            }
+        });
     }
-
-    if (steps.isEmpty()) {
-        return;
-    }
-    steps.push_back(QStringLiteral("echo '[FROMDIR] done'"));
-    const QString localCmd = steps.join(QStringLiteral(" && "));
-    // La etiqueta nombraba solo el DESTINO, así que un cambio pendiente que lee de otra
-    // máquina se leía como si fuera todo local: «Local::fc16  Desde Dir Local::fc16/x».
-    // En una operación que copia entre equipos, de dónde salen los datos es justo lo que
-    // hay que poder comprobar antes de aplicar.
-    QMap<int, int> dirsBySourceConn;  // conexión de origen -> nº de directorios
-    for (const auto& srcEntry : std::as_const(selectedSources)) {
-        if (!srcEntry.second.trimmed().isEmpty()) {
-            ++dirsBySourceConn[srcEntry.first];
-        }
-    }
-    QStringList originParts;
-    for (auto it = dirsBySourceConn.cbegin(); it != dirsBySourceConn.cend(); ++it) {
-        const int srcIdx = it.key();
-        const QString srcName = (srcIdx >= 0 && srcIdx < m_conns.profiles.size())
-                                    ? (m_conns.profiles.at(srcIdx).name.trimmed().isEmpty()
-                                           ? m_conns.profiles.at(srcIdx).id.trimmed()
-                                           : m_conns.profiles.at(srcIdx).name.trimmed())
-                                    : QStringLiteral("?");
-        originParts << QStringLiteral("%1 (%2)").arg(srcName).arg(it.value());
-    }
-    const QString displayLabel = QStringLiteral("Desde Dir %1 -> %2::%3")
-                                     .arg(originParts.join(QStringLiteral(" + ")),
-                                          dstProfile.name, opt.datasetPath);
-    DatasetSelectionContext srcCtx;
-    srcCtx.valid = false;
-    QString errorText;
-    PendingShellActionDraft draft{
-        pendingTransferScopeLabel(srcCtx, ctx),
-        displayLabel,
-        localCmd,
-        0,
-        true,
-        srcCtx,
-        ctx,
-        PendingShellActionDraft::RefreshScope::TargetOnly};
-    if (!createSecret.isEmpty()
-        && (ctx.connIdx < 0 || ctx.connIdx >= m_conns.states.size()
-            || !m_conns.states[ctx.connIdx].daemonActive)) {
-        // Sin daemon, runAgentCommand cae a SSH y la frase volvería a viajar en argv.
-        // Mejor no dejar hacerlo que hacerlo de forma insegura sin decirlo.
-        QMessageBox::warning(
-            this, QStringLiteral("ZFSMgr"),
-            trk(QStringLiteral("t_fromdir_enc_needs_daemon_001"),
-                QStringLiteral("Crear un dataset cifrado requiere el agente activo en la "
-                               "conexión de destino: es lo que permite enviar la frase de "
-                               "cifrado por el canal seguro y no en la línea de órdenes."),
-                QStringLiteral("Creating an encrypted dataset requires the agent running on "
-                               "the destination connection: that is what allows sending the "
-                               "passphrase over the secure channel instead of the command line.")));
-        return;
-    }
-    draft.rpcConnIdx = createArgv.isEmpty() ? -1 : ctx.connIdx;
-    draft.rpcArgv = createArgv;
-    draft.rpcSecret = createSecret;
-    if (porElArbol) {
-        // El camino sin shell: el destino prepara y escucha, el origen envía. Los datos van
-        // de máquina a máquina, no por esta.
-        QStringList previews;
-        for (const auto& e : std::as_const(selectedSources)) {
-            const QString ruta = e.second.trimmed();
-            if (ruta.isEmpty()) {
-                continue;
-            }
-            const QString sub = destSubdirFor(e.first, ruta);
-            previews << QStringLiteral("[%1 -> %2::%3] árbol entre daemons\n%4 -> %5")
-                            .arg(m_conns.profiles.value(e.first).name, dstProfile.name,
-                                 opt.datasetPath, ruta,
-                                 sub.isEmpty() ? QStringLiteral("(raíz)") : sub);
-        }
-        if (!confirmActionExecution(QStringLiteral("Desde Dir"), previews)) {
-            return;
-        }
-        if (!applyFromDirCreateStep(ctx.connIdx, createArgv, createSecret, displayLabel)) {
-            return;
-        }
-        // Cómo se le habla al agente de cada máquina: lo sabe la ventana, porque una
-        // conexión Local no se alcanza igual que una remota.
-        const auto llama = [this](const zfsmgr::base::ConnectionProfile& maquina,
-                                  const std::vector<std::string>& args, int timeoutMs,
-                                  std::string& salida, std::string& err, int& rc) {
-            QStringList qargs;
-            for (const std::string& a : args) {
-                qargs << QString::fromStdString(a);
-            }
-            const ConnectionProfile pp = fromBaseProfile(maquina);
-            QString qout;
-            QString qerr;
-            const bool ok = isLocalConnection(pp)
-                                ? runAgentCommand(pp, qargs, timeoutMs, qout, qerr, rc)
-                                : tryRunRemoteAgentRpcViaTunnel(pp, qargs, timeoutMs, qout, qerr,
-                                                                rc);
-            salida = qout.toStdString();
-            err = qerr.toStdString();
-            return ok;
-        };
-        int lanzados = 0;
-        for (const auto& e : std::as_const(selectedSources)) {
-            const QString ruta = e.second.trimmed();
-            if (ruta.isEmpty()) {
-                continue;
-            }
-            const QString sub = destSubdirFor(e.first, ruta);
-            // 1. Preparar el destino: montar, resolver el punto de montaje REAL y crear el
-            // subdirectorio. `--tree-recv-listen` exige que ya exista.
-            const std::vector<std::string> prepArgv =
-                zfsmgr::commands::advanced::argvFromDirPrepare(opt.datasetPath.toStdString(),
-                                                                  sub.toStdString());
-            if (prepArgv.empty()) {
-                appLog(QStringLiteral("ERROR"),
-                       QStringLiteral("Desde Dir: destino no válido (%1 / %2)")
-                           .arg(opt.datasetPath, sub));
-                return;
-            }
-            QStringList prepQt;
-            for (const std::string& a : prepArgv) {
-                prepQt << QString::fromStdString(a);
-            }
-            QString pOut;
-            QString pErr;
-            int pRc = -1;
-            if (!runAgentCommand(dstProfile, prepQt, 60000, pOut, pErr, pRc) || pRc != 0) {
-                QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
-                                     QStringLiteral("No se pudo preparar el destino: %1")
-                                         .arg(mwhelpers::oneLine(pErr.isEmpty() ? pOut : pErr)));
-                return;
-            }
-            const QString dst = QString::fromStdString(
-                zfsmgr::commands::advanced::preparedPath(pOut.toStdString()));
-            if (dst.isEmpty()) {
-                QMessageBox::warning(
-                    this, QStringLiteral("ZFSMgr"),
-                    QStringLiteral("El destino no dijo dónde quedó el directorio."));
-                return;
-            }
-            // 2 y 3. Escuchar, averiguar la dirección de vuelta y enviar, como trabajo.
-            const ConnectionProfile srcProfile = m_conns.profiles.value(e.first);
-            const auto lanzado = zfsmgr::base::transfer::launchTreeJob(
-                m_transport, llama, toBaseProfile(srcProfile), toBaseProfile(dstProfile),
-                ruta.toStdString(), dst.toStdString(), e.first == ctx.connIdx, false,
-                /*comoTrabajo=*/true, /*borrarEnDestino=*/false, /*enSeco=*/false);
-            if (!lanzado.ok()) {
-                QMessageBox::warning(
-                    this, QStringLiteral("ZFSMgr"),
-                    QStringLiteral("Desde Dir falló en %1: %2\n%3")
-                        .arg(ruta,
-                             QString::fromStdString(
-                                 zfsmgr::base::transfer::labelOf(lanzado.failure)),
-                             QString::fromStdString(lanzado.detail)));
-                return;
-            }
-            ActiveDaemonJob job;
-            job.srcConnIdx = e.first;
-            job.dstConnIdx = ctx.connIdx;
-            job.jobId = QString::fromStdString(lanzado.id);
-            job.displayLabel = QStringLiteral("Desde Dir %1 → %2").arg(ruta, dst);
-            job.state = QStringLiteral("running");
-            m_activeDaemonJobs.append(job);
-            // Shown and followed at once, as every other launched job.
-            updateJobsListWidget();
-            if (m_jobPollTimer && !m_jobPollTimer->isActive()) {
-                m_jobPollTimer->start();
-            }
-            ++lanzados;
-            appLog(QStringLiteral("NORMAL"),
-                   QStringLiteral("[fromdir] árbol entre daemons: %1 -> %2 (trabajo %3)")
-                       .arg(ruta, dst, job.jobId));
-        }
-        appLog(QStringLiteral("INFO"),
-               QStringLiteral("Desde Dir por el árbol: %1 trabajo(s) en marcha, sin pasar los "
-                              "datos por esta máquina")
-                   .arg(lanzados));
-        updateApplyPropsButtonState();
-        return;
-    }
-    if (!runShellActionNow(draft, &errorText)) {
-        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
-        return;
-    }
-    appLog(QStringLiteral("INFO"),
-           QStringLiteral("[fromdir] encolado con paso previo RPC: conn=%1 argv=%2 cifrado=%3")
-               .arg(draft.rpcConnIdx)
-               .arg(draft.rpcArgv.size())
-               .arg(draft.rpcSecret.isEmpty() ? QStringLiteral("no") : QStringLiteral("sí")));
-    appLog(QStringLiteral("NORMAL"),
-           QStringLiteral("Cambio pendiente añadido: %1  %2")
-               .arg(pendingTransferScopeLabel(srcCtx, ctx), displayLabel));
-    updateApplyPropsButtonState();
 }
 
 // El paso previo de «Desde Dir»: crear el dataset de destino por RPC.
@@ -1482,260 +1071,16 @@ void MainWindow::actionAdvancedToDir(const DatasetSelectionContext& explicitCtx)
     if (dlg.exec() != QDialog::Accepted) {
         return;
     }
-    const QString localDir = dirEdit->text().trimmed();
-    const bool deleteSourceDataset = deleteSourceDatasetChk->isChecked();
-
-    const bool isWin = isWindowsConnection(ctx.connIdx);
-    const ConnectionProfile profile = m_conns.profiles[ctx.connIdx];
-    // Única exclusión por plataforma que sobrevive al barrido, y con motivo: el daemon
-    // de Windows no conoce --mutate-advanced-todir (responde "unknown command",
-    // comprobado por RPC). La tabla de capacidades ya rechaza la acción antes de llegar
-    // aquí; esto solo evita elegir un camino que no existe.
-    const bool daemonReadApiOk =
-        !isWindowsConnection(profile)
-        && ctx.connIdx >= 0
-        && ctx.connIdx < m_conns.states.size()
-        && m_conns.states[ctx.connIdx].daemonInstalled
-        && m_conns.states[ctx.connIdx].daemonActive
-        && m_conns.states[ctx.connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
-    QString cmd;
-    bool allowWindowsScript = false;
-    if (!isWin) {
-        if (!isWindowsConnection(profile)) {
-            Q_UNUSED(daemonReadApiOk);
-            // El directorio lo elige el usuario: como argv no puede truncarse aunque
-            // contenga ';', '&' o '|', que es lo que rompía esta acción.
-            // El argv sale de `commands::advanced`, que además exige que el directorio sea
-            // una ruta ABSOLUTA: una relativa la abriría el daemon desde SU directorio de
-            // trabajo, y el volcado acabaría donde nadie eligió.
-            const QStringList argv = mwhelpers::argvToDir(ds, localDir, deleteSourceDataset);
-            if (argv.isEmpty()) {
-                QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
-                                     trk(QStringLiteral("t_todir_ruta_rel001"),
-                                         QStringLiteral("El directorio de destino tiene que ser "
-                                                        "una ruta absoluta."),
-                                         QStringLiteral("The destination directory must be an "
-                                                        "absolute path.")));
-                return;
-            }
-            cmd = mwhelpers::agentShellCommand(profile, argv);
-            // Encolado como el resto de acciones, igual que Desglosar y Ensamblar. Al
-            // aplicarlo conserva todo lo suyo: confirmación, envío como trabajo del daemon
-            // y progreso en tiempo real; lo único que cambia es cuándo ocurre.
-            PendingShellActionDraft draft;
-            draft.scopeLabel = [&]() {
-                if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_conns.profiles.size()) {
-                    return QString();
-                }
-                const ConnectionProfile& cp = m_conns.profiles.at(ctx.connIdx);
-                const QString conn = cp.name.trimmed().isEmpty() ? cp.id.trimmed() : cp.name.trimmed();
-                return QStringLiteral("%1::%2").arg(conn, ctx.poolName.trimmed());
-            }();
-            draft.displayLabel = QStringLiteral("Hacia Dir %1 -> %2").arg(ds, localDir);
-            draft.command = cmd;
-            draft.timeoutMs = 0;
-            draft.streamProgress = true;
-            draft.refreshTarget = ctx;
-            draft.refreshScope = PendingShellActionDraft::RefreshScope::TargetOnly;
-            draft.datasetActionSide = QStringLiteral("conncontent");
-            draft.datasetActionName = QStringLiteral("Hacia Dir");
-            draft.datasetActionCtx = ctx;
-            draft.datasetActionArgv = argv;
-            draft.datasetActionAllowWindowsScript = allowWindowsScript;
-            QString errorText;
-            if (!runShellActionNow(draft, &errorText)) {
-                QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
-                return;
-            }
-            appLog(QStringLiteral("NORMAL"),
-                   QStringLiteral("Cambio pendiente añadido: %1  %2")
-                       .arg(draft.scopeLabel, draft.displayLabel));
-            updateApplyPropsButtonState();
-            return;
-            return;
-        }
-        cmd = QStringLiteral(
-                  "set -e; "
-                  "DATASET=%1; "
-                  "DST_DIR=%2; "
-                  "RSYNC_OPTS='-aHWS'; "
-                  "RSYNC_PROGRESS='--info=progress2'; "
-                  "rsync --help 2>/dev/null | grep -q -- '--info' || RSYNC_PROGRESS='--progress'; "
-                  "rsync -A --version >/dev/null 2>&1 && RSYNC_OPTS=\"$RSYNC_OPTS -A\"; "
-                  "if rsync -X --version >/dev/null 2>&1; then RSYNC_OPTS=\"$RSYNC_OPTS -X\"; "
-                  "elif rsync --help 2>/dev/null | grep -q -- '--extended-attributes'; then RSYNC_OPTS=\"$RSYNC_OPTS --extended-attributes\"; fi; "
-                  "TMP_MP=$(mktemp -d /tmp/zfsmgr-todir-mp-XXXXXX); "
-                  "TMP_OUT=$(mktemp -d /tmp/zfsmgr-todir-out-XXXXXX); "
-                  "BACKUP_DIR=''; RESTORE_NEEDED=0; "
-                  "OLD_MP=$(zfs get -H -o value mountpoint \"$DATASET\" 2>/dev/null || true); "
-                  "OLD_MOUNTED=$(zfs get -H -o value mounted \"$DATASET\" 2>/dev/null || true); "
-                  "cleanup(){ "
-                  "  rc=$?; "
-                  "  if [ $rc -ne 0 ]; then "
-                  "    if [ \"$RESTORE_NEEDED\" = \"1\" ] && [ -n \"$BACKUP_DIR\" ] && [ -d \"$BACKUP_DIR\" ]; then "
-                  "      rm -rf \"$DST_DIR\" >/dev/null 2>&1 || true; "
-                  "      mv \"$BACKUP_DIR\" \"$DST_DIR\" >/dev/null 2>&1 || true; "
-                  "    fi; "
-                  "    if zfs list -H -o name \"$DATASET\" >/dev/null 2>&1; then "
-                  "      zfs set mountpoint=\"$OLD_MP\" \"$DATASET\" >/dev/null 2>&1 || true; "
-                  "      if [ \"$OLD_MOUNTED\" = \"yes\" ] || [ \"$OLD_MOUNTED\" = \"on\" ]; then zfs mount \"$DATASET\" >/dev/null 2>&1 || true; fi; "
-                  "    fi; "
-                  "  fi; "
-                  "  rm -rf \"$TMP_MP\" >/dev/null 2>&1 || true; "
-                  "  rm -rf \"$TMP_OUT\" >/dev/null 2>&1 || true; "
-                  "  exit $rc; "
-                  "}; "
-                  "trap cleanup EXIT INT TERM; "
-                  "if zfs mount 2>/dev/null | awk '{print $2}' | grep -Fx \"$DST_DIR\" >/dev/null 2>&1; then "
-                  "  echo 'destination directory is already a zfs mountpoint'; exit 2; "
-                  "fi; "
-                  "zfs set canmount=on \"$DATASET\" >/dev/null 2>&1 || true; "
-                  "zfs set mountpoint=\"$TMP_MP\" \"$DATASET\"; "
-                  "zfs mount \"$DATASET\" >/dev/null 2>&1 || true; "
-                  "normp(){ p=\"$1\"; [ -z \"$p\" ] && return; [ -d \"$p\" ] && (cd \"$p\" 2>/dev/null && pwd -P) || printf '%s' \"$p\"; }; "
-                  "ACTIVE_MP=$(zfs mount 2>/dev/null | awk -v d=\"$DATASET\" '$1==d{print $2;exit}'); "
-                  "N_ACTIVE=$(normp \"$ACTIVE_MP\"); N_TMP=$(normp \"$TMP_MP\"); "
-                  "[ \"$N_ACTIVE\" = \"$N_TMP\" ] || { echo 'could not mount dataset on temporary mountpoint'; exit 3; }; "
-                  "echo \"[TODIR] rsync start\"; "
-                  "rsync $RSYNC_OPTS $RSYNC_PROGRESS \"$TMP_MP\"/ \"$TMP_OUT\"/; "
-                  "echo \"[TODIR] rsync done\"; "
-                  "if [ -e \"$DST_DIR\" ]; then "
-                  "  BACKUP_DIR=\"$DST_DIR.zfsmgr-bak-$$\"; "
-                  "  i=0; while [ -e \"$BACKUP_DIR\" ]; do i=$((i+1)); BACKUP_DIR=\"$DST_DIR.zfsmgr-bak-$$-$i\"; done; "
-                  "  mv \"$DST_DIR\" \"$BACKUP_DIR\"; "
-                  "  RESTORE_NEEDED=1; "
-                  "else "
-                  "  mkdir -p \"$(dirname \"$DST_DIR\")\"; "
-                  "fi; "
-                  "mv \"$TMP_OUT\" \"$DST_DIR\"; "
-                  "zfs umount \"$DATASET\" >/dev/null 2>&1 || true; "
-                  "if [ %3 -eq 1 ]; then "
-                  "  zfs destroy -r \"$DATASET\"; "
-                  "else "
-                  "  zfs set mountpoint=\"$OLD_MP\" \"$DATASET\" >/dev/null 2>&1 || true; "
-                  "  zfs umount \"$DATASET\" >/dev/null 2>&1 || true; "
-                  "  zfs set canmount=off \"$DATASET\" >/dev/null 2>&1 || true; "
-                  "  echo \"[TODIR] dataset preserved unmounted (canmount=off)\"; "
-                  "fi; "
-                  "if [ -n \"$BACKUP_DIR\" ]; then rm -rf \"$BACKUP_DIR\"; fi; "
-                  "RESTORE_NEEDED=0; "
-                  "trap - EXIT INT TERM; "
-                  "rm -rf \"$TMP_MP\" >/dev/null 2>&1 || true")
-                  .arg(shSingleQuote(ds),
-                       shSingleQuote(localDir),
-                       deleteSourceDataset ? QStringLiteral("1") : QStringLiteral("0"));
-    } else {
-        allowWindowsScript = true;
-        auto psSingle = [](const QString& v) {
-            QString out = v;
-            out.replace(QStringLiteral("'"), QStringLiteral("''"));
-            return QStringLiteral("'") + out + QStringLiteral("'");
-        };
-        cmd = QStringLiteral(
-                  "$ErrorActionPreference = 'Stop'; "
-                  "$dataset = %1; "
-                  "$dstDir = %2; "
-                  "$deleteSrc = %3; "
-                  "$dstParent = Split-Path -Parent $dstDir; "
-                  "if ([string]::IsNullOrWhiteSpace($dstParent)) { throw 'invalid destination directory'; } "
-                  "if (-not (Test-Path -LiteralPath $dstParent)) { New-Item -ItemType Directory -Force -Path $dstParent | Out-Null; } "
-                  "$mountRows = @(zfs mount 2>$null); "
-                  "$used = $false; "
-                  "foreach ($line in $mountRows) { "
-                  "  if ($line -match '^\\s*(\\S+)\\s+(.+)$') { "
-                  "    $mp = $Matches[2].Trim(); "
-                  "    if ([string]::Equals($mp, $dstDir, [System.StringComparison]::OrdinalIgnoreCase)) { $used = $true; break; } "
-                  "  } "
-                  "} "
-                  "if ($used) { throw 'destination directory is already a zfs mountpoint'; } "
-                  "$oldMp = (zfs get -H -o value mountpoint $dataset 2>$null | Select-Object -First 1); "
-                  "$oldMounted = (zfs get -H -o value mounted $dataset 2>$null | Select-Object -First 1); "
-                  "$tmpMp = Join-Path $env:TEMP ('zfsmgr-todir-mp-' + [Guid]::NewGuid().ToString('N')); "
-                  "$tmpOut = Join-Path $env:TEMP ('zfsmgr-todir-out-' + [Guid]::NewGuid().ToString('N')); "
-                  "New-Item -ItemType Directory -Force -Path $tmpMp | Out-Null; "
-                  "New-Item -ItemType Directory -Force -Path $tmpOut | Out-Null; "
-                  "$backupDir = ''; "
-                  "$restoreNeeded = $false; "
-                  "try { "
-                  "  zfs set canmount=on $dataset 2>$null | Out-Null; "
-                  "  zfs set mountpoint=$tmpMp $dataset | Out-Null; "
-                  "  zfs mount $dataset 2>$null | Out-Null; "
-                  "  $activeMp = ''; "
-                  "  foreach ($line in @(zfs mount 2>$null)) { "
-                  "    if ($line -match '^\\s*(\\S+)\\s+(.+)$') { "
-                  "      if ($Matches[1] -eq $dataset) { $activeMp = $Matches[2].Trim(); break; } "
-                  "    } "
-                  "  } "
-                  "  if (-not [string]::Equals($activeMp, $tmpMp, [System.StringComparison]::OrdinalIgnoreCase)) { throw 'could not mount dataset on temporary mountpoint'; } "
-                  "  $rc = (robocopy $tmpMp $tmpOut /E /COPYALL /R:1 /W:1 /NFL /NDL /NP); "
-                  "  if ($LASTEXITCODE -ge 8) { throw ('robocopy failed with code ' + $LASTEXITCODE); } "
-                  "  if (Test-Path -LiteralPath $dstDir) { "
-                  "    $backupDir = $dstDir + '.zfsmgr-bak-' + [Guid]::NewGuid().ToString('N'); "
-                  "    Move-Item -LiteralPath $dstDir -Destination $backupDir; "
-                  "    $restoreNeeded = $true; "
-                  "  } "
-                  "  Move-Item -LiteralPath $tmpOut -Destination $dstDir; "
-                  "  zfs unmount $dataset 2>$null | Out-Null; "
-                  "  if ($deleteSrc -eq 1) { "
-                  "    zfs destroy -r $dataset | Out-Null; "
-                  "  } else { "
-                  "    if ($oldMp) { zfs set mountpoint=$oldMp $dataset 2>$null | Out-Null; } "
-                  "    zfs unmount $dataset 2>$null | Out-Null; "
-                  "    zfs set canmount=off $dataset 2>$null | Out-Null; "
-                  "    Write-Output '[TODIR] dataset preserved unmounted (canmount=off)'; "
-                  "  } "
-                  "  if ($backupDir -and (Test-Path -LiteralPath $backupDir)) { Remove-Item -LiteralPath $backupDir -Recurse -Force; } "
-                  "  $restoreNeeded = $false; "
-                  "} catch { "
-                  "  if ($restoreNeeded -and $backupDir -and (Test-Path -LiteralPath $backupDir)) { "
-                  "    if (Test-Path -LiteralPath $dstDir) { Remove-Item -LiteralPath $dstDir -Recurse -Force -ErrorAction SilentlyContinue; } "
-                  "    Move-Item -LiteralPath $backupDir -Destination $dstDir -ErrorAction SilentlyContinue; "
-                  "  } "
-                  "  if (zfs list -H -o name $dataset 2>$null) { "
-                  "    if ($oldMp) { zfs set mountpoint=$oldMp $dataset 2>$null | Out-Null; } "
-                  "    if ($oldMounted -match '^(yes|on)$') { zfs mount $dataset 2>$null | Out-Null; } "
-                  "  } "
-                  "  throw; "
-                  "} finally { "
-                  "  if (Test-Path -LiteralPath $tmpMp) { Remove-Item -LiteralPath $tmpMp -Recurse -Force -ErrorAction SilentlyContinue; } "
-                  "  if (Test-Path -LiteralPath $tmpOut) { Remove-Item -LiteralPath $tmpOut -Recurse -Force -ErrorAction SilentlyContinue; } "
-                  "}")
-                  .arg(psSingle(ds),
-                       psSingle(localDir),
-                       deleteSourceDataset ? QStringLiteral("1") : QStringLiteral("0"));
+    // The shell's `todir`, as a job; it asks before destroying the source.
+    QString linea = QStringLiteral("todir %1").arg(cliQuote(dirEdit->text().trimmed()));
+    if (deleteSourceDatasetChk->isChecked()) {
+        linea += QStringLiteral(" --delete-source");
     }
-
-    // Encolado como el resto de acciones, igual que Desglosar y Ensamblar. Al
-    // aplicarlo conserva todo lo suyo: confirmación, envío como trabajo del daemon
-    // y progreso en tiempo real; lo único que cambia es cuándo ocurre.
-    PendingShellActionDraft draft;
-    draft.scopeLabel = [&]() {
-        if (!ctx.valid || ctx.connIdx < 0 || ctx.connIdx >= m_conns.profiles.size()) {
-            return QString();
+    linea += QStringLiteral(" --on ") + zfsmUrl(ctx.connIdx, ds);
+    runCli(linea, [this, ctx](const CliService::Result& r) {
+        if (r.rc == 0 && m_refreshAfterCli) {
+            refreshAllJobsAsync();
+            refreshAfterCli(ctx);
         }
-        const ConnectionProfile& cp = m_conns.profiles.at(ctx.connIdx);
-        const QString conn = cp.name.trimmed().isEmpty() ? cp.id.trimmed() : cp.name.trimmed();
-        return QStringLiteral("%1::%2").arg(conn, ctx.poolName.trimmed());
-    }();
-    draft.displayLabel = QStringLiteral("Hacia Dir %1 -> %2").arg(ds, localDir);
-    draft.command = cmd;
-    draft.timeoutMs = 0;
-    draft.streamProgress = true;
-    draft.refreshTarget = ctx;
-    draft.refreshScope = PendingShellActionDraft::RefreshScope::TargetOnly;
-    draft.datasetActionSide = QStringLiteral("conncontent");
-    draft.datasetActionName = QStringLiteral("Hacia Dir");
-    draft.datasetActionCtx = ctx;
-    draft.datasetActionArgv = QStringList();
-    draft.datasetActionAllowWindowsScript = allowWindowsScript;
-    QString errorText;
-    if (!runShellActionNow(draft, &errorText)) {
-        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
-        return;
-    }
-    appLog(QStringLiteral("NORMAL"),
-           QStringLiteral("Cambio pendiente añadido: %1  %2")
-               .arg(draft.scopeLabel, draft.displayLabel));
-    updateApplyPropsButtonState();
-    return;
+    });
 }
