@@ -335,8 +335,48 @@ bool cmdCrearPool(Estado& e, const Peticion& pet, const ZfsmUrl& destino,
     for (const auto& v : vdevs) {
         argv.push_back(v);
     }
-    if (!zpoolGeneric(e, destino, argv)) {
+    std::string out;
+    std::string error;
+    bool creado =
+        agente(e, destino, PET::zpoolGeneric(B::helpers::agentArgv(argv)), out, 0, &error);
+    // One retry, only for «it labelled the disk and did not create the pool». On Windows a
+    // WHOLE disk makes zpool write the GPT and reopen the partition it just made, which
+    // often fails with EINVAL and leaves the disk labelled without a pool. The retry goes
+    // against that partition, which now exists: it finishes the write that was asked for.
+    // Only with ONE whole disk in the line —with several it is not known which failed—.
+    // Checked against OldLau on 2026-08-25, which is how `p596` was made.
+    const auto* perfil = buscarConexion(e.conns, destino.connection);
+    if (!creado && perfil && B::transport::isWindowsConnection(*perfil)
+        && B::helpers::windowsPoolCreateLabeledButFailed(error)) {
+        std::vector<std::size_t> discos;
+        for (std::size_t i = 0; i < argv.size(); ++i) {
+            if (B::toLowerAscii(argv[i]).find("\\\\.\\physicaldrive") == 0) {
+                discos.push_back(i);
+            }
+        }
+        const std::string particion =
+            discos.size() == 1 ? B::helpers::windowsWholeDiskFirstPartition(argv[discos[0]])
+                               : std::string();
+        if (!particion.empty()) {
+            std::fprintf(stderr,
+                         TC("t_pool_reintento_particion",
+                            "%s quedó etiquetado y sin pool: se reintenta sobre la partición "
+                            "que acaba de crear, %s\n"),
+                         argv[discos[0]].c_str(), particion.c_str());
+            argv[discos[0]] = particion;
+            error.clear();
+            creado =
+                agente(e, destino, PET::zpoolGeneric(B::helpers::agentArgv(argv)), out, 0, &error);
+        }
+    }
+    if (!creado) {
+        if (!error.empty()) {
+            std::fprintf(stderr, "%s\n", error.c_str());
+        }
         return false;
+    }
+    if (!B::trim(out).empty()) {
+        std::fprintf(stdout, "%s", out.c_str());
     }
     // Con `-n` no se ha creado nada: zpool solo enseña la disposición que saldría. Decir
     // «creado el pool» ahí sería mentir sobre lo único que importa de esta orden.

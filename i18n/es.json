@@ -1090,6 +1090,7 @@
     "t_pool_op_hecha": "%s: %s hecho\n",
     "t_pool_op_invalida": "no se puede pedir eso sobre ese pool\n",
     "t_pool_propi_383914": "Pool: propiedades y punto de montaje.",
+    "t_pool_reintento_particion": "%s quedó etiquetado y sin pool: se reintenta sobre la partición que acaba de crear, %s\n",
     "t_pool_stop_pause": "[<pool>] [stop|pause]",
     "t_poolcrt_auto004": "Nombre",
     "t_poolcrt_auto018": "Tamaño",

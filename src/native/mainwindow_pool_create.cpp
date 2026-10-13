@@ -1716,34 +1716,12 @@ void MainWindow::createPoolForSelectedConnection() {
         if (menu.exec(devicesTree->viewport()->mapToGlobal(pos)) != aClear) {
             return;
         }
-        const QString warn =
-            trk(QStringLiteral("t_poolcrt_labelclear_confirm001"),
-                QStringLiteral("Se va a borrar la etiqueta ZFS de %1.\n\nEl disco dice pertenecer "
-                               "al pool «%2», que no está importado. Si ese pool aún le importa a "
-                               "alguien, esto lo hace irrecuperable desde este disco.\n\n¿Continuar?")
-                    .arg(devPath, poolName),
-                QStringLiteral("The ZFS label on %1 will be erased.\n\nThe device claims to belong "
-                               "to pool \"%2\", which is not imported. If that pool still matters to "
-                               "anyone, this makes it unrecoverable from this device.\n\nContinue?")
-                    .arg(devPath, poolName)
-                    .arg(devPath, poolName));
-        if (QMessageBox::warning(&dlg, QStringLiteral("ZFSMgr"), warn,
-                                 QMessageBox::Yes | QMessageBox::No, QMessageBox::No)
-            != QMessageBox::Yes) {
-            return;
-        }
-        const QString cmd = withSudo(p, QStringLiteral("zpool labelclear -f %1")
-                                            .arg(mwhelpers::shSingleQuote(devPath)));
-        QString out;
-        QString err;
-        int rc = -1;
-        const bool ok = runSsh(p, cmd, 30000, out, err, rc) && rc == 0;
-        appLog(ok ? QStringLiteral("NORMAL") : QStringLiteral("ERROR"),
-               ok ? QStringLiteral("Etiqueta ZFS borrada en %1 (pool «%2»)").arg(devPath, poolName)
-                  : QStringLiteral("No se pudo borrar la etiqueta ZFS en %1: %2")
-                        .arg(devPath, mwhelpers::oneLine(err)));
-        if (!ok) {
-            QMessageBox::critical(&dlg, QStringLiteral("ZFSMgr"), mwhelpers::oneLine(err));
+        // The shell's `labelclear`: it asks with its own text.
+        if (runCliAndWait(
+                QStringLiteral("labelclear %1 -f --on %2").arg(cliQuote(devPath), zfsmUrl(idx)),
+                QStringLiteral("text"))
+                .rc
+            != 0) {
             return;
         }
         QMessageBox::information(
@@ -2479,8 +2457,30 @@ void MainWindow::createPoolForSelectedConnection() {
 
         QStringList selectedDevices = checkedDevices();
 
-        QStringList parts;
-        parts << QStringLiteral("zpool create");
+        // The shell's `create <pool> <layout…>` on the connection: it resolves the devices,
+        // asks before writing on them and, on Windows, finishes a whole disk left labelled
+        // without a pool.
+        QStringList parts{QStringLiteral("create"), cliQuote(poolName)};
+        QStringList specLines = poolTreeSpecLines();
+        if (specLines.isEmpty()) {
+            if (selectedDevices.isEmpty()) {
+                QMessageBox::warning(
+                    this, QStringLiteral("ZFSMgr"),
+                    trk(QStringLiteral("t_poolcrt_auto032"),
+                        QStringLiteral("Defina la estructura del pool en el árbol o seleccione "
+                                       "dispositivos para modo rápido."),
+                        QStringLiteral("Build the pool layout in the tree or select devices for "
+                                       "quick mode.")));
+                return;
+            }
+            specLines << selectedDevices.join(' ');
+        }
+        for (const QString& line : specLines) {
+            for (const QString& tok :
+                 line.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts)) {
+                parts << cliQuote(tok.trimmed());
+            }
+        }
         if (forceCb->isChecked()) {
             parts << QStringLiteral("-f");
         }
@@ -2488,14 +2488,19 @@ void MainWindow::createPoolForSelectedConnection() {
             parts << QStringLiteral("-n");
         }
         if (!mountpointEd->text().trimmed().isEmpty()) {
-            parts << QStringLiteral("-m") << shSingleQuote(mountpointEd->text().trimmed());
+            parts << QStringLiteral("--mountpoint") << cliQuote(mountpointEd->text().trimmed());
         }
         if (!altrootEd->text().trimmed().isEmpty()) {
-            parts << QStringLiteral("-R") << shSingleQuote(altrootEd->text().trimmed());
+            parts << QStringLiteral("-R") << cliQuote(altrootEd->text().trimmed());
         }
-        auto addOpt = [&parts](const QString& key, const QString& value) {
+        const auto opcion = [&parts](const char* bandera, const QString& asignacion) {
+            if (!asignacion.trimmed().isEmpty()) {
+                parts << QLatin1String(bandera) << cliQuote(asignacion.trimmed());
+            }
+        };
+        const auto addOpt = [&opcion](const QString& key, const QString& value) {
             if (!value.trimmed().isEmpty()) {
-                parts << QStringLiteral("-o") << shSingleQuote(key + QStringLiteral("=") + value.trimmed());
+                opcion("-o", key + QLatin1Char('=') + value.trimmed());
             }
         };
         addOpt(QStringLiteral("ashift"), ashiftCb->currentText());
@@ -2504,14 +2509,11 @@ void MainWindow::createPoolForSelectedConnection() {
         addOpt(QStringLiteral("compatibility"), compatibilityCb->currentText());
         addOpt(QStringLiteral("bootfs"), bootfsEd->text());
         for (const QString& item : poolOptsEd->text().split(',', Qt::SkipEmptyParts)) {
-            const QString t = item.trimmed();
-            if (!t.isEmpty()) {
-                parts << QStringLiteral("-o") << shSingleQuote(t);
-            }
+            opcion("-o", item);
         }
-        auto addFsProp = [&parts](const QString& key, const QString& value) {
+        const auto addFsProp = [&opcion](const QString& key, const QString& value) {
             if (!value.trimmed().isEmpty()) {
-                parts << QStringLiteral("-O") << shSingleQuote(key + QStringLiteral("=") + value.trimmed());
+                opcion("-O", key + QLatin1Char('=') + value.trimmed());
             }
         };
         addFsProp(QStringLiteral("canmount"), canmountCb->currentText());
@@ -2522,7 +2524,6 @@ void MainWindow::createPoolForSelectedConnection() {
         addFsProp(QStringLiteral("acltype"), acltypeCb->currentText());
         addFsProp(QStringLiteral("xattr"), xattrCb->currentText());
         addFsProp(QStringLiteral("dnodesize"), dnodesizeCb->currentText());
-
         const QSet<QString> explicitFsKeys = {
             QStringLiteral("canmount"), QStringLiteral("mountpoint"), QStringLiteral("relatime"),
             QStringLiteral("compression"), QStringLiteral("normalization"), QStringLiteral("acltype"),
@@ -2530,140 +2531,21 @@ void MainWindow::createPoolForSelectedConnection() {
         };
         for (const QString& item : fsPropsEd->text().split(',', Qt::SkipEmptyParts)) {
             const QString t = item.trimmed();
-            if (!t.isEmpty()) {
-                const int eq = t.indexOf('=');
-                if (eq > 0) {
-                    const QString k = t.left(eq).trimmed().toLower();
-                    if (explicitFsKeys.contains(k)) {
-                        continue;
-                    }
-                }
-                parts << QStringLiteral("-O") << shSingleQuote(t);
+            const int eq = t.indexOf('=');
+            if (eq > 0 && explicitFsKeys.contains(t.left(eq).trimmed().toLower())) {
+                continue;
             }
-        }
-
-        parts << shSingleQuote(poolName);
-        QStringList specLines = poolTreeSpecLines();
-        if (specLines.isEmpty()) {
-            if (selectedDevices.isEmpty()) {
-                QMessageBox::warning(
-                    this, QStringLiteral("ZFSMgr"),
-                    trk(QStringLiteral("t_poolcrt_auto032"), QStringLiteral("Defina la estructura del pool en el árbol o seleccione dispositivos para modo rápido."),
-                        QStringLiteral("Build the pool layout in the tree or select devices for quick mode.")));
-                return;
-            }
-            specLines << selectedDevices.join(' ');
-        }
-        for (const QString& line : specLines) {
-            const QStringList toks = line.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
-            for (const QString& tok : toks) {
-                parts << shSingleQuote(tok.trimmed());
-            }
+            opcion("-O", t);
         }
         if (!extraEd->text().trimmed().isEmpty()) {
             parts << extraEd->text().trimmed();
         }
-        const QString createCmd = parts.join(' ');
-        ConnectionProfile execProfile = p;
-        QString cmd = createCmd;
-        const QStringList daemonArgv = daemonizeZpoolMutationArgs(idx, cmd);
-        if (daemonArgv.isEmpty()) {
-            if (!isWindowsConnection(execProfile)) {
-                cmd = mwhelpers::withUnixSearchPathCommand(cmd);
-            }
-        }
-        if (isLocalConnection(execProfile) && !isWindowsConnection(execProfile)) {
-            execProfile.useSudo = true;
-            if (!ensureLocalSudoCredentials(execProfile)) {
-                appLog(QStringLiteral("INFO"), QStringLiteral("Crear pool cancelada: faltan credenciales sudo locales"));
-                return;
-            }
-        }
-        cmd = daemonArgv.isEmpty() ? withSudo(execProfile, cmd)
-                                   : mwhelpers::agentShellCommand(execProfile, daemonArgv);
-        const QString preview = QStringLiteral("[%1]\n%2")
-                                    .arg(sshUserHostPort(execProfile))
-                                    .arg(buildSshPreviewCommand(execProfile, cmd));
-        if (!confirmActionExecution(QStringLiteral("Crear pool"), {preview})) {
+        parts << QStringLiteral("--on") << zfsmUrl(idx);
+        if (runCliAndWait(parts.join(QLatin1Char(' ')), QStringLiteral("text")).rc != 0) {
             return;
         }
-        QString errorText;
-        bool creado = executePoolCommand(idx,
-                                         poolName,
-                                         QStringLiteral("Create"),
-                                         cmd,
-                                         120000,
-                                         &errorText,
-                                         true,
-                                         false);
-
-        // Un reintento, y solo para el fallo de «etiquetó el disco y no creó el pool».
-        //
-        // En Windows, dar el disco ENTERO hace que zpool bloquee el volumen, escriba la
-        // GPT y después vuelva a abrir la partición que acaba de crear. Ese último paso
-        // falla a menudo con EINVAL —«invalid argument for this pool operation»— y deja el
-        // disco etiquetado y sin pool: lo peor de los dos mundos, porque el disco ya está
-        // escrito y hay que repetir a mano.
-        //
-        // El reintento va contra esa partición, que ya existe. No es una escritura nueva:
-        // es terminar la que se pidió y quedó a medias. Comprobado contra OldLau el
-        // 2026-08-25, que es como se creó `p596`.
-        //
-        // Con condiciones estrictas: Windows, UN solo disco entero en la orden —con varios
-        // no se sabe cuál falló— y la firma exacta del fallo.
-        if (!creado && isWindowsConnection(execProfile)
-            && mwhelpers::windowsPoolCreateLabeledButFailed(errorText)) {
-            static const QRegularExpression rxDisco(
-                QStringLiteral(R"(\\\\\.\\PhysicalDrive\d+)"),
-                QRegularExpression::CaseInsensitiveOption);
-            QStringList discos;
-            auto it = rxDisco.globalMatch(createCmd);
-            while (it.hasNext()) {
-                const QString d = it.next().captured(0);
-                if (!discos.contains(d, Qt::CaseInsensitive)) {
-                    discos << d;
-                }
-            }
-            const QString particion = discos.size() == 1
-                                          ? mwhelpers::windowsWholeDiskFirstPartition(discos.first())
-                                          : QString();
-            if (!particion.isEmpty()) {
-                appLog(QStringLiteral("NORMAL"),
-                       QStringLiteral("[crear pool] %1 quedó etiquetado y sin pool; se reintenta "
-                                      "sobre la partición que acaba de crear: %2")
-                           .arg(discos.first(), particion));
-                QString reintento = createCmd;
-                reintento.replace(discos.first(), particion, Qt::CaseInsensitive);
-                const QStringList reintentoArgv = daemonizeZpoolMutationArgs(idx, reintento);
-                const QString cmdReintento =
-                    reintentoArgv.isEmpty() ? withSudo(execProfile, reintento)
-                                            : mwhelpers::agentShellCommand(execProfile, reintentoArgv);
-                QString errorReintento;
-                creado = executePoolCommand(idx,
-                                            poolName,
-                                            QStringLiteral("Create"),
-                                            cmdReintento,
-                                            120000,
-                                            &errorReintento,
-                                            true,
-                                            false);
-                if (!creado) {
-                    errorText = errorReintento;
-                }
-            }
-        }
-
-        if (!creado) {
-            QMessageBox::critical(
-                this,
-                trk(QStringLiteral("t_poolcrt_exec_err_t001"),
-                    QStringLiteral("Crear pool"),
-                    QStringLiteral("Create pool")),
-                trk(QStringLiteral("t_poolcrt_exec_err_q001"),
-                    QStringLiteral("No se pudo crear el pool:\n%1"),
-                    QStringLiteral("Could not create pool:\n%1"))
-                    .arg(errorText));
-            return;
+        if (m_refreshAfterCli) {
+            refreshConnectionByIndex(idx);
         }
         dlg.accept();
     });
