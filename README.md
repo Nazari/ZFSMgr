@@ -28,15 +28,15 @@ Legal references: **GNU GPL v3**, Section 15 (*Disclaimer of Warranty*) and Sect
 
 ## Installing
 
-Download `zfsmgr-cli-1.2.1.zip` from the
+Download `zfsmgr-cli-1.2.2.zip` from the
 [Releases page](https://github.com/Nazari/ZFSMgr/releases). From a terminal, `curl` avoids
 the quarantine that macOS browsers attach to downloads:
 
 ```sh
-curl -LO https://github.com/Nazari/ZFSMgr/releases/download/v1.2.1/zfsmgr-cli-1.2.1.zip
-curl -LO https://github.com/Nazari/ZFSMgr/releases/download/v1.2.1/zfsmgr-cli-1.2.1.zip.sha256
-sha256sum -c zfsmgr-cli-1.2.1.zip.sha256      # macOS: shasum -a 256 -c …
-unzip zfsmgr-cli-1.2.1.zip && cd zfsmgr-cli-1.2.1
+curl -LO https://github.com/Nazari/ZFSMgr/releases/download/v1.2.2/zfsmgr-cli-1.2.2.zip
+curl -LO https://github.com/Nazari/ZFSMgr/releases/download/v1.2.2/zfsmgr-cli-1.2.2.zip.sha256
+sha256sum -c zfsmgr-cli-1.2.2.zip.sha256      # macOS: shasum -a 256 -c …
+unzip zfsmgr-cli-1.2.2.zip && cd zfsmgr-cli-1.2.2
 ```
 
 The package carries the CLI and the daemon for every platform, and one installer per system:
