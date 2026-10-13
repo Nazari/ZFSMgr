@@ -1440,13 +1440,14 @@ def casos_pantalla(ctx):
                   [] if re.search(r"^├─", vista, re.M) and not re.search(r"^── local", vista, re.M)
                   else ["no ha vuelto a la tabla"], vista)
 
-        # La zona de estado: la posición, el último error y que se quita tras una que va bien.
+        # La zona de estado: el último error, que se quita tras una que va bien. La posición NO:
+        # ya la da la línea de órdenes justo encima, y repetirla abajo era ruido.
         t.teclas("cd zfsm://local/noexiste", "Enter")
         t.espera("✗")
         vista = t.pantalla().rstrip()
         abajo = vista.splitlines()[-1]
-        comprueba("pantalla: la zona de estado da la posición y el último error",
-                  [] if abajo.startswith("zfsm://") and "✗ no existe" in abajo
+        comprueba("pantalla: la zona de estado da el último error, y no repite la posición",
+                  [] if "✗ no existe" in abajo and "zfsm://" not in abajo.split("✗")[0]
                   else [f"la última fila es «{abajo}»"], vista)
         t.teclas("pwd", "Enter")
         time.sleep(1.5)

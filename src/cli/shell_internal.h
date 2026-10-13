@@ -462,7 +462,7 @@ private:
 
 // The STATUS AREA of the screen: below the command line, always in sight.
 //
-//   zfsm://local/back · next: 10:00 unib/ppal/user/git · outdated daemon: mbp · ✗ <last error>
+//   next: 10:00 unib/ppal/user/git · outdated daemon: mbp · ✗ <last error>
 //   jobs: unib send tank/x@s 1.2G 85.0 MiB/s · local gsa-level back/x 300M
 //
 // With no jobs running the first line says so and the second is not there.
@@ -502,12 +502,11 @@ public:
         }
     }
 
-    // Tras cada orden: dónde se está y, si falló, su último error. Sale bien → se quita.
-    void ponSitio(const std::string& url, int rc, const std::string& ultimoError,
-                  bool tocoProgramaciones) {
+    // After each command: its last error if it failed; one that goes well clears it. Where one
+    // stands is not repeated here: the prompt right above already says it.
+    void trasOrden(int rc, const std::string& ultimoError, bool tocoProgramaciones) {
         {
             std::lock_guard<std::mutex> lock(m_m);
-            m_sitio = url;
             if (rc == 0) {
                 m_error.clear();
             } else if (!ultimoError.empty()) {
@@ -685,7 +684,7 @@ private:
         std::vector<std::string> lineas;
         {
             std::lock_guard<std::mutex> lock(m_m);
-            std::string l = m_sitio.empty() ? std::string("zfsm://") : m_sitio;
+            std::string l;
             if (m_programaciones) {
                 l += " · ";
                 if (m_progHechas < m_estado.size()) {
@@ -749,7 +748,13 @@ private:
             if (!m_error.empty()) {
                 l += " · ✗ " + m_error;
             }
-            lineas.push_back(l);
+            const std::string sep = " · ";
+            if (l.compare(0, sep.size(), sep) == 0) {
+                l.erase(0, sep.size());
+            }
+            if (!l.empty()) {
+                lineas.push_back(l);
+            }
             if (!t.empty()) {
                 lineas.push_back(T("t_est_trabajos", "trabajos: ") + t);
             }
@@ -769,7 +774,6 @@ private:
     bool m_parar{false};
     unsigned m_aviso{0};
     unsigned m_avisoProg{0};
-    std::string m_sitio;
     std::string m_error;
 };
 

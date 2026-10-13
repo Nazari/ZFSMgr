@@ -620,8 +620,8 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
     while (!e.salir) {
         if (monitor) {
             pantalla::sincroniza();
-            monitor->ponSitio(textoDe(e.actual), e.ultimoRc, pantalla::ultimaLineaDeError(),
-                              B::startsWith(ultimaOrden, "schedule"));
+            monitor->trasOrden(e.ultimoRc, pantalla::ultimaLineaDeError(),
+                               B::startsWith(ultimaOrden, "schedule"));
         }
         if (!lector.lee(textoDe(e.actual) + "> ", linea)) {
             break;
