@@ -147,6 +147,21 @@ std::vector<std::string> argvPrepareDir(const std::string& base, const std::stri
 // The path that verb answers with: one «DST=<absolute path>» line. Empty when it is absent.
 std::string preparedPath(const std::string& output);
 
+// --- Deleting a file or directory inside a dataset: `destroy ds#content/<rel>`.
+//
+// Why `rel` cannot be deleted, as an agent message code; empty if it can. `rel` is relative
+// to the dataset's mountpoint. Refused: the root itself (that is the dataset: `destroy` it),
+// anything that climbs out (`..`, absolute) and anything under `.zfs` (snapshots are read-only).
+// The agent applies this same rule: the client asks first only to fail before the question.
+std::string contentRemovalRefusal(const std::string& rel);
+
+// The argv of `--mutate-remove-content`: `<dataset> <mountpoint> <rel> <0|1 recursive>`. The
+// agent checks that `mountpoint` is where `dataset` is mounted, so a client cannot point it
+// at another part of the machine. Empty if the rule above refuses `rel`.
+std::vector<std::string> argvRemoveContent(const std::string& dataset,
+                                           const std::string& mountpoint, const std::string& rel,
+                                           bool recursive);
+
 // Can this pair do FromDir over the daemon-to-daemon tree, with no pipeline?
 //
 // BOTH ends need a daemon: the target to prepare and listen, the source to send. The tar

@@ -70,6 +70,7 @@ typedef int pid_t;
 #include "peers.h"
 #include "base/processes.h"
 #include "base/osinfo.h"
+#include "commands/advanced.h"
 #include "commands/gsa.h"
 #include "base/agentmsg.h"
 #include "base/i18n.h"
@@ -624,6 +625,7 @@ bool parseJsonStringArray(const std::string& json, std::vector<std::string>& out
 std::string motivoParaNoCambiarClave(const std::string& dataset, const std::string& flagsStr);
 ExecResult runGenericMutationCapture(const std::string& tool, const std::string& payloadB64);
 ExecResult runPrepareDirCapture(const std::vector<std::string>& params);
+ExecResult runRemoveContentCapture(const std::vector<std::string>& params);
 ExecResult runMutateAdvancedFromDirPrepareCapture(const std::vector<std::string>& params);
 #ifndef _WIN32
 extern std::atomic<pid_t> g_streamChildPid;

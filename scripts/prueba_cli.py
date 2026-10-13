@@ -1591,9 +1591,11 @@ def casos_path(ctx):
          [f"destroy {R}/sub -y"], rc=1,
          espera=[rf"no es un dataset; está dentro de {P}/datos", r"#content/sub"],
          estado=[("el dataset sigue", f"zfs list -H -o name {P}/datos", rf"^{P}/datos$")])
-    caso(ctx, "content: destroy de #content/sub se niega",
-         [f"destroy {U}#content/sub -y"], rc=1, espera=[r"es una ruta dentro de"],
-         estado=[("el dataset sigue", f"zfs list -H -o name {P}/datos", rf"^{P}/datos$")])
+    # `destroy ds#content/sub` borra ESE directorio (con -r), nunca el dataset que lo tiene.
+    caso(ctx, "content: destroy de #content/sub sin -r se niega, y no toca el dataset",
+         [f"destroy {U}#content/sub -y"], rc=2, espera=[r"es un directorio"],
+         estado=[("el dataset sigue", f"zfs list -H -o name {P}/datos", rf"^{P}/datos$"),
+                 ("y el directorio", f"bash -c 'test -d /mnt/{P}/datos/sub && echo SI'", r"^SI$")])
     caso(ctx, "path: una ruta suelta no es una máquina",
          ["devices zfsm://local#path/dev"], rc=1, espera=[r"no es una conexión"])
     caso(ctx, "path: #path en un dataset se rechaza",
@@ -1708,6 +1710,42 @@ def casos_instantaneas(ctx):
     caso(ctx, "ls #content del dataset sí enseña lo escrito después",
          [f"cd Local/{P}/datos", "ls #content"], idioma="es",
          espera=[r"^despues\.txt\b"])
+
+    # --- `destroy ds#content/<ruta>` borra ESE fichero o directorio, nada más.
+    existe = lambda ruta: f"bash -c 'test -e {ruta} && echo SI || echo NO'"
+    caso(ctx, "destroy #content: borra un fichero del dataset",
+         [f"cd Local/{P}/datos", "destroy #content/despues.txt"], idioma="es",
+         espera=[r"borrado .*despues\.txt"],
+         estado=[("el fichero ya no está", existe(f"/mnt/{P}/datos/despues.txt"), r"^NO$"),
+                 ("el dataset sigue", f"zfs list -H -o name {P}/datos", rf"^{P}/datos$")])
+    sh(ctx, f"bash -c 'echo otra > /mnt/{P}/datos/relativo.txt'", root=True)
+    caso(ctx, "destroy: con el nombre suelto desde dentro de #content",
+         [f"cd Local/{P}/datos#content", "destroy relativo.txt"], idioma="es",
+         estado=[("borrado", existe(f"/mnt/{P}/datos/relativo.txt"), r"^NO$")])
+    caso(ctx, "destroy #content: un directorio sin -r se niega",
+         [f"cd Local/{P}/datos", "destroy #content/sub"], idioma="es",
+         espera=[r"es un directorio"],
+         estado=[("sigue ahí", existe(f"/mnt/{P}/datos/sub/otro.txt"), r"^SI$")])
+    caso(ctx, "destroy -r #content: el directorio con lo de dentro",
+         [f"cd Local/{P}/datos", "destroy -r #content/sub"], idioma="en",
+         espera=[r"deleted"],
+         estado=[("ya no está", existe(f"/mnt/{P}/datos/sub"), r"^NO$")])
+    caso(ctx, "destroy #content/.zfs: las instantáneas son de solo lectura",
+         [f"cd Local/{P}/datos", "destroy #content/.zfs/snapshot/s1/fichero.txt"], idioma="es",
+         espera=[r"solo lectura"],
+         estado=[("la foto intacta", existe(f"/mnt/{P}/datos/.zfs/snapshot/s1/fichero.txt"),
+                  r"^SI$")])
+    caso(ctx, "destroy #content de una instantánea: se niega",
+         [f"cd Local/{P}/datos@s1", "destroy #content/fichero.txt"], idioma="es",
+         espera=[r"solo lectura"], no_espera=[r"DESTRUIR"])
+    # Un dataset hijo montado DENTRO no es un directorio del padre: no se entra en él.
+    sh(ctx, f"zfs create {P}/datos/hijo", root=True)
+    sh(ctx, f"bash -c 'echo h > /mnt/{P}/datos/hijo/h.txt'", root=True)
+    caso(ctx, "destroy -r #content: no entra en un dataset hijo montado dentro",
+         [f"cd Local/{P}/datos", "destroy -r #content/hijo"], idioma="es",
+         espera=[r"otro sistema de ficheros"],
+         estado=[("el hijo intacto", existe(f"/mnt/{P}/datos/hijo/h.txt"), r"^SI$")])
+    sh(ctx, f"zfs destroy {P}/datos/hijo", root=True)
 
     # `zfs allow` sobre una instantánea escribe su error por la salida y devuelve rc=0, así
     # que el código de retorno no sirve para detectarlo: llegaba al usuario el mensaje crudo

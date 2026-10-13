@@ -783,6 +783,12 @@ bool prepara(Estado& e, const LineaAnalizada& linea, Peticion& p) {
         && esSeccionDeFicheros(p.objetivo)) {
         return true;
     }
+    // `destroy` of a path WRITTEN inside `#content` deletes that file or directory: cmdDestroy.
+    if (std::string(orden->nombre) == "destroy" && !explicito.empty()
+        && B::toLowerAscii(p.objetivo.section) == B::zfsmSection::kContent
+        && !p.objetivo.detail.empty()) {
+        return true;
+    }
     {
         const bool quiereZfs =
             orden->objetivo == Objetivo::Pool || orden->objetivo == Objetivo::Dataset

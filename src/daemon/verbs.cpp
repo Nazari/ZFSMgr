@@ -1053,6 +1053,8 @@ const TablaDeVerbos& tablaDeVerbos() {
         });
         t.pon({"--mutate-prepare-dir"},
               [](const Peticion& p) -> ExecResult { return runPrepareDirCapture(p.params); });
+        t.pon({"--mutate-remove-content"},
+              [](const Peticion& p) -> ExecResult { return runRemoveContentCapture(p.params); });
         t.pon({"--tree-recv-listen"}, [](const Peticion& p) -> ExecResult {
             ExecResult r;
             if (p.params.empty()) {

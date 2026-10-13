@@ -3947,6 +3947,37 @@ void caso49() {
         }
 
         {
+            // --- What `destroy ds#content/<rel>` may delete.
+            namespace AV = zfsmgr::commands::advanced;
+            igual(AV::contentRemovalRefusal("fotos/a.jpg"), std::string(),
+                  "content removal: a file inside");
+            igual(AV::contentRemovalRefusal("dir/"), std::string(),
+                  "content removal: a directory with a trailing slash");
+            igual(AV::contentRemovalRefusal(""), std::string("remove_dataset_root"),
+                  "content removal: never the root");
+            igual(AV::contentRemovalRefusal("/"), std::string("remove_dataset_root"),
+                  "content removal: nor written as «/»");
+            igual(AV::contentRemovalRefusal("a/../../etc"), std::string("bad_relative_part"),
+                  "content removal: nothing that climbs out");
+            igual(AV::contentRemovalRefusal(".."), std::string("bad_relative_part"),
+                  "content removal: nor «..» alone");
+            igual(AV::contentRemovalRefusal("/etc/passwd"), std::string("bad_relative_part"),
+                  "content removal: nothing absolute");
+            igual(AV::contentRemovalRefusal(".zfs/snapshot/s/a"), std::string("remove_in_zfs_dir"),
+                  "content removal: nothing under .zfs");
+            igual(AV::contentRemovalRefusal("sub/.zfs"), std::string(),
+                  "content removal: a «.zfs» deeper down is an ordinary name");
+            igual(AV::contentRemovalRefusal("a..b"), std::string(),
+                  "content removal: «..» inside a name is not climbing");
+            comprobar(AV::argvRemoveContent("tank/d", "/tank/d", "../x", true).empty(),
+                      "content removal: no argv for a refused path");
+            const std::vector<std::string> esperado = {"--mutate-remove-content", "tank/d",
+                                                       "/tank/d", "a/b", "1"};
+            comprobar(AV::argvRemoveContent("tank/d", "/tank/d", "a/b", true) == esperado,
+                      "content removal: the argv");
+        }
+
+        {
             // --- A schedule's target as the machine that runs it reads it.
             namespace G = zfsmgr::base::gsa;
             const std::string t0 = "zfsm://local/back/user/git";

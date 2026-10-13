@@ -297,6 +297,10 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
        {"t_ej_destroy_4", "y además los clones que dependan de ellos"}},
       {"destroy tank/pruebas -f",
        {"t_ej_destroy_5", "aunque esté montado"}},
+      {"destroy #content/viejo.log",
+       {"t_ej_destroy_6", "un fichero del dataset donde estás"}},
+      {"destroy -r tank/pruebas#content/tmp",
+       {"t_ej_destroy_7", "un directorio del dataset, con todo lo que tenga dentro"}},
      }},
     {"devices",
      {
@@ -917,9 +921,11 @@ const std::vector<Orden> kOrdenes = {
      {{{"t_r_90cdb7", "-r"}, {"t_con_sus_de_7eb43b", "Con sus descendientes."}},
       {{"t_r_24fd93", "-R"}, {"t_con_sus_de_b90f87", "Con sus descendientes y lo que dependa de ellos."}},
       {{"t_f_0abbcb", "-f"}, {"t_fuerza_aun_e2d851", "Fuerza aunque esté en uso."}}},
-     {{"t_en_una_con_d7ff22", "En una CONEXIÓN la quita de la configuración y no toca nada en la máquina. En un "
+     {{"t_destroy_que_borra", "En una CONEXIÓN la quita de la configuración y no toca nada en la máquina. En un "
       "POOL es `zpool destroy` — `zfs destroy` sobre el dataset raíz de un pool no "
-      "funciona—. En un dataset o snapshot, `zfs destroy`."}},
+      "funciona—. En un dataset o snapshot, `zfs destroy`. En `#content/<ruta>` borra ESE "
+      "fichero, o con -r ese directorio; nunca la raíz del dataset, nada bajo .zfs ni de un "
+      "snapshot, y no entra en un dataset hijo montado dentro."}},
      // Lo mismo que `create`: en una conexión la quita, en la raíz de un pool destruye el
      // pool, y en un dataset o una instantánea es `zfs destroy` —lo que dice el párrafo de
      // aquí arriba—. Pidiendo un dataset no se llegaba nunca a las dos primeras.
@@ -1642,7 +1648,7 @@ bool imprimeAyudaDe(const std::string& nombre, int ancho) {
                         "  destroy zfsm://m#path/mnt/tank/datos/fotos\n"
                         "  → no es un dataset; está dentro de tank/datos:\n"
                         "    zfsm://m/tank/datos#content/fotos\n"
-                        "Lo mismo para «#content/sub» escrito a mano.\n"
+                        "Para borrar ESE fichero o directorio: «destroy [-r] …#content/fotos».\n"
                         "\n"
                         "Dentro de #content o #path, «cd sub» y «cd ..» se mueven por directorios,\n"
                         "y el tabulador ofrece los nombres de cada uno.\n"

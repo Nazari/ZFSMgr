@@ -2729,6 +2729,84 @@ int runMutateAdvancedFromDir(const std::vector<std::string>& params) {
     // stdin stays inherited so tar consumes the incoming stream.
     return runExecStreaming("tar", {"--acls", "--xattrs", "-xpf", "-", "-C", dst});
 }
+
+// --mutate-remove-content <dataset> <mountpoint> <rel> <0|1>: `destroy ds#content/<rel>`.
+//
+// Deleting as root, so nothing is taken on the client's word: `rel` passes the same rule the
+// client applies (no root, no `..`, nothing under `.zfs`), `mountpoint` must be where
+// `dataset` is really mounted, and the deletion never crosses into another filesystem. A
+// symbolic link is deleted itself, never followed.
+ExecResult runRemoveContentCapture(const std::vector<std::string>& params) {
+    namespace fs = std::filesystem;
+    ExecResult r;
+    if (params.size() < 4) {
+        r.rc = 2;
+        ponCodigo(r, "usage", {"--mutate-remove-content <dataset> <mountpoint> <rel> <0|1>"});
+        return r;
+    }
+    const std::string dataset = trim(params[0]);
+    const std::string mountpoint = trim(params[1]);
+    const std::string rel = trim(params[2]);
+    const bool recursive = trim(params[3]) == "1";
+    if (const std::string no = zfsmgr::commands::advanced::contentRemovalRefusal(rel);
+        !no.empty()) {
+        r.rc = 2;
+        ponCodigo(r, no, {});
+        return r;
+    }
+    if (mountpoint.empty() || mountpoint.front() != '/'
+        || datasetMountedExactlyAt(mountpoint) != dataset) {
+        r.rc = 2;
+        ponCodigo(r, "remove_not_dataset_mount", {dataset, mountpoint});
+        return r;
+    }
+    struct stat raiz{};
+    if (::stat(mountpoint.c_str(), &raiz) != 0) {
+        r.rc = 1;
+        ponCodigo(r, "remove_not_found", {mountpoint});
+        return r;
+    }
+    const fs::path target = fs::path(mountpoint) / rel;
+    struct stat st{};
+    if (::lstat(target.c_str(), &st) != 0) {
+        r.rc = 1;
+        ponCodigo(r, "remove_not_found", {target.string()});
+        return r;
+    }
+    if (st.st_dev != raiz.st_dev) {
+        r.rc = 2;
+        ponCodigo(r, "remove_is_mountpoint", {target.string()});
+        return r;
+    }
+    if (S_ISDIR(st.st_mode) && !recursive) {
+        r.rc = 2;
+        ponCodigo(r, "remove_is_dir", {target.string()});
+        return r;
+    }
+    std::string err;
+    if (S_ISDIR(st.st_mode)) {
+        if (!removeTreeWithoutCrossingMounts(target, raiz.st_dev, err)) {
+            r.rc = 1;
+            ponCodigo(r, "remove_failed", {err});
+            return r;
+        }
+    } else if (::unlink(target.c_str()) != 0) {
+        r.rc = 1;
+        ponCodigo(r, "remove_failed", {target.string() + ": " + std::strerror(errno)});
+        return r;
+    }
+    daemonLog("INFO", "removed " + target.string() + (S_ISDIR(st.st_mode) ? " (tree)" : ""));
+    r.rc = 0;
+    r.out = "REMOVED=" + target.string() + "\n";
+    return r;
+}
+#else
+ExecResult runRemoveContentCapture(const std::vector<std::string>&) {
+    ExecResult r;
+    r.rc = 2;
+    ponCodigo(r, "remove_not_on_windows", {});
+    return r;
+}
 #endif  // _WIN32
 
 // Fuera del bloque de Unix de arriba, A PROPÓSITO: la usan los dos despachadores en todas

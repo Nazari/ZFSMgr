@@ -380,6 +380,9 @@ std::string agentCapabilityList() {
     caps.push_back("--dump-zfs-driveletters");
     caps.push_back("--mutate-advanced-fromdir-prepare");
     caps.push_back("--mutate-prepare-dir");
+#ifndef _WIN32
+    caps.push_back("--mutate-remove-content");
+#endif
     caps.push_back("--tree-recv-listen");
     caps.push_back("--tree-send-to-peer");
     // El emisor acepta `--as <nombre>` para un fichero suelto. Un agente anterior IGNORA lo

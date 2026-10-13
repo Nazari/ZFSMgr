@@ -5,12 +5,74 @@
 
 namespace zfsmgr::cli::detail {
 
+// `destroy ds#content/<rel>`: a file, or with -r a directory, inside a mounted dataset. The
+// agent checks everything again (see --mutate-remove-content); asking here first is only so
+// that a refusal comes before the question, not after it.
+bool borraContenido(Estado& e, const Peticion& pet, const ZfsmUrl& destino) {
+    if (!destino.snapshot.empty()) {
+        std::fprintf(stderr, "%s\n", B::agentmsg::render("remove_in_zfs_dir", {}).c_str());
+        e.ultimoRc = 1;
+        return false;
+    }
+    const std::string rel = B::join(destino.detail, "/");
+    if (const std::string no = AV::contentRemovalRefusal(rel); !no.empty()) {
+        std::fprintf(stderr, "%s\n", B::agentmsg::render(no, {}).c_str());
+        e.ultimoRc = 1;
+        return false;
+    }
+    std::string error;
+    const auto* perfil = perfilVivoDe(e, destino, error);
+    if (!perfil) {
+        std::fprintf(stderr, "%s\n", error.c_str());
+        return false;
+    }
+    if (T::isWindowsConnection(*perfil)) {
+        std::fprintf(stderr, "%s\n", B::agentmsg::render("remove_not_on_windows", {}).c_str());
+        e.ultimoRc = 1;
+        return false;
+    }
+    std::string montaje;
+    if (!dondeEstaMontado(e, destino, destino.dataset, /*paraEscribir=*/true, /*callado=*/false,
+                          montaje)) {
+        return false;
+    }
+    const bool recursivo = pet.tiene("-r") || pet.tiene("-R");
+    if (!confirma(
+            e, B::format(T("t_conf_destroy_contenido",
+                           "Se va a BORRAR %1%2 del dataset %3 en %4. ¿Continuar?"),
+                         {rel,
+                          recursivo ? T("t_conf_con_lo_de_dentro", " con todo lo que tenga dentro")
+                                    : std::string(),
+                          destino.dataset, destino.connection}))) {
+        std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
+        return false;
+    }
+    std::string out;
+    if (!agente(e, destino, AV::argvRemoveContent(destino.dataset, montaje, rel, recursivo), out,
+                300000)) {
+        return false;
+    }
+    std::fprintf(stderr, TC("t_borrado_contenido", "borrado %s\n"), textoDe(destino).c_str());
+    // Deleting the directory one stands in: go up to its parent.
+    if (e.actual.connection == destino.connection && e.actual.dataset == destino.dataset
+        && e.actual.section == destino.section && e.actual.detail.size() >= destino.detail.size()
+        && std::equal(destino.detail.begin(), destino.detail.end(), e.actual.detail.begin())) {
+        ZfsmUrl arriba = destino;
+        arriba.detail.pop_back();
+        e.actual = arriba;
+    }
+    return true;
+}
+
 bool cmdDestroy(Estado& e, const LineaAnalizada& linea) {
     Peticion pet;
     if (!prepara(e, linea, pet)) {
         return false;
     }
     const ZfsmUrl& destino = pet.objetivo;
+    if (B::toLowerAscii(destino.section) == B::zfsmSection::kContent && !destino.detail.empty()) {
+        return borraContenido(e, pet, destino);
+    }
     // En una CONEXIÓN, `destroy` la quita de la configuración. Es lo único que se puede
     // «destruir» ahí, y la pregunta lo deja claro: no se toca nada en la máquina.
     if (nodoDe(destino) == Nodo::Conexion) {

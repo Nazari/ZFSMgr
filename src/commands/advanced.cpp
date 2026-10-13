@@ -242,6 +242,41 @@ std::vector<std::string> argvPrepareDir(const std::string& base, const std::stri
     return {"--mutate-prepare-dir", zfsmgr::base::trim(base), zfsmgr::base::trim(rel)};
 }
 
+std::string contentRemovalRefusal(const std::string& rel) {
+    const std::string r = zfsmgr::base::trim(rel);
+    if (r.empty() || r == "/" || r == ".") {
+        return "remove_dataset_root";
+    }
+    if (r.front() == '/' || r.front() == '\\') {
+        return "bad_relative_part";
+    }
+    bool primero = true;
+    for (const std::string& c : zfsmgr::base::split(r, "/", false)) {
+        if (c.empty() && !primero) {
+            continue;  // «a//b» or a trailing «/»
+        }
+        if (c == ".." || c == "." || c.find('\\') != std::string::npos) {
+            return "bad_relative_part";
+        }
+        if (primero && c == ".zfs") {
+            return "remove_in_zfs_dir";
+        }
+        primero = false;
+    }
+    return {};
+}
+
+std::vector<std::string> argvRemoveContent(const std::string& dataset,
+                                           const std::string& mountpoint, const std::string& rel,
+                                           bool recursive) {
+    if (zfsmgr::base::trim(dataset).empty() || zfsmgr::base::trim(mountpoint).empty()
+        || !contentRemovalRefusal(rel).empty()) {
+        return {};
+    }
+    return {"--mutate-remove-content", zfsmgr::base::trim(dataset), zfsmgr::base::trim(mountpoint),
+            zfsmgr::base::trim(rel), recursive ? "1" : "0"};
+}
+
 std::string preparedPath(const std::string& salida) {
     // Se busca la línea, no el principio de la salida: por SSH puede venir precedida de un
     // aviso del propio shell, y quedarse con lo primero que llega daría una ruta que no es.
