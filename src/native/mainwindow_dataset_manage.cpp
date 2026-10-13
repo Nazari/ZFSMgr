@@ -746,92 +746,23 @@ void MainWindow::actionDeleteDatasetOrSnapshot(const QString& side, const Datase
     if (dlg.exec() != QDialog::Accepted) {
         return;
     }
-    QStringList flags;
-    if (forceCb->isChecked()) {
-        flags.push_back(QStringLiteral("-f"));
-    }
-    const bool force = forceCb->isChecked();
-    QString recursiveMode = QStringLiteral("none");
+    // The shell's `destroy` with what was chosen: it asks with its own text, checks and
+    // destroys; dependents with -R go as dependents (the window used to send them as -r).
+    QString linea =
+        QStringLiteral("destroy ") + zfsmUrl(ctx.connIdx, ctx.datasetName, ctx.snapshotName);
     if (recursiveDestroyCb->isChecked()) {
-        flags.push_back(QStringLiteral("-R"));
-        recursiveMode = QStringLiteral("R");
+        linea += QStringLiteral(" -R");
     } else if (recursiveCb->isChecked()) {
-        flags.push_back(QStringLiteral("-r"));
-        recursiveMode = QStringLiteral("r");
+        linea += QStringLiteral(" -r");
     }
-    const bool recursive = recursiveCb->isChecked() || recursiveDestroyCb->isChecked();
-    // El argv sale de `commands::snapshots`, que además pone bien el ALCANCE.
-    //
-    // Aquí se pasaba la cadena «none» cuando no había recursividad, y funcionaba por
-    // casualidad: el daemon solo mira si el valor es «r» o «R», así que cualquier otra cosa
-    // significa «ninguno». El módulo devuelve la cadena vacía, que es lo que el verbo espera.
-    const QStringList argvDestroy =
-        mwhelpers::argvDestroy(target, force, recursiveDestroyCb->isChecked()
-                                                   ? true
-                                                   : recursiveCb->isChecked());
-    const QString cmd = mwhelpers::cadenaDeArgv(
-        QStringLiteral("zfs"),
-        QStringList{QStringLiteral("destroy")} + flags + QStringList{target});
-    ConnectionProfile cp = m_conns.profiles[ctx.connIdx];
-    if (isLocalConnection(cp) && !isWindowsConnection(cp)) {
-        cp.useSudo = true;
-        if (!ensureLocalSudoCredentials(cp)) {
-            appLog(QStringLiteral("INFO"), QStringLiteral("Borrar cancelado: faltan credenciales sudo locales"));
-            return;
+    if (forceCb->isChecked()) {
+        linea += QStringLiteral(" -f");
+    }
+    runCli(linea, [this, ctx](const CliService::Result& r) {
+        if (r.rc == 0) {
+            refreshAfterCli(ctx);
         }
-    }
-    if (!requireDaemonForMutation(ctx.connIdx, QStringLiteral("borrar"))) {
-        return;
-    }
-    // **Un DATASET no pasaba nunca por verbo tipado.** `argvDestroy` sale de
-    // `commands::snapshots` y solo compone el verbo de instantáneas, así que la condición
-    // `target.contains('@')` mandaba a shell todo borrado de dataset —con `-R`, que arrastra
-    // clones y descendientes—. Ahora va por `--mutate-zfs-generic destroy`, que el daemon
-    // ejecuta con execvp: mismo camino, mismas banderas, sin intérprete.
-    QString queueCmd = cmd;
-    const QStringList argvGenerico =
-        QStringList{QStringLiteral("destroy")} + flags + QStringList{target};
-    const QStringList daemonArgv =
-        (target.contains(QLatin1Char('@')) && !argvDestroy.isEmpty())
-            ? argvDestroy
-            : daemonizeZfsMutationArgs(ctx.connIdx, argvGenerico);
-    if (!daemonArgv.isEmpty()) {
-        // Renderizado a cadena porque este camino lo mete dentro de una orden de shell que
-        // después envuelve `sshExecFromLocal`. La composición no se escribe aquí.
-        queueCmd = mwhelpers::cadenaDeArgv(daemonpayload::unixBinPath(), daemonArgv);
-    }
-    const QString fullCmd = sshExecFromLocal(cp, withSudo(cp, mwhelpers::withUnixSearchPathCommand(queueCmd)));
-    auto connPoolLabel = [this](const DatasetSelectionContext& selCtx) {
-        if (!selCtx.valid || selCtx.connIdx < 0 || selCtx.connIdx >= m_conns.profiles.size() || selCtx.poolName.trimmed().isEmpty()) {
-            return QString();
-        }
-        const ConnectionProfile p = m_conns.profiles.at(selCtx.connIdx);
-        const QString connLabel = p.name.trimmed().isEmpty() ? p.id.trimmed() : p.name.trimmed();
-        return QStringLiteral("%1::%2").arg(connLabel, selCtx.poolName.trimmed());
-    };
-    QString errorText;
-    if (!runShellActionNow(PendingShellActionDraft{
-            connPoolLabel(ctx),
-            recursive
-                ? QStringLiteral("Borrar recursivamente %1").arg(target)
-                : QStringLiteral("Borrar %1").arg(target),
-            fullCmd,
-            90000,
-            false,
-            {},
-            ctx,
-            PendingShellActionDraft::RefreshScope::TargetOnly},
-            &errorText)) {
-        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), errorText);
-        return;
-    }
-    appLog(QStringLiteral("NORMAL"),
-           QStringLiteral("Cambio pendiente añadido: %1  %2")
-               .arg(connPoolLabel(ctx),
-                    recursive
-                        ? QStringLiteral("Borrar recursivamente %1").arg(target)
-                        : QStringLiteral("Borrar %1").arg(target)));
-    updateApplyPropsButtonState();
+    });
 }
 
 // Soltar un hold de un snapshot, dicho por su nombre y no por el nodo del árbol donde se

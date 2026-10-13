@@ -1,6 +1,7 @@
 #pragma once
 
 #include "commands/gsa.h"
+#include "cliservice.h"
 #include "connectionmodel.h"
 #include "connectionregistry.h"
 #include "transportsession.h"
@@ -171,6 +172,11 @@ public:
     void addActiveDaemonJobForTest(int srcConnIdx, int dstConnIdx, const QString& jobId);
     void pollDaemonJobsForTest();
     void refreshAllJobsForTest() { refreshAllJobsAsync(); }
+    void setCliFakeForTest(CliService::Fake fake) { m_cli->setFakeForTest(std::move(fake)); }
+    QStringList cliLinesForTest() const { return m_cli->linesForTest(); }
+    QString zfsmUrlForTest(int connIdx, const QString& ds, const QString& snap) const {
+        return zfsmUrl(connIdx, ds, snap);
+    }
     void fillPaneSchedulesForTest(int pane, int connIdx, const QString& pool, const QString& ds) {
         fillPaneSchedules(pane, connIdx, pool, ds);
     }
@@ -949,6 +955,14 @@ private:
     int selectedConnectionIndexForPoolManagement() const;
     void updatePoolManagementBoxTitle();
     void updateStatus(const QString& text);
+    // The shell service every action goes through (mainwindow_cli.cpp).
+    void initCliService();
+    void runCli(const QString& line, std::function<void(const CliService::Result&)> done = {});
+    // The zfsm:// URL of what is selected: a connection, a dataset or a snapshot.
+    QString zfsmUrl(int connIdx, const QString& dataset = QString(),
+                    const QString& snapshot = QString()) const;
+    // After a line that changed something under `ctx`: what the tree shows is read again.
+    void refreshAfterCli(const DatasetSelectionContext& ctx);
     void buildStatusBar();
     void composeStatusBar();
     void refreshStatusBarSchedulesAsync();
@@ -1174,6 +1188,8 @@ private:
         bool daemon{false};
     };
     QList<LogWindow> m_logWindows;
+    CliService* m_cli{nullptr};
+    bool m_cliRefused{false};  // the user answered «no» to the last confirmation
     QLabel* m_statusBarLabel{nullptr};
     QString m_statusActivity;
     QString m_statusLastError;

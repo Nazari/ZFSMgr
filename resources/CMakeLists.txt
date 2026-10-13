@@ -460,6 +460,9 @@ set(ZFSMGR_CORE_SOURCES
     ../src/native/mainwindow_logwindows.cpp
     ../src/native/mainwindow_jobs.cpp
     ../src/native/mainwindow_schedules_tab.cpp
+    ../src/native/mainwindow_cli.cpp
+    ../src/native/cliservice.cpp
+    ../src/native/cliservice.h
     ../src/native/mainwindow_remote.cpp
     ../src/native/mainwindow_table_utils.cpp
     ../src/native/mainwindow_settings.cpp
@@ -907,7 +910,10 @@ if(BUILD_TESTING)
     target_compile_definitions(zfsmgr_gui_mainwindow_test PRIVATE
         QT_NO_KEYWORDS
         ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
+        # The shell the window drives (CliService), for the test that runs it for real.
+        ZFSMGR_TEST_CLI_PATH="$<TARGET_FILE:zfsmgr-cli>"
     )
+    add_dependencies(zfsmgr_gui_mainwindow_test zfsmgr-cli)
     add_test(NAME zfsmgr_gui_mainwindow_test COMMAND zfsmgr_gui_mainwindow_test)
     set_tests_properties(zfsmgr_gui_mainwindow_test PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;ZFSMGR_TEST_MODE=1")

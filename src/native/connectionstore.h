@@ -100,6 +100,8 @@ public:
     explicit ConnectionStore(const QString& appName);
 
     void setMasterPassword(const QString& password);
+    // For the shell service the window drives (CliService): it opens the same secrets.
+    QString masterPassword() const { return m_masterPassword; }
     void setLanguage(const QString& language);
     bool validateMasterPassword(QString& error) const;
     QString configDir() const;

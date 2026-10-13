@@ -2,6 +2,9 @@
 #include "connectionstore.h"
 #include "transportsession.h"
 
+#include "cliservice.h"
+#include <QFileInfo>
+#include <QTemporaryDir>
 #include <QLabel>
 #include <QTextEdit>
 #include <QApplication>
@@ -451,6 +454,44 @@ private Q_SLOTS:
             });
         window.refreshAllJobsForTest();
         QTRY_VERIFY_WITH_TIMEOUT(window.selectTransferJobForTest(QStringLiteral("gsa0001")), 5000);
+    }
+
+    // The shell service the window drives, with the REAL zfsmgr-cli: a line goes in, its exit
+    // code and output come back, and a failing line does not end the service.
+    void cliServiceRunsTheShellsCommands() {
+        const QString cli = QStringLiteral(ZFSMGR_TEST_CLI_PATH);
+        if (!QFileInfo::exists(cli)) {
+            QSKIP("zfsmgr-cli not built");
+        }
+        QTemporaryDir dir;
+        CliService s;
+        s.configure(cli,
+                    {QStringLiteral("--serve"), QStringLiteral("--lang"), QStringLiteral("en"),
+                     QStringLiteral("--config-dir"), dir.path()},
+                    QString());
+        QList<CliService::Result> res;
+        s.run(QStringLiteral("pwd"), [&res](const CliService::Result& r) { res.push_back(r); });
+        s.run(QStringLiteral("nosuchcommand"),
+              [&res](const CliService::Result& r) { res.push_back(r); });
+        s.run(QStringLiteral("pwd"), [&res](const CliService::Result& r) { res.push_back(r); });
+        QTRY_COMPARE_WITH_TIMEOUT(res.size(), 3, 15000);
+        QCOMPARE(res[0].rc, 0);
+        QCOMPARE(res[0].out.trimmed(), QStringLiteral("zfsm://"));
+        QCOMPARE(res[1].rc, 127);
+        QVERIFY(res[1].err.contains(QStringLiteral("nosuchcommand")));
+        QCOMPARE(res[2].rc, 0);
+    }
+
+    void selectionBecomesAZfsmUrl() {
+        MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
+        ConnectionProfile profile;
+        profile.id = QStringLiteral("local");
+        profile.name = QStringLiteral("Local");
+        profile.connType = QStringLiteral("Local");
+        window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank1")}, {});
+        QCOMPARE(window.zfsmUrlForTest(0, QStringLiteral("tank1/user"), QStringLiteral("s1")),
+                 QStringLiteral("zfsm://local/tank1/user@s1"));
+        QCOMPARE(window.zfsmUrlForTest(0, QString(), QString()), QStringLiteral("zfsm://local"));
     }
 
     // The Schedules tab writes what the core's rules produce, through the agent: enabling a

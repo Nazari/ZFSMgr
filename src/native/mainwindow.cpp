@@ -317,6 +317,7 @@ MainWindow::MainWindow(const QString& masterPassword, const QString& language, Q
     };
     m_conns.store.setLanguage(m_language);
     m_conns.store.setMasterPassword(masterPassword);
+    initCliService();
     initLogPersistence();
     appLog(QStringLiteral("INFO"), QStringLiteral("[startup] initLogPersistence: %1 ms").arg(startupTimer.elapsed()));
     buildUi();
