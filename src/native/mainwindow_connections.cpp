@@ -1270,17 +1270,6 @@ void MainWindow::fillConnectionsMenu(QMenu* menu) {
 
     menu->addSeparator();
 
-    a = menu->addAction(trk(QStringLiteral("t_install_helpers_ctx001"),
-                            QStringLiteral("Instalar comandos auxiliares"),
-                            QStringLiteral("Install helper commands")));
-    a->setEnabled(hasConn && !actionsLocked() && !isDisconnected
-                  && connIdx < m_conns.states.size()
-                  && m_conns.states[connIdx].helperInstallSupported);
-    connect(a, &QAction::triggered, this, [this]() {
-        logUiAction(QStringLiteral("Instalar comandos auxiliares (menú Conexiones)"));
-        installHelperCommandsForSelectedConnection();
-    });
-
     a = menu->addAction(trk(QStringLiteral("t_install_daemon_ctx001"),
                             QStringLiteral("Reinstalar/Actualizar daemon"),
                             QStringLiteral("Reinstall/Update daemon")));
@@ -2427,18 +2416,7 @@ void MainWindow::createConnection() {
         return;
     }
     ConnectionProfile created = dlg.profile();
-    {
-        const QString newName = created.name.trimmed();
-        for (const ConnectionProfile& cp : m_conns.profiles) {
-            if (cp.name.trimmed().compare(newName, Qt::CaseInsensitive) == 0) {
-                QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
-                                     trk(QStringLiteral("t_conn_name_unique_01"),
-                                         QStringLiteral("El nombre de conexión ya existe. Debe ser único."),
-                                         QStringLiteral("Connection name already exists. It must be unique.")));
-                return;
-            }
-        }
-    }
+    // The id the shell will know it by, from its name as before.
     QString createdId = created.id.trimmed();
     if (createdId.isEmpty()) {
         createdId = created.name.trimmed().toLower();
@@ -2446,12 +2424,15 @@ void MainWindow::createConnection() {
         createdId.replace(':', '_');
         createdId.replace('/', '_');
     }
-    QString err;
-    if (!m_conns.store.upsertConnection(created, err)) {
-        QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
-                              trk(QStringLiteral("t_conn_create_er1"),
-                                  QStringLiteral("No se pudo crear conexión:\n%1"),
-                                  QStringLiteral("Could not create connection:\n%1")).arg(err));
+    // The shell's `create`: it checks the name, asks for the password (answered with the
+    // dialog's) and stores it encrypted.
+    m_cliPresetSecret = created.password;
+    const CliService::Result r =
+        runCliAndWait(QStringLiteral("create %1 %2")
+                          .arg(cliQuote(createdId), cliConnectionOptions(created, false)),
+                      QStringLiteral("text"));
+    m_cliPresetSecret.reset();
+    if (r.rc != 0 || !m_refreshAfterCli) {
         return;
     }
     loadConnections();
@@ -2491,271 +2472,29 @@ void MainWindow::createConnection() {
 }
 
 void MainWindow::repairAltMountpointsForSelectedConnection() {
-    const int connIdx = selectedConnectionIndexForPoolManagement();
-    if (connIdx < 0 || connIdx >= m_conns.profiles.size()) {
+    const int idx = m_topDetailConnIdx;
+    if (actionsLocked() || idx < 0 || idx >= m_conns.profiles.size()) {
         return;
     }
-    const ConnectionProfile p = m_conns.profiles[connIdx];
-    if (!requireFeature(connIdx, zfsmgr::caps::Feature::RepairAltMountpoints)) {
-        return;
-    }
-
-    const QString agentBin = daemonpayload::unixBinPath();
-    // Report-only pass first: nothing is modified until the user confirms.
-    QString out;
-    QString failure;
-    const bool ok = fetchConnectionCommandOutput(
-        connIdx,
-        QStringLiteral("Repair alt mountpoints (report)"),
-        withSudo(p, mwhelpers::withUnixSearchPathCommand(
-                        agentBin + QStringLiteral(" --repair-alt-mountpoints"))),
-        &out,
-        &failure,
-        30000);
-    if (!ok) {
-        QMessageBox::warning(
-            this, QStringLiteral("ZFSMgr"),
-            trk(QStringLiteral("t_repair_altmp_fail001"),
-                QStringLiteral("No se pudo consultar el estado: %1"),
-                QStringLiteral("Could not query state: %1")).arg(mwhelpers::oneLine(failure)));
-        return;
-    }
-
-    QStringList stranded;
-    for (const QString& line : out.split('\n', Qt::SkipEmptyParts)) {
-        if (line.trimmed().startsWith(QStringLiteral("STRANDED="))) {
-            stranded << line.trimmed();
-        }
-    }
-    if (stranded.isEmpty()) {
-        QMessageBox::information(
-            this, QStringLiteral("ZFSMgr"),
-            trk(QStringLiteral("t_repair_altmp_none001"),
-                QStringLiteral("No hay datasets con mountpoint temporal pendiente en \"%1\"."),
-                QStringLiteral("No datasets are left on a temporary mountpoint on \"%1\".")).arg(p.name));
-        return;
-    }
-
-    const QString detail =
-        trk(QStringLiteral("t_repair_altmp_confirm001"),
-            QStringLiteral("Se han encontrado %1 dataset(s) con el mountpoint relocalizado por una "
-                           "sincronización interrumpida:\n\n%2\n\n¿Restaurar su mountpoint original?\n"
-                           "Se desmontarán antes de restaurarlo."),
-            QStringLiteral("Found %1 dataset(s) whose mountpoint was relocated by an interrupted "
-                           "sync:\n\n%2\n\nRestore their original mountpoint?\n"
-                           "They will be unmounted first."))
-            .arg(stranded.size())
-            .arg(stranded.join(QLatin1Char('\n')));
-    if (QMessageBox::question(this, QStringLiteral("ZFSMgr"), detail,
-                              QMessageBox::Yes | QMessageBox::No, QMessageBox::No)
-        != QMessageBox::Yes) {
-        return;
-    }
-
-    QString applyOut;
-    QString applyFail;
-    const bool applied = fetchConnectionCommandOutput(
-        connIdx,
-        QStringLiteral("Repair alt mountpoints (apply)"),
-        withSudo(p, mwhelpers::withUnixSearchPathCommand(
-                        agentBin + QStringLiteral(" --repair-alt-mountpoints apply"))),
-        &applyOut,
-        &applyFail,
-        60000);
-    int repaired = 0;
-    int failed = 0;
-    for (const QString& line : applyOut.split('\n', Qt::SkipEmptyParts)) {
-        const QString t = line.trimmed();
-        if (t.startsWith(QStringLiteral("REPAIRED_COUNT="))) {
-            repaired = t.section('=', 1).trimmed().toInt();
-        } else if (t.startsWith(QStringLiteral("FAILED_COUNT="))) {
-            failed = t.section('=', 1).trimmed().toInt();
-        }
-    }
-    appLog(QStringLiteral("NORMAL"),
-           QStringLiteral("Reparación de mountpoints temporales en %1: %2 restaurados, %3 fallidos")
-               .arg(p.name)
-               .arg(repaired)
-               .arg(failed));
-    if (!applied || failed > 0) {
-        QMessageBox::warning(
-            this, QStringLiteral("ZFSMgr"),
-            trk(QStringLiteral("t_repair_altmp_partial001"),
-                QStringLiteral("Restaurados %1, fallidos %2.\nLos que fallaron conservan la marca y "
-                               "se pueden reintentar.\n%3"),
-                QStringLiteral("Restored %1, failed %2.\nThose that failed keep their marker and can "
-                               "be retried.\n%3"))
-                .arg(repaired)
-                .arg(failed)
-                .arg(mwhelpers::oneLine(applyFail)));
-    } else {
-        QMessageBox::information(
-            this, QStringLiteral("ZFSMgr"),
-            trk(QStringLiteral("t_repair_altmp_ok001"),
-                QStringLiteral("Restaurados %1 dataset(s)."),
-                QStringLiteral("Restored %1 dataset(s).")).arg(repaired));
-    }
-    refreshConnectionByIndex(connIdx);
+    runCli(
+        QStringLiteral("repair-mounts --apply --on %1").arg(zfsmUrl(idx)),
+        [this, idx](const CliService::Result& r) {
+            showCliText(QStringLiteral("repair-mounts"), r.out);
+            if (r.rc == 0 && m_refreshAfterCli) {
+                refreshConnectionByIndex(idx);
+            }
+        },
+        QStringLiteral("text"));
 }
 
 void MainWindow::exportTrustStoreToSelectedConnection() {
-    if (actionsLocked()) {
-        appLog(QStringLiteral("INFO"), QStringLiteral("Acción en curso: export trust-store bloqueado"));
+    const int idx = m_topDetailConnIdx;
+    if (actionsLocked() || idx < 0 || idx >= m_conns.profiles.size()) {
         return;
     }
-    const int idx = currentConnectionIndexFromUi();
-    if (idx < 0 || idx >= m_conns.profiles.size() || isConnectionDisconnected(idx)) {
-        return;
-    }
-    if (isLocalConnection(idx)) {
-        QMessageBox::information(
-            this,
-            QStringLiteral("ZFSMgr"),
-            trk(QStringLiteral("t_trust_export_local_001"),
-                QStringLiteral("La conexión Local ya usa el trust-store local."),
-                QStringLiteral("The Local connection already uses the local trust-store.")));
-        return;
-    }
-
-    const QString trustPath = m_conns.store.trustStorePath();
-    QFile trustFile(trustPath);
-    if (!trustFile.exists()) {
-        // Fuerza migración de TLS legacy desde config.json si existe.
-        const LoadResult loaded = m_conns.store.loadConnections();
-        for (const QString& warning : loaded.warnings) {
-            appLog(QStringLiteral("WARN"), warning);
-        }
-        trustFile.setFileName(trustPath);
-    }
-    if (!trustFile.exists() || !trustFile.open(QIODevice::ReadOnly)) {
-        QMessageBox::warning(
-            this,
-            QStringLiteral("ZFSMgr"),
-            trk(QStringLiteral("t_trust_export_missing_001"),
-                QStringLiteral("No existe trust-store.json local para exportar."),
-                QStringLiteral("There is no local trust-store.json to export.")));
-        return;
-    }
-    const QByteArray payload = trustFile.readAll();
-    if (payload.trimmed().isEmpty()) {
-        QMessageBox::warning(
-            this,
-            QStringLiteral("ZFSMgr"),
-            trk(QStringLiteral("t_trust_export_empty_001"),
-                QStringLiteral("trust-store.json está vacío."),
-                QStringLiteral("trust-store.json is empty.")));
-        return;
-    }
-
-    const ConnectionProfile p = m_conns.profiles[idx];
-    const int confirm = QMessageBox::question(
-        this,
-        QStringLiteral("ZFSMgr"),
-        trk(QStringLiteral("t_trust_export_confirm_001"),
-            QStringLiteral("Se copiará el trust-store portable local a \"%1\".\n\n"
-                           "El fichero remoto anterior se conservará como backup si existe. "
-                           "La máquina remota podrá usar estos certificados si se desbloquea ZFSMgr con el mismo password maestro.\n\n"
-                           "¿Continuar?"),
-            QStringLiteral("The local portable trust-store will be copied to \"%1\".\n\n"
-                           "The previous remote file will be kept as a backup if it exists. "
-                           "The remote machine will be able to use these certificates when ZFSMgr is unlocked with the same master password.\n\n"
-                           "Continue?"))
-            .arg(p.name),
-        QMessageBox::Yes | QMessageBox::No,
-        QMessageBox::No);
-    if (confirm != QMessageBox::Yes) {
-        return;
-    }
-
-    QString remoteCmd;
-    if (isWindowsConnection(p)) {
-        remoteCmd = QStringLiteral(
-            "$ErrorActionPreference='Stop'; "
-            "$dir=Join-Path $env:USERPROFILE '.config\\ZFSMgr'; "
-            "New-Item -ItemType Directory -Force -Path $dir | Out-Null; "
-            "$dst=Join-Path $dir 'trust-store.json'; "
-            "if (Test-Path -LiteralPath $dst) { "
-            "  $stamp=Get-Date -Format 'yyyyMMddHHmmss'; "
-            "  Copy-Item -LiteralPath $dst -Destination ($dst + '.bak.' + $stamp) -Force; "
-            "} "
-            "$reader=[System.IO.StreamReader]::new([Console]::OpenStandardInput(), [System.Text.Encoding]::UTF8); "
-            "$content=$reader.ReadToEnd(); "
-            "[System.IO.File]::WriteAllText($dst, $content, [System.Text.UTF8Encoding]::new($false)); "
-            "Write-Output ('trust-store exported to ' + $dst)");
-    } else {
-        const QString sudoPrefix = (!p.useSudo)
-                                       ? QStringLiteral("exit 1")
-                                       : (!p.password.isEmpty()
-                                              ? QStringLiteral("printf '%s\\n' %1 | sudo -k -S -p ''")
-                                                    .arg(mwhelpers::shSingleQuote(p.password))
-                                              : QStringLiteral("sudo -n"));
-        remoteCmd = QStringLiteral(
-            "set -u; "
-            "umask 077; "
-            "user_name=\"$(id -un)\"; "
-            "group_name=\"$(id -gn)\"; "
-            "cfg=\"${XDG_CONFIG_HOME:-$HOME/.config}/ZFSMgr\"; "
-            "dst=\"$cfg/trust-store.json\"; "
-            "tmp=\"${TMPDIR:-/tmp}/zfsmgr-trust-store.$$\"; "
-            "trap 'rm -f \"$tmp\"' EXIT HUP INT TERM; "
-            "cat > \"$tmp\"; "
-            "chmod 600 \"$tmp\" 2>/dev/null || true; "
-            "if mkdir -p \"$cfg\" 2>/dev/null && [ -w \"$cfg\" ]; then "
-            "  if [ -f \"$dst\" ]; then cp -p \"$dst\" \"$dst.bak.$(date +%Y%m%d%H%M%S)\" 2>/dev/null || true; fi; "
-            "  mv -f \"$tmp\" \"$dst\"; chmod 600 \"$dst\" 2>/dev/null || true; "
-            "else "
-            "  sudo_script='cfg=\"$1\"; dst=\"$2\"; tmp=\"$3\"; user_name=\"$4\"; group_name=\"$5\"; "
-            "mkdir -p \"$cfg\"; "
-            "if [ -f \"$dst\" ]; then cp -p \"$dst\" \"$dst.bak.$(date +%Y%m%d%H%M%S)\" 2>/dev/null || true; fi; "
-            "install -m 600 -o \"$user_name\" -g \"$group_name\" \"$tmp\" \"$dst\"; "
-            "chown \"$user_name:$group_name\" \"$cfg\" 2>/dev/null || true; chmod 700 \"$cfg\" 2>/dev/null || true'; "
-            "%1 sh -c \"$sudo_script\" sh \"$cfg\" \"$dst\" \"$tmp\" \"$user_name\" \"$group_name\"; "
-            "fi; "
-            "rm -f \"$tmp\"; "
-            "trap - EXIT HUP INT TERM; "
-            "printf 'trust-store exported to %s\\n' \"$dst\"")
-            .arg(sudoPrefix);
-    }
-
-    beginUiBusy();
-    struct TrustExportBusyGuard {
-        MainWindow* w;
-        ~TrustExportBusyGuard() { w->endUiBusy(); }
-    } busyGuard{this};
-    updateStatus(trk(QStringLiteral("t_trust_export_status_001"),
-                     QStringLiteral("Exportando trust-store..."),
-                     QStringLiteral("Exporting trust-store...")));
-    QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 50);
-
-    QString out;
-    QString err;
-    int rc = -1;
-    const bool ok = runSsh(p, remoteCmd, 30000, out, err, rc, {}, {}, {}, payload) && rc == 0;
-    if (!ok) {
-        const QString detail = mwhelpers::oneLine(err.trimmed().isEmpty() ? out : err);
-        appLog(QStringLiteral("ERROR"),
-               QStringLiteral("trust-store export fallo en %1: %2")
-                   .arg(p.name, detail.isEmpty() ? QStringLiteral("rc=%1").arg(rc) : detail));
-        QMessageBox::warning(
-            this,
-            QStringLiteral("ZFSMgr"),
-            trk(QStringLiteral("t_trust_export_fail_001"),
-                QStringLiteral("No se pudo exportar trust-store a \"%1\".\n\n%2"),
-                QStringLiteral("Could not export trust-store to \"%1\".\n\n%2"))
-                .arg(p.name,
-                     detail.isEmpty() ? QStringLiteral("rc=%1").arg(rc) : detail));
-        return;
-    }
-    appLog(QStringLiteral("NORMAL"),
-           QStringLiteral("trust-store exportado a %1: %2")
-               .arg(p.name, mwhelpers::oneLine(out).trimmed()));
-    QMessageBox::information(
-        this,
-        QStringLiteral("ZFSMgr"),
-        trk(QStringLiteral("t_trust_export_ok_001"),
-            QStringLiteral("trust-store exportado a \"%1\"."),
-            QStringLiteral("trust-store exported to \"%1\"."))
-            .arg(p.name));
+    // The client's trust store, to the client that runs on that machine; the shell asks first.
+    runCli(QStringLiteral("export-trust %1 --on %2").arg(cliConnName(idx), zfsmUrl(idx)), {},
+           QStringLiteral("text"));
 }
 
 void MainWindow::offerLocalSudoCredentialFix() {
@@ -2789,134 +2528,27 @@ void MainWindow::offerLocalSudoCredentialFix() {
 }
 
 void MainWindow::changeLocalSudoCredentials() {
-    if (actionsLocked()) {
-        appLog(QStringLiteral("INFO"), QStringLiteral("Acción en curso: credenciales sudo bloqueadas"));
-        return;
-    }
-    int idx = currentConnectionIndexFromUi();
-    if (idx < 0 || idx >= m_conns.profiles.size() || !isLocalConnection(idx)) {
-        idx = -1;
-        for (int i = 0; i < m_conns.profiles.size(); ++i) {
-            if (isLocalConnection(i)) {
-                idx = i;
-                break;
-            }
+    int idx = -1;
+    for (int i = 0; i < m_conns.profiles.size(); ++i) {
+        if (isLocalConnection(i)) {
+            idx = i;
+            break;
         }
     }
     if (idx < 0) {
         return;
     }
-    if (isWindowsConnection(idx)) {
-        QMessageBox::information(
-            this,
-            QStringLiteral("ZFSMgr"),
-            trk(QStringLiteral("t_local_sudo_win_na001"),
-                QStringLiteral("En Windows no se usa sudo."),
-                QStringLiteral("sudo is not used on Windows.")));
-        return;
-    }
-
-    const QString title = trk(QStringLiteral("t_local_sudo_dlg_t001"),
-                              QStringLiteral("Credenciales sudo de la conexión Local"),
-                              QStringLiteral("Local connection sudo credentials"));
-    // Se repite hasta que la contraseña funcione o el usuario cancele: aceptar una que
-    // no funciona es exactamente lo que dejaba la conexión Local sin arreglo.
-    while (true) {
-        QDialog dlg(this);
-        dlg.setWindowTitle(title);
-        auto* form = new QFormLayout(&dlg);
-        auto* userEdit = new QLineEdit(m_conns.profiles[idx].username.trimmed(), &dlg);
-        auto* passEdit = new QLineEdit(&dlg);
-        passEdit->setEchoMode(QLineEdit::Password);
-        passEdit->setPlaceholderText(trk(QStringLiteral("t_local_pwd_ph_001"),
-                                         QStringLiteral("Password local sudo"),
-                                         QStringLiteral("Local sudo password")));
-        form->addRow(trk(QStringLiteral("t_usuario_2c1e3d"),
-                         QStringLiteral("Usuario"),
-                         QStringLiteral("User")),
-                     userEdit);
-        form->addRow(trk(QStringLiteral("t_password_8be3c9"),
-                         QStringLiteral("Password"),
-                         QStringLiteral("Password")),
-                     passEdit);
-        auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
-        form->addRow(buttons);
-        connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
-        connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
-        passEdit->setFocus();
-        if (dlg.exec() != QDialog::Accepted) {
-            return;
-        }
-        const QString user = userEdit->text().trimmed();
-        const QString pass = passEdit->text();
-        if (user.isEmpty() || pass.isEmpty()) {
-            QMessageBox::warning(
-                this,
-                QStringLiteral("ZFSMgr"),
-                trk(QStringLiteral("t_local_sudo_req1"),
-                    QStringLiteral("Usuario y password sudo son obligatorios."),
-                    QStringLiteral("Sudo user and password are required.")));
-            continue;
-        }
-        QString sudoDetail;
-        const mwhelpers::SudoCheck sudoCheck = mwhelpers::checkLocalSudoPassword(pass, &sudoDetail);
-        if (sudoCheck == mwhelpers::SudoCheck::WrongPassword) {
-            QMessageBox::warning(
-                this,
-                QStringLiteral("ZFSMgr"),
-                trk(QStringLiteral("t_local_sudo_bad1"),
-                    QStringLiteral("La contraseña de sudo local no es válida.\n%1\n\nVuelva a introducirla."),
-                    QStringLiteral("The local sudo password is not valid.\n%1\n\nPlease enter it again.")).arg(sudoDetail));
-            continue;
-        }
-        if (sudoCheck == mwhelpers::SudoCheck::CouldNotCheck) {
-            appLog(QStringLiteral("WARN"),
-                   QStringLiteral("No se pudo comprobar la contraseña de sudo local: %1").arg(sudoDetail));
-            const auto proceed = QMessageBox::question(
-                this,
-                QStringLiteral("ZFSMgr"),
-                trk(QStringLiteral("t_local_sudo_unchecked2"),
-                    QStringLiteral("No se pudo comprobar la contraseña:\n%1\n\n¿Guardarla de todos modos?"),
-                    QStringLiteral("The password could not be verified:\n%1\n\nSave it anyway?")).arg(sudoDetail),
-                QMessageBox::Yes | QMessageBox::No,
-                QMessageBox::Yes);
-            if (proceed != QMessageBox::Yes) {
-                continue;
+    // The shell's `edit` on Local: it asks for the password, checks that it elevates and
+    // stores it. The window then rereads the connections the shell wrote.
+    runCli(
+        QStringLiteral("edit %1 --password").arg(cliConnName(idx)),
+        [this](const CliService::Result& r) {
+            if (r.rc == 0 && m_refreshAfterCli) {
+                loadConnections();
+                refreshAllConnections();
             }
-        }
-        ConnectionProfile updated = m_conns.profiles[idx];
-        updated.username = user;
-        updated.password = pass;
-        updated.useSudo = true;
-        QString storeErr;
-        if (!m_conns.store.upsertConnection(updated, storeErr)) {
-            QMessageBox::warning(
-                this,
-                QStringLiteral("ZFSMgr"),
-                trk(QStringLiteral("t_local_sudo_save_err1"),
-                    QStringLiteral("No se pudieron guardar las credenciales locales.\n%1"),
-                    QStringLiteral("Could not save the local credentials.\n%1")).arg(storeErr));
-            return;
-        }
-        m_conns.profiles[idx] = updated;
-        // El material TLS local se leyó elevando con la contraseña anterior; si no se
-        // descarta, el RPC local seguiría usando lo cacheado y el cambio parecería no
-        // haber surtido efecto.
-        clearLocalDaemonTlsCache();
-        // Corregida: si volviera a fallar más adelante, hay que volver a ofrecerlo.
-        m_localSudoFixOffered = false;
-        appLog(QStringLiteral("NORMAL"),
-               QStringLiteral("Credenciales sudo de la conexión Local actualizadas (usuario \"%1\")").arg(user));
-        loadConnections();
-        refreshConnectionByIndex(idx);
-        QMessageBox::information(
-            this,
-            QStringLiteral("ZFSMgr"),
-            trk(QStringLiteral("t_local_sudo_ok1"),
-                QStringLiteral("Credenciales sudo locales actualizadas y comprobadas."),
-                QStringLiteral("Local sudo credentials updated and verified.")));
-        return;
-    }
+        },
+        QStringLiteral("text"));
 }
 
 void MainWindow::editConnection() {
@@ -2954,28 +2586,14 @@ void MainWindow::editConnection() {
     }
     ConnectionProfile edited = dlg.profile();
     edited.id = m_conns.profiles[idx].id;
-    {
-        const QString editedName = edited.name.trimmed();
-        for (int i = 0; i < m_conns.profiles.size(); ++i) {
-            if (i == idx) {
-                continue;
-            }
-            if (m_conns.profiles[i].name.trimmed().compare(editedName, Qt::CaseInsensitive) == 0) {
-                QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
-                                     trk(QStringLiteral("t_conn_name_unique_01"),
-                                         QStringLiteral("El nombre de conexión ya existe. Debe ser único."),
-                                         QStringLiteral("Connection name already exists. It must be unique.")));
-                return;
-            }
-        }
-    }
     const QString editedId = edited.id.trimmed();
-    QString err;
-    if (!m_conns.store.upsertConnection(edited, err)) {
-        QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
-                              trk(QStringLiteral("t_conn_update_er"),
-                                  QStringLiteral("No se pudo actualizar conexión:\n%1"),
-                                  QStringLiteral("Could not update connection:\n%1")).arg(err));
+    // The shell's `edit`; an empty password field keeps the stored one, as Enter there.
+    m_cliPresetSecret = edited.password;
+    const CliService::Result r = runCliAndWait(
+        QStringLiteral("edit %1 %2").arg(cliConnName(idx), cliConnectionOptions(edited, true)),
+        QStringLiteral("text"));
+    m_cliPresetSecret.reset();
+    if (r.rc != 0 || !m_refreshAfterCli) {
         return;
     }
     loadConnections();
@@ -2987,626 +2605,25 @@ void MainWindow::editConnection() {
     }
 }
 
-void MainWindow::installHelperCommandsForSelectedConnection() {
-    if (actionsLocked()) {
-        appLog(QStringLiteral("INFO"), QStringLiteral("Acción en curso: instalación de comandos auxiliares bloqueada"));
-        return;
-    }
-    const int idx = currentConnectionIndexFromUi();
-    if (idx < 0 || idx >= m_conns.profiles.size()) {
-        return;
-    }
-    const ConnectionProfile p = m_conns.profiles[idx];
-    if (isConnectionDisconnected(idx)) {
-        QMessageBox::information(
-            this,
-            QStringLiteral("ZFSMgr"),
-            trk(QStringLiteral("t_helper_conn_disc_01"),
-                QStringLiteral("La conexión está desconectada."),
-                QStringLiteral("The connection is disconnected.")));
-        return;
-    }
-    if (idx >= m_conns.states.size()) {
-        return;
-    }
-    // Copia por valor, no referencia: más abajo hay un diálogo modal (`dlg.exec()`)
-    // y `st.helperInstallCommandPreview` se vuelve a leer DESPUÉS de cerrarlo para
-    // construir la orden que se ejecuta con sudo. Un modal bombea el bucle de eventos,
-    // y por ahí puede colarse loadConnections(), que rehace el registro entero con
-    // setProfiles(): la referencia quedaría colgando y se leería memoria liberada para
-    // montar una orden privilegiada. El registro NO protege de esto: copiar por valor
-    // antes de abrir un modal sigue siendo la regla.
-    const ConnectionRuntimeState st = m_conns.states[idx];
-    if (!requireFeature(idx, zfsmgr::caps::Feature::HelperCommandInstall)) {
-        return;
-    }
-    if (st.missingUnixCommands.isEmpty()) {
-        QMessageBox::information(
-            this,
-            QStringLiteral("ZFSMgr"),
-            trk(QStringLiteral("t_helper_none_missing_01"),
-                QStringLiteral("No faltan comandos auxiliares en esta conexión."),
-                QStringLiteral("No helper commands are missing on this connection.")));
-        return;
-    }
-    if (!st.helperInstallSupported || st.helperInstallCommandPreview.trimmed().isEmpty()) {
-        QMessageBox::information(
-            this,
-            QStringLiteral("ZFSMgr"),
-            trk(QStringLiteral("t_helper_not_supported_01"),
-                QStringLiteral("No hay instalación asistida disponible para esta conexión.\n\n%1"),
-                QStringLiteral("Assisted installation is not available for this connection.\n\n%1"))
-                .arg(st.helperInstallReason.trimmed().isEmpty() ? QStringLiteral("-") : st.helperInstallReason.trimmed()));
-        return;
-    }
-
-    QDialog dlg(this);
-    dlg.setWindowTitle(
-        trk(QStringLiteral("t_helper_install_title_01"),
-            QStringLiteral("Instalar comandos auxiliares"),
-            QStringLiteral("Install helper commands")));
-    dlg.resize(760, 520);
-
-    auto* layout = new QVBoxLayout(&dlg);
-    auto* summary = new QLabel(
-        trk(QStringLiteral("t_helper_install_summary_01"),
-            QStringLiteral("Se va a preparar la conexión \"%1\" para instalar los comandos auxiliares que faltan."),
-            QStringLiteral("Connection \"%1\" will be prepared to install the missing helper commands.")).arg(p.name),
-        &dlg);
-    summary->setWordWrap(true);
-    layout->addWidget(summary);
-
-    QStringList metaLines;
-    metaLines << QStringLiteral("Plataforma: %1").arg(st.helperPlatformLabel.trimmed().isEmpty()
-                                                          ? QStringLiteral("-")
-                                                          : st.helperPlatformLabel.trimmed());
-    metaLines << QStringLiteral("Gestor de paquetes: %1").arg(st.helperPackageManagerLabel.trimmed().isEmpty()
-                                                                  ? QStringLiteral("-")
-                                                                  : st.helperPackageManagerLabel.trimmed());
-    metaLines << QStringLiteral("Comandos faltantes: %1").arg(st.missingUnixCommands.join(QStringLiteral(", ")));
-    metaLines << QStringLiteral("Comandos instalables: %1").arg(st.helperInstallableCommands.join(QStringLiteral(", ")));
-    metaLines << QStringLiteral("Paquetes a instalar: %1").arg(st.helperInstallPackages.join(QStringLiteral(", ")));
-    if (!st.helperUnsupportedCommands.isEmpty()) {
-        metaLines << QStringLiteral("Comandos no soportados en esta fase: %1")
-                         .arg(st.helperUnsupportedCommands.join(QStringLiteral(", ")));
-    }
-    if (!st.helperInstallReason.trimmed().isEmpty()) {
-        metaLines << QStringLiteral("Notas: %1").arg(st.helperInstallReason.trimmed());
-    }
-
-    auto* metaBox = new QPlainTextEdit(metaLines.join(QStringLiteral("\n")), &dlg);
-    metaBox->setReadOnly(true);
-    metaBox->setMaximumBlockCount(200);
-    layout->addWidget(metaBox);
-
-    auto* previewLabel = new QLabel(
-        trk(QStringLiteral("t_helper_cmd_preview_01"),
-            QStringLiteral("Comando remoto previsto"),
-            QStringLiteral("Planned remote command")),
-        &dlg);
-    layout->addWidget(previewLabel);
-
-    auto* preview = new QPlainTextEdit(st.helperInstallCommandPreview, &dlg);
-    preview->setReadOnly(true);
-    layout->addWidget(preview, 1);
-
-    auto* refreshAfter = new QCheckBox(
-        trk(QStringLiteral("t_helper_refresh_after_01"),
-            QStringLiteral("Refrescar conexión al terminar"),
-            QStringLiteral("Refresh connection when finished")),
-        &dlg);
-    refreshAfter->setChecked(true);
-    layout->addWidget(refreshAfter);
-
-    auto* buttons = new QDialogButtonBox(&dlg);
-    QPushButton* cancelBtn = buttons->addButton(
-        trk(QStringLiteral("t_helper_cancel_01"),
-            QStringLiteral("Cancelar"),
-            QStringLiteral("Cancel")),
-        QDialogButtonBox::RejectRole);
-    buttons->addButton(
-        trk(QStringLiteral("t_helper_install_btn_01"),
-            QStringLiteral("Instalar"),
-            QStringLiteral("Install")),
-        QDialogButtonBox::AcceptRole);
-    Q_UNUSED(cancelBtn);
-    layout->addWidget(buttons);
-    connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
-    connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
-
-    if (dlg.exec() != QDialog::Accepted) {
-        return;
-    }
-
-    const QString installCmd = withSudo(p, stripLeadingSudoForExecution(st.helperInstallCommandPreview));
-    beginUiBusy();
-    updateStatus(
-        trk(QStringLiteral("t_helper_install_busy_01"),
-            QStringLiteral("Instalando comandos auxiliares en %1..."),
-            QStringLiteral("Installing helper commands on %1...")).arg(p.name));
-    QString detail;
-    const bool ok = executeConnectionCommand(idx, QStringLiteral("Instalar auxiliares"), installCmd, 1800000, &detail);
-    endUiBusy();
-
-    if (!ok) {
-        detail = detail.left(1200);
-        QMessageBox::warning(
-            this,
-            QStringLiteral("ZFSMgr"),
-            trk(QStringLiteral("t_helper_install_fail_01"),
-                QStringLiteral("No se pudieron instalar los comandos auxiliares en \"%1\".\n\n%2"),
-                QStringLiteral("Could not install helper commands on \"%1\".\n\n%2"))
-                .arg(p.name, detail));
-        if (refreshAfter->isChecked()) {
-            refreshConnectionByIndex(idx);
-        }
-        return;
-    }
-
-    if (refreshAfter->isChecked()) {
-        refreshConnectionByIndex(idx);
-    }
-
-    QMessageBox::information(
-        this,
-        QStringLiteral("ZFSMgr"),
-        trk(QStringLiteral("t_helper_install_ok_01"),
-            QStringLiteral("La instalación terminó correctamente en \"%1\"."),
-            QStringLiteral("The installation finished successfully on \"%1\"."))
-            .arg(p.name));
-}
-
-
 bool MainWindow::installOrUpdateDaemonForConnectionInternal(int idx, bool interactive) {
-    if (actionsLocked()) {
+    if (actionsLocked() || idx < 0 || idx >= m_conns.profiles.size()) {
         return false;
     }
-    if (idx < 0 || idx >= m_conns.profiles.size()) {
-        return false;
-    }
-    // Una conexión desconectada SÍ puede reinstalar el daemon si el usuario lo pide
-    // expresamente: es la vía de recuperación. Lo que se rechaza es hacerlo solo, sin
-    // que nadie lo haya pedido, sobre una conexión que se dio por desconectada.
+    // A disconnected connection can reinstall its daemon when the user asks: it is the way
+    // back. What is refused is doing it unasked on one marked as disconnected.
     if (!interactive && isConnectionDisconnected(idx)) {
         return false;
     }
-
-    const ConnectionProfile p = m_conns.profiles[idx];
-    if (interactive) {
-        const auto confirm = QMessageBox::question(
-            this,
-            QStringLiteral("ZFSMgr"),
-            trk(QStringLiteral("t_daemon_install_confirm_001"),
-                QStringLiteral("ZFSMgr instalará o actualizará el daemon en \"%1\" y lo arrancará con el scheduler nativo.\n\n¿Continuar?"),
-                QStringLiteral("ZFSMgr will install or update the daemon on \"%1\" and start it with the native scheduler.\n\nContinue?"))
-                .arg(p.name),
-            QMessageBox::Yes | QMessageBox::No,
-            QMessageBox::No);
-        if (confirm != QMessageBox::Yes) {
-            return false;
-        }
-    }
-
-    beginUiBusy();
-    struct InstallDaemonBusyGuard {
-        MainWindow* w;
-        ~InstallDaemonBusyGuard() { w->endUiBusy(); }
-    } busyGuard{this};
-    QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 50);
-
-    const QString daemonVersion = agentversion::currentVersion().trimmed();
-    const QString apiVersion = agentversion::expectedApiVersion().trimmed();
-    QString remoteCmd;
-    QByteArray remoteStdinPayload;
-    bool isMac = false;
-
-    // Windows instala el daemon NATIVO, igual que en Unix. Verificado en un Windows 11
-    // real que sirve TLS por el túnel y ejecuta ZFS.
-    const bool windowsNativeAgent = isWindowsConnection(idx);
-    if (windowsNativeAgent) {
-        const QString localAgentPath =
-            findDeployableAgentBinaryPath(QStringLiteral("windows"), QStringLiteral("x86_64"));
-        QFile agentFile(localAgentPath);
-        if (localAgentPath.isEmpty() || !agentFile.open(QIODevice::ReadOnly)) {
-            const QString reason =
-                trk(QStringLiteral("t_daemon_win_native_missing_001"),
-                    QStringLiteral("No se encontró el binario nativo del daemon para Windows en este equipo."),
-                    QStringLiteral("No native Windows daemon binary found on this machine."));
-            appLog(QStringLiteral("WARN"), QStringLiteral("Daemon deploy %1: %2").arg(p.name, reason));
-            if (interactive) {
-                QMessageBox::warning(this, QStringLiteral("ZFSMgr"), reason);
-            }
-            refreshConnectionByIndex(idx);
-            return false;
-        }
-        agentFile.close();
-        // Se sube por scp ANTES de ejecutar nada: mandarlo por la entrada estándar no
-        // funciona contra Windows —PowerShell no devuelve de ReadToEnd() con
-        // megabytes— y la instalación se quedaba colgada hasta agotar el plazo.
-        appLog(QStringLiteral("INFO"),
-               QStringLiteral("Daemon deploy %1: subiendo daemon nativo de Windows (%2 bytes) desde %3")
-                   .arg(p.name)
-                   .arg(QFileInfo(localAgentPath).size())
-                   .arg(localAgentPath));
-        const QString uploadPath = daemonpayload::windowsUploadPath();
-        bool scpOk = false;
-        QString uploadDetail;
-        if (isLocalConnection(idx)) {
-            // El destino es esta misma máquina. Hacerse scp a uno mismo exigiría un
-            // servidor SSH local y credenciales para entrar en el propio equipo, que
-            // es justo lo que no hay al gestionar el Windows donde corre la aplicación.
-            QFile::remove(uploadPath);
-            scpOk = QFile::copy(localAgentPath, uploadPath);
-            if (!scpOk) {
-                uploadDetail = QStringLiteral("no se pudo copiar el daemon a %1").arg(uploadPath);
-            }
-        } else {
-            // scp directo, sin `sh -c`: cuando la aplicación corre en Windows no existe
-            // ningún intérprete POSIX, el proceso ni siquiera arrancaba, la salida de
-            // error quedaba vacía y lo único que se veía era «scp falló».
-            //
-            // Dos intentos, con y sin multiplexado, igual que runSsh: el OpenSSH de
-            // Windows no lo admite, y un socket de control en mal estado también lo
-            // rompe. Se empieza sin multiplexar si la aplicación corre en Windows.
-#ifdef Q_OS_WIN
-            const QList<bool> attempts = {false};
-#else
-            const QList<bool> attempts = {true, false};
-#endif
-            for (const bool multiplex : attempts) {
-                QProcess scpProc;
-                // El PROGRAMA sale del helper, no es «scp» fijo: con una conexión que usa
-                // contraseña hay que pasar por sshpass, o scp la pide por un terminal que
-                // no existe y la subida muere con «Connection closed».
-                const mwhelpers::ScpInvocation inv =
-                    mwhelpers::scpUpload(p, localAgentPath, uploadPath, multiplex);
-                scpProc.start(inv.program, inv.args);
-                if (!scpProc.waitForStarted(5000)) {
-                    uploadDetail = QStringLiteral("no se pudo ejecutar scp");
-                    continue;
-                }
-                if (!scpProc.waitForFinished(180000)) {
-                    scpProc.kill();
-                    scpProc.waitForFinished(2000);
-                    uploadDetail = QStringLiteral("scp no terminó a tiempo");
-                    continue;
-                }
-                if (scpProc.exitCode() == 0) {
-                    scpOk = true;
-                    break;
-                }
-                uploadDetail = QString::fromUtf8(scpProc.readAllStandardError()).trimmed();
-                if (uploadDetail.isEmpty()) {
-                    uploadDetail = QStringLiteral("scp devolvió %1").arg(scpProc.exitCode());
-                }
-            }
-        }
-        if (!scpOk) {
-            const QString detail = uploadDetail;
-            const QString reason =
-                trk(QStringLiteral("t_daemon_win_upload_fail_001"),
-                    QStringLiteral("No se pudo subir el daemon a la máquina Windows: %1"),
-                    QStringLiteral("Could not upload the daemon to the Windows machine: %1"))
-                    .arg(detail.isEmpty() ? QStringLiteral("scp falló") : mwhelpers::oneLine(detail));
-            appLog(QStringLiteral("WARN"), QStringLiteral("Daemon deploy %1: %2").arg(p.name, reason));
-            if (interactive) {
-                QMessageBox::warning(this, QStringLiteral("ZFSMgr"), reason);
-            }
-            refreshConnectionByIndex(idx);
-            return false;
-        }
-        remoteCmd = daemonpayload::windowsNativeInstallCommand();
-    } else {
-        const QString osHint = (p.osType + QStringLiteral(" ")
-                                + ((idx < m_conns.states.size()) ? m_conns.states[idx].osLine : QString()))
-                                   .trimmed()
-                                   .toLower();
-        isMac = osHint.contains(QStringLiteral("darwin"))
-                || osHint.contains(QStringLiteral("macos"))
-                || osHint.contains(QStringLiteral("launchd"));
-        bool isFreeBsd = osHint.contains(QStringLiteral("freebsd"))
-                         || osHint.contains(QStringLiteral("rc.d"));
-        QString remoteArchHint;
-        if (!isMac && !isFreeBsd) {
-            QString osOut;
-            QString osErr;
-            int osRc = -1;
-            if (runSsh(p, QStringLiteral("uname -s"), 8000, osOut, osErr, osRc) && osRc == 0) {
-                const QString unameS = osOut.trimmed().toLower();
-                if (unameS.contains(QStringLiteral("darwin"))) {
-                    isMac = true;
-                } else if (unameS.contains(QStringLiteral("freebsd"))) {
-                    isFreeBsd = true;
-                }
-            }
-        }
-        {
-            QString archOut;
-            QString archErr;
-            int archRc = -1;
-            if (runSsh(p, QStringLiteral("uname -m"), 8000, archOut, archErr, archRc) && archRc == 0) {
-                remoteArchHint = archOut.trimmed();
-            }
-        }
-        const QString configPayload = daemonpayload::simpleConfigPayload(daemonVersion, apiVersion);
-        const QString tlsBootstrap = daemonpayload::tlsBootstrapShellCommand();
-        QString deployBinCmd;
-        const QString platformId = normalizedTargetPlatformId(isMac, isFreeBsd, false);
-        const QString localAgentPath = findDeployableAgentBinaryPath(platformId, remoteArchHint);
-        const bool canDeployNativeLocalBinaryFromPath =
-            !localAgentPath.isEmpty() && QFileInfo::exists(localAgentPath) && QFileInfo(localAgentPath).isFile();
-        if (canDeployNativeLocalBinaryFromPath) {
-            QFile localAgentFile(localAgentPath);
-            if (!localAgentFile.open(QIODevice::ReadOnly)) {
-                const QString reason = trk(
-                                           QStringLiteral("t_daemon_native_read_fail_001"),
-                                           QStringLiteral("No se pudo leer el binario nativo del daemon (%1)."),
-                                           QStringLiteral("Could not read native daemon binary (%1)."))
-                                           .arg(localAgentPath);
-                appLog(QStringLiteral("WARN"), QStringLiteral("Daemon deploy %1: %2").arg(p.name, reason));
-                if (interactive) {
-                    QMessageBox::warning(this, QStringLiteral("ZFSMgr"), reason);
-                }
+    // The shell's install-daemon: it finds the binary for that machine, deploys it and
+    // checks that it answers.
+    runCli(
+        QStringLiteral("install-daemon --on %1").arg(zfsmUrl(idx)),
+        [this, idx](const CliService::Result&) {
+            if (m_refreshAfterCli && idx < m_conns.profiles.size()) {
                 refreshConnectionByIndex(idx);
-                return false;
             }
-            remoteStdinPayload = localAgentFile.readAll();
-            if (remoteStdinPayload.isEmpty()) {
-                const QString reason = trk(
-                                           QStringLiteral("t_daemon_native_empty_001"),
-                                           QStringLiteral("El binario nativo del daemon está vacío (%1)."),
-                                           QStringLiteral("Native daemon binary is empty (%1)."))
-                                           .arg(localAgentPath);
-                appLog(QStringLiteral("WARN"), QStringLiteral("Daemon deploy %1: %2").arg(p.name, reason));
-                if (interactive) {
-                    QMessageBox::warning(this, QStringLiteral("ZFSMgr"), reason);
-                }
-                refreshConnectionByIndex(idx);
-                return false;
-            }
-            deployBinCmd = QStringLiteral(
-                               "tmp_bin='/tmp/zfsmgr-agent.bin.$$'; "
-                               "cat > \"$tmp_bin\"; "
-                               "install -m 700 \"$tmp_bin\" %1; "
-                               "rm -f \"$tmp_bin\"; ")
-                               .arg(mwhelpers::shSingleQuote(daemonpayload::unixBinPath()));
-            appLog(QStringLiteral("INFO"),
-                   QStringLiteral("Daemon deploy %1: usando binario nativo local %2")
-                       .arg(p.name, localAgentPath));
-            // El binario empaquetado puede ser más viejo que lo que esta interfaz exige:
-            // pasa cada vez que cambia el marcador de esquema y solo se recompila el
-            // agente de una plataforma. El despliegue "funciona", el daemon queda con la
-            // versión antigua, la conexión sigue marcada como desactualizada y reinstalar
-            // no arregla nada nunca. Decirlo aquí convierte un bucle sin salida en algo
-            // accionable.
-            {
-                const QString expected = agentversion::currentVersion().trimmed();
-                const QString bundled = agentversion::versionFromBinary(localAgentPath).trimmed();
-                if (!expected.isEmpty() && !bundled.isEmpty() && bundled != expected) {
-                    const QString warn =
-                        trk(QStringLiteral("t_daemon_bundle_stale_001"),
-                            QStringLiteral("El agente empaquetado para esta plataforma es %1, "
-                                           "pero esta versión de la aplicación espera %2. Se "
-                                           "instalará de todos modos, pero la conexión seguirá "
-                                           "marcada como desactualizada hasta que se recompile "
-                                           "el agente de esa plataforma."),
-                            QStringLiteral("The bundled agent for this platform is %1, but this "
-                                           "build expects %2. It will be installed anyway, but "
-                                           "the connection will stay flagged as outdated until "
-                                           "that platform's agent is rebuilt."))
-                            .arg(bundled, expected);
-                    appLog(QStringLiteral("WARN"),
-                           QStringLiteral("Daemon deploy %1: %2").arg(p.name, warn));
-                    if (interactive) {
-                        QMessageBox::warning(this, QStringLiteral("ZFSMgr"), warn);
-                    }
-                }
-            }
-        } else {
-            const QString reason = trk(
-                                       QStringLiteral("t_daemon_native_missing_001"),
-                                       QStringLiteral("No se encontró binario nativo del daemon para %1/%2 en este equipo. "
-                                                      "No se instala fallback script porque no soporta daemon-rpc TLS."),
-                                       QStringLiteral("No native daemon binary found for %1/%2 on this machine. "
-                                                      "Script fallback is not installed because it does not support daemon-rpc TLS."))
-                                       .arg(platformId, remoteArchHint.isEmpty() ? QStringLiteral("?") : remoteArchHint);
-            appLog(QStringLiteral("WARN"), QStringLiteral("Daemon deploy %1: %2").arg(p.name, reason));
-            if (interactive) {
-                QMessageBox::warning(this, QStringLiteral("ZFSMgr"), reason);
-            }
-            refreshConnectionByIndex(idx);
-            return false;
-        }
-        if (isMac) {
-            const QString plistPayload = daemonpayload::macLaunchdPlist();
-            remoteCmd = QStringLiteral(
-                "mkdir -p /usr/local/libexec /etc/zfsmgr; "
-                "%1 "
-                "cat > %3 <<'EOF_AGENT_CONF'\n%4\nEOF_AGENT_CONF\n"
-                "cat > %5 <<'EOF_AGENT_PLIST'\n%6\nEOF_AGENT_PLIST\n"
-                "%7; "
-                "chmod 600 %3; chmod 644 %5; "
-                "chown root:wheel %2 %3 %5; "
-                "chown root:wheel %8 %9 %10 %11 %12; "
-                "launchctl bootout system/org.zfsmgr.agent >/dev/null 2>&1 || true; "
-                "launchctl bootstrap system %5 >/dev/null 2>&1 || true; "
-                "launchctl enable system/org.zfsmgr.agent >/dev/null 2>&1 || true; "
-                "ok=0; "
-                "i=0; "
-                "while [ \"$i\" -lt 30 ]; do "
-                "  if launchctl print system/org.zfsmgr.agent >/dev/null 2>&1; then ok=1; break; fi; "
-                "  launchctl kickstart system/org.zfsmgr.agent >/dev/null 2>&1 || true; "
-                "  i=$((i+1)); "
-                "  sleep 1; "
-                "done; "
-                "if [ \"$ok\" -ne 1 ]; then "
-                "  echo 'launchd agent not active after install' >&2; "
-                "  exit 1; "
-                "fi")
-                            .arg(deployBinCmd,
-                                 daemonpayload::unixBinPath(),
-                                 daemonpayload::unixConfigPath(),
-                                 configPayload,
-                                 daemonpayload::macPlistPath(),
-                                 plistPayload,
-                                 tlsBootstrap,
-                                 daemonpayload::tlsDirPath(),
-                                 daemonpayload::tlsServerCertPath(),
-                                 daemonpayload::tlsServerKeyPath(),
-                                 daemonpayload::tlsClientCertPath(),
-                                 daemonpayload::tlsClientKeyPath());
-        } else if (isFreeBsd) {
-            const QString rcPayload = daemonpayload::freeBsdRcScript();
-            remoteCmd = QStringLiteral(
-                "mkdir -p /usr/local/libexec /etc/zfsmgr /usr/local/etc/rc.d; "
-                "%1 "
-                "ldd_missing=$(ldd %2 2>&1 | grep 'not found' || true); "
-                "if [ -n \"$ldd_missing\" ]; then "
-                "  printf 'ERROR: el daemon tiene dependencias sin resolver:\\n%s\\n' \"$ldd_missing\" >&2; "
-                "  printf 'Instala OpenSSL con: pkg install openssl\\n' >&2; "
-                "  exit 1; "
-                "fi; "
-                "cat > %3 <<'EOF_AGENT_CONF'\n%4\nEOF_AGENT_CONF\n"
-                "cat > %5 <<'EOF_AGENT_RC'\n%6\nEOF_AGENT_RC\n"
-                "%7; "
-                "chmod 700 %5; chmod 600 %3; "
-                "chown root:wheel %2 %3 %5; "
-                "chown root:wheel %8 %9 %10 %11 %12; "
-                "service zfsmgr_agent stop >/dev/null 2>&1 || true; "
-                "service zfsmgr_agent start; "
-                "sleep 2; "
-                "if ! service zfsmgr_agent onestatus >/dev/null 2>&1; then "
-                "  printf 'ERROR: el daemon no permanece activo tras el arranque\\n' >&2; "
-                "  exit 1; "
-                "fi")
-                            .arg(deployBinCmd,
-                                 daemonpayload::unixBinPath(),
-                                 daemonpayload::unixConfigPath(),
-                                 configPayload,
-                                 daemonpayload::freeBsdRcPath(),
-                                 rcPayload,
-                                 tlsBootstrap,
-                                 daemonpayload::tlsDirPath(),
-                                 daemonpayload::tlsServerCertPath(),
-                                 daemonpayload::tlsServerKeyPath(),
-                                 daemonpayload::tlsClientCertPath(),
-                                 daemonpayload::tlsClientKeyPath());
-        } else {
-            const QString servicePayload = daemonpayload::linuxSystemdService();
-            remoteCmd = QStringLiteral(
-                "if ! command -v systemctl >/dev/null 2>&1; then echo 'systemd not available' >&2; exit 1; fi; "
-                "mkdir -p /usr/local/libexec /etc/zfsmgr; "
-                "%1 "
-                "cat > %3 <<'EOF_AGENT_CONF'\n%4\nEOF_AGENT_CONF\n"
-                "cat > %5 <<'EOF_AGENT_SERVICE'\n%6\nEOF_AGENT_SERVICE\n"
-                "%7; "
-                "chmod 600 %3; chmod 644 %5; "
-                "chown root:root %2 %3 %5; "
-                "chown root:root %8 %9 %10 %11 %12; "
-                "systemctl daemon-reload; "
-                "systemctl enable zfsmgr-agent.service; "
-                "systemctl restart zfsmgr-agent.service")
-                            .arg(deployBinCmd,
-                                 daemonpayload::unixBinPath(),
-                                 daemonpayload::unixConfigPath(),
-                                 configPayload,
-                                 daemonpayload::linuxServicePath(),
-                                 servicePayload,
-                                 tlsBootstrap,
-                                 daemonpayload::tlsDirPath(),
-                                 daemonpayload::tlsServerCertPath(),
-                                 daemonpayload::tlsServerKeyPath(),
-                                 daemonpayload::tlsClientCertPath(),
-                                 daemonpayload::tlsClientKeyPath());
-        }
-        remoteCmd = remoteStdinPayload.isEmpty() ? withSudo(p, remoteCmd)
-                                                 : withSudoStreamInput(p, remoteCmd);
-
-    }
-
-    updateStatus(trk(QStringLiteral("t_daemon_installing_001"),
-                     QStringLiteral("Instalando/Actualizando daemon..."),
-                     QStringLiteral("Installing/Updating daemon...")));
-    QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 50);
-    QString detail;
-    const bool ok = executeConnectionCommand(idx,
-                                             QStringLiteral("Instalar/Actualizar daemon"),
-                                             remoteCmd,
-                                             180000,
-                                             &detail,
-                                             remoteStdinPayload);
-    if (!ok) {
-        // Si sudo rechazó la contraseña, DECIRLO, en vez de enseñar el fallo en crudo.
-        //
-        // Instalar el daemon es la operación que más depende de sudo, y su fallo llegaba
-        // aquí como un «Timeout» sin más: el usuario veía tres minutos de ventana quieta y
-        // una palabra que no señala a ninguna parte. La comprobación es la misma que ya se
-        // usa en el diálogo de conexión y al ejecutar cualquier orden.
-        const bool porCredencial = mwhelpers::looksLikeSudoAuthFailure(detail);
-        if (interactive && porCredencial) {
-            QMessageBox::warning(
-                this,
-                QStringLiteral("ZFSMgr"),
-                trk(QStringLiteral("t_daemon_install_sudo_001"),
-                    QStringLiteral("No se pudo instalar/actualizar el daemon en \"%1\": sudo rechazó "
-                                   "la contraseña.\n\nRevísela en Editar conexión.\n\n%2"),
-                    QStringLiteral("Could not install/update the daemon on \"%1\": sudo rejected the "
-                                   "password.\n\nCheck it in Edit connection.\n\n%2"))
-                    .arg(p.name, detail.simplified().left(500)));
-        } else if (interactive) {
-            QMessageBox::warning(
-                this,
-                QStringLiteral("ZFSMgr"),
-                trk(QStringLiteral("t_daemon_install_fail_001"),
-                    QStringLiteral("No se pudo instalar/actualizar el daemon en \"%1\".\n\n%2"),
-                    QStringLiteral("Could not install/update daemon on \"%1\".\n\n%2"))
-                    .arg(p.name, detail.simplified().left(500)));
-        } else {
-            appLog(QStringLiteral("WARN"),
-                   QStringLiteral("Actualización automática de daemon fallida en \"%1\": %2")
-                       .arg(p.name, detail.simplified().left(500)));
-        }
-        refreshConnectionByIndex(idx);
-        return false;
-    }
-    // Daemon was restarted — drop the stale RPC tunnel, clear the backoff,
-    // and evict the in-memory TLS cache before fetching new certs.
-    clearDaemonRpcStateForConnection(p);
-    {
-        QString tlsCacheErr;
-        if (!cacheDaemonTlsMaterialForConnection(p, &tlsCacheErr)) {
-            appLog(QStringLiteral("WARN"),
-                   QStringLiteral("No se pudo cachear TLS daemon para \"%1\": %2")
-                       .arg(p.name, tlsCacheErr.simplified()));
-        } else {
-            appLog(QStringLiteral("INFO"),
-                   QStringLiteral("TLS daemon cacheado en config para \"%1\"").arg(p.name));
-        }
-    }
-    // Clear only the backoff (not the TLS cache) a second time: a concurrent
-    // refresh thread in-flight during the window between the first
-    // clearDaemonRpcStateForConnection and cacheDaemonTlsMaterialForConnection
-    // may have found the cache empty, failed, and set a fresh 30-second backoff.
-    // That would suppress the first RPC from the refresh launched below.
-    clearDaemonRpcBackoffForConnection(p);
-    refreshConnectionByIndex(idx);
-    if (isMac && interactive) {
-        QMessageBox::information(
-            this,
-            QStringLiteral("ZFSMgr"),
-            trk(QStringLiteral("t_daemon_macos_full_disk_access_001"),
-                QStringLiteral("Daemon instalado en \"%1\".\n\n"
-                               "Para que el daemon pueda detectar pools disponibles para importar, "
-                               "concédele acceso completo al disco en el Mac remoto:\n\n"
-                               "Configuración del Sistema → Privacidad y Seguridad → "
-                               "Acceso completo al disco → zfsmgr-agent"),
-                QStringLiteral("Daemon installed on \"%1\".\n\n"
-                               "To allow the daemon to detect pools available for import, "
-                               "grant it Full Disk Access on the remote Mac:\n\n"
-                               "System Settings → Privacy & Security → "
-                               "Full Disk Access → zfsmgr-agent"))
-                .arg(p.name));
-    }
+        },
+        QStringLiteral("text"));
     return true;
 }
 
@@ -3639,22 +2656,11 @@ void MainWindow::deleteConnection() {
                 QStringLiteral("This connection is redirected to 'Local' and cannot be deleted.")));
         return;
     }
-    const auto confirm = QMessageBox::question(
-        this,
-        trk(QStringLiteral("t_del_conn_tit1"), QStringLiteral("Borrar conexión"), QStringLiteral("Delete connection")),
-        trk(QStringLiteral("t_del_conn_q001"), QStringLiteral("¿Borrar conexión \"%1\"?"),
-            QStringLiteral("Delete connection \"%1\"?")).arg(m_conns.profiles[idx].name),
-        QMessageBox::Yes | QMessageBox::No,
-        QMessageBox::No);
-    if (confirm != QMessageBox::Yes) {
-        return;
-    }
-    QString err;
-    if (!m_conns.store.deleteConnectionById(m_conns.profiles[idx].id, err)) {
-        QMessageBox::critical(this, QStringLiteral("ZFSMgr"),
-                              trk(QStringLiteral("t_del_conn_err1"),
-                                  QStringLiteral("No se pudo borrar conexión:\n%1"),
-                                  QStringLiteral("Could not delete connection:\n%1")).arg(err));
+    // The shell's `destroy` on a connection: it asks, and only removes it from the
+    // configuration.
+    if (runCliAndWait(QStringLiteral("destroy %1").arg(zfsmUrl(idx)), QStringLiteral("text")).rc
+            != 0
+        || !m_refreshAfterCli) {
         return;
     }
     // Invalidate in-flight async refresh callbacks that may still be reporting
@@ -3668,73 +2674,15 @@ void MainWindow::deleteConnection() {
     loadConnections();
 }
 
-void MainWindow::authorizePublicKeyOnConnection(int srcIdx, int dstIdx)
-{
-    if (srcIdx < 0 || srcIdx >= m_conns.profiles.size() || dstIdx < 0 || dstIdx >= m_conns.profiles.size()) {
+void MainWindow::authorizePublicKeyOnConnection(int srcIdx, int dstIdx) {
+    if (srcIdx < 0 || srcIdx >= m_conns.profiles.size() || dstIdx < 0
+        || dstIdx >= m_conns.profiles.size()) {
         return;
     }
-    const ConnectionProfile sp = m_conns.profiles[srcIdx];
-    const ConnectionProfile dp = m_conns.profiles[dstIdx];
-
-    beginUiBusy();
-    struct BusyGuard { MainWindow* w; ~BusyGuard() { w->endUiBusy(); } } g{this};
-
-    // 1. Get the source machine's default SSH public key.
-    const QString getPubKeyCmd = withSudo(
-        sp,
-        mwhelpers::withUnixSearchPathCommand(
-            QStringLiteral("cat ~/.ssh/id_ed25519.pub 2>/dev/null "
-                           "|| cat ~/.ssh/id_rsa.pub 2>/dev/null "
-                           "|| cat ~/.ssh/id_ecdsa.pub 2>/dev/null "
-                           "|| cat ~/.ssh/id_*.pub 2>/dev/null | head -1")));
-    QString pubKey, err;
-    int rc = -1;
-    if (!runSsh(sp, getPubKeyCmd, 12000, pubKey, err, rc) || rc != 0 || pubKey.trimmed().isEmpty()) {
-        QMessageBox::warning(
-            this, QStringLiteral("ZFSMgr"),
-            trk(QStringLiteral("t_auth_key_no_pubkey_001"),
-                QStringLiteral("No se encontró clave pública SSH en \"%1\".\n\n"
-                               "Genera una con: ssh-keygen -t ed25519"),
-                QStringLiteral("No SSH public key found on \"%1\".\n\n"
-                               "Generate one with: ssh-keygen -t ed25519"))
-                .arg(sp.name));
-        return;
-    }
-    pubKey = pubKey.trimmed().split('\n').first().trimmed();
-
-    // 2. Append the public key to the destination's authorized_keys (idempotent).
-    const QString escapedKey = mwhelpers::shSingleQuote(pubKey);
-    const QString installCmd = withSudo(
-        dp,
-        mwhelpers::withUnixSearchPathCommand(
-            QStringLiteral("mkdir -p ~/.ssh && chmod 700 ~/.ssh && "
-                           "(grep -qF %1 ~/.ssh/authorized_keys 2>/dev/null "
-                           " || printf '\\n%2\\n' >> ~/.ssh/authorized_keys) && "
-                           "chmod 600 ~/.ssh/authorized_keys")
-                .arg(escapedKey, pubKey)));
-    QString out2, err2;
-    int rc2 = -1;
-    if (!runSsh(dp, installCmd, 12000, out2, err2, rc2) || rc2 != 0) {
-        const QString detail = (err2.trimmed().isEmpty() ? out2 : err2).simplified().left(400);
-        QMessageBox::warning(
-            this, QStringLiteral("ZFSMgr"),
-            trk(QStringLiteral("t_auth_key_install_fail_001"),
-                QStringLiteral("No se pudo instalar la clave en \"%1\":\n\n%2"),
-                QStringLiteral("Could not install the key on \"%1\":\n\n%2"))
-                .arg(dp.name, detail));
-        return;
-    }
-
-    QMessageBox::information(
-        this, QStringLiteral("ZFSMgr"),
-        trk(QStringLiteral("t_auth_key_ok_001"),
-            QStringLiteral("Clave pública de \"%1\" instalada en \"%2\".\n\n"
-                           "Las transferencias directas entre estas conexiones "
-                           "ya no necesitarán contraseña."),
-            QStringLiteral("Public key from \"%1\" installed on \"%2\".\n\n"
-                           "Direct transfers between these connections "
-                           "will no longer require a password."))
-            .arg(sp.name, dp.name));
+    // From the machine of `srcIdx` to that of `dstIdx`: its public key into the other's
+    // authorized_keys, for the SSH user of that connection.
+    runCli(QStringLiteral("authorize-key %1 --on %2").arg(cliConnName(dstIdx), zfsmUrl(srcIdx)), {},
+           QStringLiteral("text"));
 }
 
 // Entregarle a una máquina las credenciales de las demás, para que su daemon pueda
@@ -3751,72 +2699,8 @@ void MainWindow::pushPeerCredentialsToConnection(int connIdx) {
     if (connIdx < 0 || connIdx >= m_conns.profiles.size()) {
         return;
     }
-    const ConnectionProfile destino = m_conns.profiles.at(connIdx);
-    const QString nombreDestino = destino.id.trimmed().isEmpty() ? destino.name.trimmed()
-                                                                 : destino.id.trimmed();
-    // El identificador de MÁQUINA, que viaja junto al nombre. Es lo que permite que el
-    // daemon de esa máquina conteste «¿este destino soy yo?» por identidad y no por una
-    // etiqueta que le dijo un cliente. Vacío si esa conexión no se ha refrescado nunca:
-    // entonces se entrega igual y allí se decide por el nombre, como hasta ahora.
-    const QString uidDestino = destino.machineUid.trimmed();
-
-    std::vector<zfsmgr::base::ConnectionProfile> perfiles;
-    perfiles.reserve(static_cast<std::size_t>(m_conns.profiles.size()));
-    for (const ConnectionProfile& p : m_conns.profiles) {
-        perfiles.push_back(toBaseProfile(p));
-    }
-    const auto entrega = zfsmgr::base::peers::composeHandover(
-        perfiles, nombreDestino.toStdString(), uidDestino.toStdString(),
-        zfsmgr::base::peers::thisMachineName());
-    if (!entrega.ok()) {
-        QMessageBox::information(this, QStringLiteral("ZFSMgr"),
-                                 QString::fromStdString(
-                                     zfsmgr::base::peers::labelOf(entrega.failure)));
-        return;
-    }
-    QStringList nombres;
-    for (const std::string& n : entrega.names) {
-        nombres << QString::fromStdString(n);
-    }
-    const auto choice = QMessageBox::question(
-        this, QStringLiteral("ZFSMgr"),
-        trk(QStringLiteral("t_push_peers_confirm001"),
-            QStringLiteral("Se le van a entregar a «%1» las credenciales de: %2.\n\n"
-                           "No es una lista de nombres: son las claves privadas con las que "
-                           "esa máquina podrá hablar con las demás como si fuera usted. "
-                           "Hágalo solo con máquinas suyas.\n\n¿Continuar?"),
-            QStringLiteral("\"%1\" is about to receive the credentials of: %2.\n\n"
-                           "This is not a list of names: they are the private keys that let "
-                           "that machine talk to the others as if it were you. Only do this "
-                           "with your own machines.\n\nContinue?"))
-            .arg(nombreDestino, nombres.join(QStringLiteral(", "))),
-        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-    if (choice != QMessageBox::Yes) {
-        appLog(QStringLiteral("INFO"),
-               QStringLiteral("[peers] entrega cancelada para %1").arg(nombreDestino));
-        return;
-    }
-    const QStringList argv =
-        mwhelpers::argvQt(zfsmgr::commands::requests::setPeers(entrega.payloadB64));
-    QString out;
-    QString err;
-    int rc = -1;
-    if (!runAgentOnConnection(destino, argv, 30000, out, err, rc) || rc != 0) {
-        QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
-                             trk(QStringLiteral("t_push_peers_failed001"),
-                                 QStringLiteral("No se pudieron entregar las credenciales:\n%1"),
-                                 QStringLiteral("Could not hand over the credentials:\n%1"))
-                                 .arg(err.trimmed().isEmpty() ? out.trimmed() : err.trimmed()));
-        return;
-    }
-    appLog(QStringLiteral("NORMAL"),
-           QStringLiteral("[peers] entregadas %1 credenciales a %2")
-               .arg(nombres.size())
-               .arg(nombreDestino));
-    QMessageBox::information(this, QStringLiteral("ZFSMgr"),
-                             trk(QStringLiteral("t_push_peers_ok001"),
-                                 QStringLiteral("Entregadas %1 credenciales a «%2»."),
-                                 QStringLiteral("Handed over %1 credentials to \"%2\"."))
-                                 .arg(nombres.size())
-                                 .arg(nombreDestino));
+    runCli(
+        QStringLiteral("peers --push --on %1").arg(zfsmUrl(connIdx)),
+        [this](const CliService::Result& r) { showCliText(QStringLiteral("peers"), r.out); },
+        QStringLiteral("text"));
 }

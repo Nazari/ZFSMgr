@@ -24,6 +24,7 @@
 #include <QVector>
 #include <atomic>
 #include <functional>
+#include <optional>
 #include <QFile>
 
 #include <memory>
@@ -189,6 +190,9 @@ public:
     bool renameForTest(int connIdx, const QString& src, const QString& target);
     void releaseHoldForTest(int connIdx, const QString& ds, const QString& snap,
                             const QString& tag);
+    static QString cliConnectionOptionsForTest(const ConnectionProfile& p, bool editing) {
+        return cliConnectionOptions(p, editing);
+    }
     QString zfsmUrlForTest(int connIdx, const QString& ds, const QString& snap) const {
         return zfsmUrl(connIdx, ds, snap);
     }
@@ -444,7 +448,6 @@ private:
     void createConnection();
     void exportTrustStoreToSelectedConnection();
     void pushPeerCredentialsToConnection(int connIdx);
-    void installHelperCommandsForSelectedConnection();
     void repairAltMountpointsForSelectedConnection();
     void editConnection();
     void deleteConnection();
@@ -990,6 +993,11 @@ private:
     bool cliImportPool(int connIdx, const QString& pool, const QString& newName, bool force);
     // A command whose answer is text to read (history, status): shown in a window.
     void cliShowOutput(const QString& line, const QString& title);
+    void showCliText(const QString& title, const QString& text);
+    // How the shell names a connection: its id, or its name when it has none.
+    QString cliConnName(int connIdx) const;
+    // The options of `create <id>` / `edit <id>` for what the connection dialog holds.
+    static QString cliConnectionOptions(const ConnectionProfile& p, bool editing);
     void buildStatusBar();
     void composeStatusBar();
     void refreshStatusBarSchedulesAsync();
@@ -1217,6 +1225,9 @@ private:
     QList<LogWindow> m_logWindows;
     CliService* m_cli{nullptr};
     bool m_cliRefused{false};  // the user answered «no» to the last confirmation
+    // The answer to the next secret the shell asks for, when a dialog already took it (the
+    // password of the connection dialog). Used once.
+    std::optional<QString> m_cliPresetSecret;
     bool m_refreshAfterCli{true};  // off only in tests, where no machine is behind
     QLabel* m_statusBarLabel{nullptr};
     QString m_statusActivity;

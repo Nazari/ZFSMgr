@@ -218,6 +218,22 @@ bool cmdClone(Estado& e, const LineaAnalizada& linea) {
 // Los campos se piden por el terminal si no vienen por opciones, y **la contraseña NUNCA
 // por argumento**: iría en `argv` y se vería en `ps` para cualquier usuario de la máquina.
 // O se teclea, o entra por un descriptor con --password-fd.
+// `--family auto|ipv4|ipv6`: which addresses ssh tries. Untouched when not given.
+static bool familiaDeDireccion(const Peticion& pet, std::string& familia) {
+    const std::string v = B::toLowerAscii(pet.valor("family"));
+    if (v.empty()) {
+        return true;
+    }
+    if (v != "auto" && v != "ipv4" && v != "ipv6") {
+        std::fprintf(stderr,
+                     TC("t_family_invalida", "«%s» no vale para --family: auto, ipv4 o ipv6\n"),
+                     v.c_str());
+        return false;
+    }
+    familia = v;
+    return true;
+}
+
 bool cmdCrearConexion(Estado& e, const Peticion& pet) {
     if (pet.lista("texto").empty()) {
         std::fputs(TC("t_uso_create_ac2703",
@@ -245,6 +261,9 @@ bool cmdCrearConexion(Estado& e, const Peticion& pet) {
     p.keyPath = pet.valor("key");
     p.useSudo = pet.tiene("--sudo");
     const std::string puertoTexto = pet.valor("port");
+    if (!familiaDeDireccion(pet, p.sshAddressFamily)) {
+        return false;
+    }
 
     if (interactivo) {
         if (p.name.empty() && !pide(TC("t_p_nombre_visible", "Nombre visible"), p.id, p.name))
@@ -367,10 +386,10 @@ bool cmdCrearConexion(Estado& e, const Peticion& pet) {
             std::fprintf(stderr, "%s\n", err.c_str());
             return false;
         }
-    } else if (interactivo && quiereClave && !e.ses->maestra.empty()) {
+    } else if ((interactivo || e.pideSecretoServicio) && quiereClave && !e.ses->maestra.empty()) {
+        // Asked through the service too: the graphical interface answers it.
         std::string clave;
-        if (!preguntarSecretoPorTerminal(T("t_p_pass_vacio", "Contraseña (vacío = ninguna): "),
-                                         clave, err)) {
+        if (!pideSecreto(e, T("t_p_pass_vacio", "Contraseña (vacío = ninguna): "), clave, err)) {
             std::fprintf(stderr, "%s\n", err.c_str());
             return false;
         }
@@ -439,6 +458,12 @@ bool cmdEditarConexion(Estado& e, const Peticion& pet, const ZfsmUrl& destino) {
             return false;
         if (!toma("key", p.keyPath, "Ruta de clave SSH"))
             return false;
+        if (pet.tiene("--no-key")) {
+            p.keyPath.clear();
+        }
+        if (!familiaDeDireccion(pet, p.sshAddressFamily)) {
+            return false;
+        }
         std::string ruta;
         if (sshClaveFalta(p, ruta)) {
             std::fprintf(stderr,
@@ -486,7 +511,7 @@ bool cmdEditarConexion(Estado& e, const Peticion& pet, const ZfsmUrl& destino) {
             std::fprintf(stderr, "%s\n", err.c_str());
             return false;
         }
-    } else if (interactivo) {
+    } else if (interactivo || e.pideSecretoServicio) {
         std::string err;
         std::string clave;
         const std::string aviso =
@@ -494,7 +519,7 @@ bool cmdEditarConexion(Estado& e, const Peticion& pet, const ZfsmUrl& destino) {
                 ? T("t_p_pass_nueva_sin",
                     "Contraseña (no hay ninguna guardada; Intro = seguir sin ella): ")
                 : T("t_p_pass_nueva_con", "Contraseña (Intro = conservar la guardada): ");
-        if (!preguntarSecretoPorTerminal(aviso, clave, err)) {
+        if (!pideSecreto(e, aviso, clave, err)) {
             std::fprintf(stderr, "%s\n", err.c_str());
             return false;
         }

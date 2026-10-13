@@ -28,6 +28,11 @@ void MainWindow::initCliService() {
                       QStringLiteral("--config-dir"), m_conns.store.configDir()},
                      m_conns.store.masterPassword());
     m_cli->setAskSecret([this](const QString& prompt, QString& secreto) {
+        if (m_cliPresetSecret) {
+            secreto = *m_cliPresetSecret;
+            m_cliPresetSecret.reset();
+            return true;
+        }
         bool ok = false;
         secreto = QInputDialog::getText(this, QStringLiteral("ZFSMgr"), prompt, QLineEdit::Password,
                                         QString(), &ok);
@@ -89,6 +94,41 @@ QString MainWindow::zfsmUrl(int connIdx, const QString& dataset, const QString& 
         }
     }
     return QString::fromStdString(Z::formatZfsmUrl(u));
+}
+
+QString MainWindow::cliConnName(int connIdx) const {
+    if (connIdx < 0 || connIdx >= m_conns.profiles.size()) {
+        return QString();
+    }
+    const ConnectionProfile& p = m_conns.profiles[connIdx];
+    return cliQuote(p.id.isEmpty() ? p.name : p.id);
+}
+
+QString MainWindow::cliConnectionOptions(const ConnectionProfile& p, bool editing) {
+    QStringList o;
+    const auto pon = [&o](const char* opcion, const QString& valor) {
+        if (!valor.trimmed().isEmpty()) {
+            o << QLatin1String(opcion) << cliQuote(valor.trimmed());
+        }
+    };
+    pon("--name", p.name);
+    pon("--type", p.connType);
+    pon("--os", p.osType);
+    pon("--host", p.host);
+    if (p.port > 0) {
+        pon("--port", QString::number(p.port));
+    }
+    pon("--user", p.username);
+    if (!p.keyPath.trimmed().isEmpty()) {
+        pon("--key", p.keyPath);
+    } else if (editing) {
+        o << QStringLiteral("--no-key");
+    }
+    o << (p.useSudo ? QStringLiteral("--sudo")
+                    : (editing ? QStringLiteral("--no-sudo") : QString()));
+    pon("--family", p.sshAddressFamily.isEmpty() ? QStringLiteral("auto") : p.sshAddressFamily);
+    o.removeAll(QString());
+    return o.join(QLatin1Char(' '));
 }
 
 void MainWindow::refreshAfterCli(const DatasetSelectionContext& ctx) {

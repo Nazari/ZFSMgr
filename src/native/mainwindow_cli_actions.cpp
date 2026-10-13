@@ -140,7 +140,13 @@ bool MainWindow::cliImportPool(int connIdx, const QString& pool, const QString& 
 void MainWindow::cliShowOutput(const QString& line, const QString& title) {
     // Text, as the shell prints it: the window does not reformat what it does not decide.
     const CliService::Result salida = runCliAndWait(line, QStringLiteral("text"));
-    if (salida.rc != 0) {
+    if (salida.rc == 0) {
+        showCliText(title, salida.out);
+    }
+}
+
+void MainWindow::showCliText(const QString& title, const QString& text) {
+    if (text.trimmed().isEmpty()) {
         return;
     }
     auto* dlg = new QDialog(this);
@@ -151,7 +157,7 @@ void MainWindow::cliShowOutput(const QString& line, const QString& title) {
     vista->setReadOnly(true);
     vista->setLineWrapMode(QPlainTextEdit::NoWrap);
     vista->setFont(m_logView ? m_logView->font() : font());
-    vista->setPlainText(salida.out);
+    vista->setPlainText(text);
     lay->addWidget(vista);
     dlg->resize(900, 500);
     dlg->show();

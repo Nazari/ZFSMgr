@@ -519,6 +519,27 @@ private Q_SLOTS:
         QCOMPARE(window.cliLinesForTest(), esperado);
     }
 
+    // What the connection dialog holds becomes the options of the shell's create/edit.
+    void connectionDialogBecomesTheShellsOptions() {
+        ConnectionProfile p;
+        p.name = QStringLiteral("My NAS");
+        p.connType = QStringLiteral("SSH");
+        p.osType = QStringLiteral("Linux");
+        p.host = QStringLiteral("nas.local");
+        p.port = 2222;
+        p.username = QStringLiteral("admin");
+        p.useSudo = true;
+        p.sshAddressFamily = QStringLiteral("ipv6");
+        QCOMPARE(MainWindow::cliConnectionOptionsForTest(p, false),
+                 QStringLiteral("--name \"My NAS\" --type SSH --os Linux --host nas.local "
+                                "--port 2222 --user admin --sudo --family ipv6"));
+        // Editing: an empty key removes it, and no sudo is said.
+        p.useSudo = false;
+        QCOMPARE(MainWindow::cliConnectionOptionsForTest(p, true),
+                 QStringLiteral("--name \"My NAS\" --type SSH --os Linux --host nas.local "
+                                "--port 2222 --user admin --no-key --no-sudo --family ipv6"));
+    }
+
     void selectionBecomesAZfsmUrl() {
         MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
         ConnectionProfile profile;

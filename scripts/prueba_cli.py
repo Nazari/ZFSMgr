@@ -1434,6 +1434,92 @@ def casos_servicio(ctx):
         p.wait(timeout=60)
 
 
+def casos_servicio_conexiones(ctx):
+    """`create`/`edit` of a connection through `--serve`, as the graphical interface runs them.
+
+    Without a terminal the password used to be asked only by the terminal, so the connection
+    was created WITHOUT one. Now it comes as a `secret` event. On a COPY of the
+    configuration: the user's is not touched.
+    """
+    cfg = os.path.join(ctx.dir_tmp, "cfg-servicio")
+    if os.path.isdir(cfg):
+        shutil.rmtree(cfg)
+    shutil.copytree(os.path.expanduser("~/.config/ZFSMgr"), cfg)
+    clave = os.path.join(ctx.dir_tmp, "clave-servicio")
+    with open(os.open(clave, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
+        f.write("not a real key\n")
+
+    def comprueba(nombre, problemas):
+        if problemas:
+            ctx.fallos.append((nombre, problemas, ""))
+            print(f"  FALLO  {nombre}")
+            for x in problemas:
+                print(f"         {x}")
+        else:
+            ctx.pasados.append(nombre)
+            print(f"  ok     {nombre}")
+
+    def perfil():
+        with open(os.path.join(cfg, "config.json")) as f:
+            datos = json.load(f)
+        for c in datos.get("connections", []):
+            if c.get("id") == "prueba-srv":
+                return c
+        return None
+
+    p = subprocess.Popen([CLI, "--serve", "--lang", "es", "--config-dir", cfg],
+                         stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1)
+    p.stdin.write(ctx.maestra + "\n")
+    p.stdin.flush()
+
+    def pide(i, linea, secreto="", si=True):
+        p.stdin.write(json.dumps({"id": i, "line": linea}) + "\n")
+        p.stdin.flush()
+        secretos = 0
+        while True:
+            linea_ev = p.stdout.readline()
+            if not linea_ev:
+                return None, secretos
+            ev = json.loads(linea_ev)
+            if ev.get("type") == "secret":
+                secretos += 1
+                p.stdin.write(json.dumps({"id": i, "secret": secreto}) + "\n")
+            elif ev.get("type") == "confirm":
+                p.stdin.write(json.dumps({"id": i, "answer": si}) + "\n")
+            else:
+                return ev, secretos
+            p.stdin.flush()
+
+    try:
+        p.stdout.readline()   # ready
+        r, secretos = pide(1, "create prueba-srv --type SSH --host 127.0.0.1 --user nadie "
+                              "--sudo --family ipv6", secreto="clave-srv")
+        c = perfil()
+        comprueba("servicio: create de conexión pide la contraseña como evento y la guarda",
+                  [] if r and r["rc"] == 0 and secretos == 1 and c and c.get("password")
+                  and c.get("ssh_address_family") == "ipv6" else [f"{r} {secretos} {c}"])
+        r, secretos = pide(2, f"edit prueba-srv --key {clave} --family ipv4")
+        c = perfil()
+        comprueba("servicio: edit con Intro conserva la contraseña y cambia el resto",
+                  [] if r and r["rc"] == 0 and secretos == 1 and c and c.get("password")
+                  and c.get("key_path") == clave and c.get("ssh_address_family") == "ipv4"
+                  else [f"{r} {secretos} {c}"])
+        r, _ = pide(3, "edit prueba-srv --no-key")
+        c = perfil()
+        comprueba("servicio: edit --no-key quita la clave",
+                  [] if r and r["rc"] == 0 and c and c.get("key_path") == "" else [f"{r} {c}"])
+        r, _ = pide(4, "edit prueba-srv --family ipv5")
+        comprueba("servicio: --family con otro valor se rechaza",
+                  [] if r and r["rc"] != 0 and "--family" in r["stderr"] else [f"{r}"])
+        r, _ = pide(5, "destroy zfsm://prueba-srv")
+        comprueba("servicio: y se borra", [] if r and r["rc"] == 0 and perfil() is None
+                  else [f"{r}"])
+    finally:
+        p.stdin.close()
+        p.wait(timeout=60)
+        shutil.rmtree(cfg, ignore_errors=True)
+
+
 def casos_pantalla(ctx):
     """La pantalla del intérprete con terminal: la línea de órdenes partida en filas como en
     bash, lo escrito repintado al cambiar el tamaño, las preguntas y Ctrl-C."""
@@ -2863,7 +2949,7 @@ def casos_arranque(ctx):
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
 LOCALES = [casos_arranque, casos_identidad, casos_devices, casos_ayuda, casos_version_openzfs, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
-           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_recepcion_a_medias, casos_send_fichero, casos_send_comprimido, casos_gsa, casos_sin_montar, casos_cp_destino, casos_load_key, casos_editor_ancho, casos_tab_continua, casos_pantalla, casos_path, casos_info_labelclear, casos_servicio, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
+           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_recepcion_a_medias, casos_send_fichero, casos_send_comprimido, casos_gsa, casos_sin_montar, casos_cp_destino, casos_load_key, casos_editor_ancho, casos_tab_continua, casos_pantalla, casos_path, casos_info_labelclear, casos_servicio, casos_servicio_conexiones, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
 ENTRE_MAQUINAS = [casos_entre_maquinas]
