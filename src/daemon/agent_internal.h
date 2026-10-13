@@ -988,6 +988,8 @@ TransferSocket aceptaTransferSocket(TransferSocket listenFd);
 // Cuánto se espera a que el receptor lea antes de recuperar el control. No es un abandono:
 // al vencer se comprueba la cancelación y se reintenta el mismo envío.
 static const int kEsperaEnvioMs = 5000;
+// How long a connection to the other daemon may take to open.
+static const int kConexionMs = 10000;
 
 // Cuánto se tolera SIN colocar un solo byte antes de dar la transfer por muerta.
 // Generoso a propósito: un receptor lento volcando a disco puede tardar, y cortar una

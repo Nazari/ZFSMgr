@@ -838,6 +838,31 @@ ExecResult rpcWaitForEvent(ServerState& st, const std::string&,
 }
 
 // `--zfs-send-to-peer-async`, answered by the daemon itself.
+// The snapshot of a send, or its incremental base, that does not exist; empty if both do.
+// A resumed send has neither: its token says what it sends.
+std::string instantaneaQueFalta(const std::vector<std::string>& rpcArgs) {
+    const bool reanuda = rpcArgs.size() > 6 && !trim(rpcArgs[6]).empty();
+    if (reanuda) {
+        return {};
+    }
+    const std::string snap = rpcArgs.empty() ? std::string() : trim(rpcArgs[0]);
+    for (std::size_t i : {std::size_t(0), std::size_t(4)}) {
+        if (i >= rpcArgs.size() || trim(rpcArgs[i]).empty()) {
+            continue;
+        }
+        std::string s = trim(rpcArgs[i]);
+        // `zfs send -I` takes the base short («@base», «#bookmark») from the same dataset.
+        if ((s.front() == '@' || s.front() == '#') && snap.find('@') != std::string::npos) {
+            s = snap.substr(0, snap.find('@')) + s;
+        }
+        if (runExecCapture("zfs", {"list", "-H", "-o", "name", "-t", "snapshot,bookmark", s}).rc
+            != 0) {
+            return s;
+        }
+    }
+    return {};
+}
+
 ExecResult rpcZfsSendToPeerAsync(ServerState&, const std::string&,
                                  const std::vector<std::string>& rpcArgs) {
     ExecResult exec;
@@ -855,6 +880,11 @@ ExecResult rpcZfsSendToPeerAsync(ServerState&, const std::string&,
                && !zfsmgr::base::zfsprops::areValidSendFlags(rpcArgs[5], malaBandera)) {
         exec.rc = 2;
         ponCodigo(exec, "send_flag_not_allowed", {malaBandera});
+    } else if (const std::string falta = instantaneaQueFalta(rpcArgs); !falta.empty()) {
+        // Said here, where the send was asked for: as a job it would be accepted, connect to
+        // the receiver and only then find out.
+        exec.rc = 1;
+        ponCodigo(exec, "snapshot_not_found", {falta});
     } else {
         DaemonJob job;
         job.id = generateJobId();

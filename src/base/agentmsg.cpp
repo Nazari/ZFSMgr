@@ -179,6 +179,7 @@ const Mensaje kMensajes[] = {
      "internal error: %1"},
     {"base_not_absolute", "la base tiene que ser una ruta absoluta",
      "the base must be an absolute path"},
+    {"snapshot_not_found", "no existe la instantánea %1", "the snapshot %1 does not exist"},
     {"remove_dataset_root",
      "eso es la raíz del dataset: para borrarlo entero, «destroy» del dataset",
      "that is the root of the dataset: to delete all of it, «destroy» the dataset"},

@@ -933,6 +933,13 @@ def casos_recepcion_a_medias(ctx):
     caso(ctx, "send --resume sin nada a medias se niega",
          [f"send {U}/otra --on {U}/datos@corte --resume --wait"], rc=1, idioma="es",
          espera=[r"no tiene ninguna recepción a medias"])
+    # Una instantánea que no existe se dice en la misma orden: antes se aceptaba, el trabajo
+    # se quedaba en 0 B «running» y nadie decía por qué.
+    caso(ctx, "send de una instantánea que no existe: falla al momento, sin trabajo",
+         [f"send {U}/noesta --on {U}/datos@noexiste --wait"], rc=1, idioma="es",
+         espera=[r"no existe la instantánea .*datos@noexiste"], no_espera=[r"trabajo"],
+         estado=[("no se crea el destino",
+                  f"bash -c 'zfs list -H -o name {P}/noesta 2>/dev/null || echo NO'", r"^NO$")])
 
 
 def casos_send_fichero(ctx):

@@ -205,6 +205,50 @@ bool envioSoloAgotoElPlazo() {
 //  - Sin CLOEXEC, el `zfs send` que se lanza después hereda este socket, y entonces cerrarlo
 //    aquí no lo cierra de verdad: el receptor nunca ve el fin de los datos. Visto en el
 //    mismo caso, con el fd abierto en los dos procesos.
+// connect() with a time limit. A blocking connect to an address that does not answer (a
+// private network the other machine cannot route to) waits for the kernel to give up, about
+// two minutes, with the job sitting at 0 bytes and «running». The socket is left blocking.
+bool conectaConPlazo(TransferSocket fd, const struct sockaddr* addr, int len, int ms) {
+#ifdef _WIN32
+    u_long noBloquea = 1;
+    ioctlsocket(fd, FIONBIO, &noBloquea);
+    bool ok = connect(fd, addr, len) == 0;
+    if (!ok && WSAGetLastError() == WSAEWOULDBLOCK) {
+        fd_set escritura, error;
+        FD_ZERO(&escritura);
+        FD_ZERO(&error);
+        FD_SET(fd, &escritura);
+        FD_SET(fd, &error);
+        timeval tv{ms / 1000, (ms % 1000) * 1000};
+        if (select(0, nullptr, &escritura, &error, &tv) > 0 && FD_ISSET(fd, &escritura)) {
+            int e = 0;
+            int el = sizeof(e);
+            ok = getsockopt(fd, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&e), &el) == 0
+                 && e == 0;
+        }
+    }
+    noBloquea = 0;
+    ioctlsocket(fd, FIONBIO, &noBloquea);
+    return ok;
+#else
+    const int flags = fcntl(fd, F_GETFL, 0);
+    fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+    bool ok = connect(fd, addr, static_cast<socklen_t>(len)) == 0;
+    if (!ok && errno == EINPROGRESS) {
+        struct pollfd p{};
+        p.fd = fd;
+        p.events = POLLOUT;
+        if (poll(&p, 1, ms) == 1) {
+            int e = 0;
+            socklen_t el = sizeof(e);
+            ok = getsockopt(fd, SOL_SOCKET, SO_ERROR, &e, &el) == 0 && e == 0;
+        }
+    }
+    fcntl(fd, F_SETFL, flags);
+    return ok;
+#endif
+}
+
 TransferSocket conectaConElPar(const std::string& host, const std::string& puerto) {
 #ifdef _WIN32
     ensureWinsock();
@@ -223,7 +267,7 @@ TransferSocket conectaConElPar(const std::string& host, const std::string& puert
         if (fd == kSocketInvalido) {
             continue;
         }
-        if (connect(fd, it->ai_addr, static_cast<int>(it->ai_addrlen)) == 0) {
+        if (conectaConPlazo(fd, it->ai_addr, static_cast<int>(it->ai_addrlen), kConexionMs)) {
             sock = fd;
             break;
         }
