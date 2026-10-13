@@ -460,16 +460,18 @@ private:
     std::thread m_hilo;
 };
 
-// La ZONA DE ESTADO de la pantalla: debajo de la línea de órdenes, siempre a la vista.
+// The STATUS AREA of the screen: below the command line, always in sight.
 //
-//   zfsm://local/back · programaciones en verde · ✗ <el último error>
-//   trabajos: unib send tank/x@s 1.2G 85.0 MiB/s · local gsa-level back/x 300M
+//   zfsm://local/back · next: 10:00 unib/ppal/user/git · outdated daemon: mbp · ✗ <last error>
+//   jobs: unib send tank/x@s 1.2G 85.0 MiB/s · local gsa-level back/x 300M
 //
-// Cada conexión tiene su hilo y su PROPIA sesión, como la comprobación del arranque: una
-// máquina apagada no retrasa a las demás ni pisa los túneles del intérprete. Los trabajos se
-// preguntan cada 2 s mientras haya alguno en marcha y cada 30 s si no; las programaciones,
-// al arrancar y cada 5 minutos. Sustituye a la comprobación del arranque cuando hay
-// pantalla: el veredicto se ve aquí, y si hay fallos se escriben además una vez.
+// With no jobs running the first line says so and the second is not there.
+//
+// Each connection has its own thread and its OWN session, like the startup check: a machine
+// that is off does not delay the others nor touch the interpreter's tunnels. Jobs are asked
+// every 2 s while there are some and every 30 s otherwise; schedules and the daemon's version,
+// at start and every 5 minutes. It replaces the startup check when there is a screen: the
+// verdict is seen here, and failures are also written out once.
 class MonitorDeEstado {
 public:
     MonitorDeEstado(const Sesion& ses, const Conexiones& conns, bool programaciones)
@@ -525,8 +527,10 @@ public:
 private:
     struct PorConexion {
         std::vector<std::string> trabajos;
+        bool trabajosHechos{false};
         B::gsa::ConnectionState prog;
         bool progHecha{false};
+        std::string version;  // of its daemon; empty while unknown or unreachable
     };
 
     void hilo(std::size_t i) {
@@ -593,6 +597,7 @@ private:
                     };
                     acaboNivelacion = nivelando(m_estado[i].trabajos) && !nivelando(trabajos);
                     m_estado[i].trabajos = trabajos;
+                    m_estado[i].trabajosHechos = true;
                 }
                 // Una nivelación que acaba cambia el estado de su programación: se pregunta ya,
                 // no dentro de cinco minutos.
@@ -601,6 +606,23 @@ private:
                 }
                 proxTrabajos = ahora + std::chrono::seconds(trabajos.empty() ? 30 : 2);
                 compone();
+            }
+            if (ahora >= proxProg) {
+                // The daemon's version, with the same rhythm: an outdated one is said here.
+                std::string out, err;
+                int rc = -1;
+                std::string version;
+                if (ejecutarAgente(*ses, p, {"--health"}, out, err, rc, nullptr, 4000) && rc == 0) {
+                    version = clavesDe(out)["VERSION"];
+                }
+                {
+                    std::lock_guard<std::mutex> lock(m_m);
+                    m_estado[i].version = version;
+                }
+                if (!m_programaciones) {
+                    proxProg = ahora + std::chrono::minutes(5);
+                    compone();
+                }
             }
             if (m_programaciones && ahora >= proxProg) {
                 B::gsa::ConnectionState c = estadoDeProgramaciones(*ses, p, 8000);
@@ -638,6 +660,27 @@ private:
         }
     }
 
+    // A time, short: «10:00» if it is today, otherwise with its date. In local time.
+    static std::string horaCorta(long long cuando) {
+        const std::time_t t = static_cast<std::time_t>(cuando);
+        const std::time_t hoy = std::time(nullptr);
+        std::tm a{}, b{};
+#ifdef _WIN32
+        localtime_s(&a, &t);
+        localtime_s(&b, &hoy);
+#else
+        localtime_r(&t, &a);
+        localtime_r(&hoy, &b);
+#endif
+        char buf[32] = {};
+        if (a.tm_year == b.tm_year && a.tm_yday == b.tm_yday) {
+            std::strftime(buf, sizeof(buf), "%H:%M", &a);
+        } else {
+            std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M", &a);
+        }
+        return buf;
+    }
+
     void compone() {
         std::vector<std::string> lineas;
         {
@@ -654,13 +697,20 @@ private:
                     std::vector<std::pair<std::string, B::gsa::DatasetState>> mal;
                     std::vector<const B::gsa::ConnectionState*> sin;
                     const B::gsa::Verdict v = B::gsa::summarize(todas, mal, sin);
-                    if (v == B::gsa::Verdict::AllGreen) {
-                        l += T("t_est_prog_verde", "programaciones en verde");
-                    } else if (v == B::gsa::Verdict::NoSchedules) {
+                    if (v == B::gsa::Verdict::NoSchedules) {
                         l += T("t_est_prog_ninguna", "sin programaciones");
                     } else {
-                        l += B::format(T("t_est_prog_mal", "programaciones con errores: %1"),
-                                       {std::to_string(mal.size())});
+                        if (v == B::gsa::Verdict::WithErrors) {
+                            l += B::format(T("t_est_prog_mal", "programaciones con errores: %1"),
+                                           {std::to_string(mal.size())})
+                                 + " · ";
+                        }
+                        std::string conexion, dataset;
+                        const long long proxima = B::gsa::soonestNext(todas, conexion, dataset);
+                        l += proxima > 0
+                                 ? B::format(T("t_est_prog_siguiente", "siguiente: %1 %2/%3"),
+                                             {horaCorta(proxima), conexion, dataset})
+                                 : T("t_est_prog_verde", "programaciones en verde");
                     }
                     if (!sin.empty()) {
                         std::string nombres;
@@ -671,15 +721,35 @@ private:
                     }
                 }
             }
+            // Daemons older than this client: what `install-daemon -a` would update.
+            const std::string esperada = B::agentversion::expected();
+            std::string viejos;
+            for (const auto& x : m_estado) {
+                if (!x.version.empty()
+                    && B::agentversion::verdictFor(x.version, esperada)
+                           == B::agentversion::Verdict::Update) {
+                    viejos += (viejos.empty() ? "" : ", ") + x.prog.connection;
+                }
+            }
+            if (!viejos.empty()) {
+                l += " · " + B::format(T("t_est_daemon_viejo", "daemon anticuado: %1"), {viejos});
+            }
+            // Jobs: a line of their own when there are some; when there are none, said here,
+            // so the area stays one row while nothing runs.
+            std::string t;
+            bool todosHechos = true;
+            for (const auto& x : m_estado) {
+                todosHechos = todosHechos && x.trabajosHechos;
+                for (const auto& tr : x.trabajos)
+                    t += (t.empty() ? "" : " · ") + tr;
+            }
+            if (t.empty() && todosHechos) {
+                l += " · " + T("t_est_sin_trabajos", "sin trabajos en curso");
+            }
             if (!m_error.empty()) {
                 l += " · ✗ " + m_error;
             }
             lineas.push_back(l);
-            std::string t;
-            for (const auto& x : m_estado) {
-                for (const auto& tr : x.trabajos)
-                    t += (t.empty() ? "" : " · ") + tr;
-            }
             if (!t.empty()) {
                 lineas.push_back(T("t_est_trabajos", "trabajos: ") + t);
             }

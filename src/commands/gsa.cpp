@@ -7,6 +7,7 @@
 #include "zfsmurl.h"
 
 #include <algorithm>
+#include <ctime>
 #include <cctype>
 
 namespace zfsmgr::base::gsa {
@@ -452,6 +453,55 @@ std::string newestOfClass(const std::vector<std::string>& nombres, const std::st
     return mejor;
 }
 
+long long nextPeriodStart(const std::string& klass, long long now) {
+    const std::time_t t = static_cast<std::time_t>(now);
+    std::tm tmv{};
+#ifdef _WIN32
+    localtime_s(&tmv, &t);
+#else
+    localtime_r(&t, &tmv);
+#endif
+    tmv.tm_sec = 0;
+    tmv.tm_min = 0;
+    if (klass == "hourly") {
+        tmv.tm_hour += 1;
+    } else {
+        tmv.tm_hour = 0;
+        if (klass == "daily") {
+            tmv.tm_mday += 1;
+        } else if (klass == "weekly") {
+            const int desdeLunes = (tmv.tm_wday + 6) % 7;  // Monday 0 … Sunday 6
+            tmv.tm_mday += 7 - desdeLunes;
+        } else if (klass == "monthly") {
+            tmv.tm_mday = 1;
+            tmv.tm_mon += 1;
+        } else {
+            tmv.tm_mday = 1;
+            tmv.tm_mon = 0;
+            tmv.tm_year += 1;
+        }
+    }
+    tmv.tm_isdst = -1;  // let mktime decide across a daylight saving change
+    return static_cast<long long>(std::mktime(&tmv));
+}
+
+long long soonestNext(const std::vector<ConnectionState>& states, std::string& connection,
+                      std::string& dataset) {
+    long long best = 0;
+    connection.clear();
+    dataset.clear();
+    for (const ConnectionState& c : states) {
+        for (const DatasetState& d : c.datasets) {
+            if (d.next > 0 && (best == 0 || d.next < best)) {
+                best = d.next;
+                connection = c.connection;
+                dataset = d.dataset;
+            }
+        }
+    }
+    return best;
+}
+
 bool parseState(const std::string& texto, ConnectionState& out, std::string& error,
                 long long caducaTras) {
     json::Value raiz;
@@ -482,6 +532,7 @@ bool parseState(const std::string& texto, ConnectionState& out, std::string& err
         d.levelJob = v["level_job"]["id"].toString();
         d.levelJobState = v["level_job"]["state"].toString();
         d.levelJobBytes = static_cast<unsigned long long>(v["level_job"]["bytes"].toInt(0));
+        d.next = v["next"].toInt(0);
         // El primer paso que falló, en el orden en que importan.
         const std::pair<const char*, const char*> pasos[] = {
             {"level_result", "level"}, {"snapshot", "snapshot"},

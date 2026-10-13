@@ -929,6 +929,8 @@ struct GsaProgramacion {
 };
 
 GsaProgramacion gsaLeeProgramacion(const std::string& ds);
+// Seconds between two passes of the scheduler.
+constexpr long long kGsaPasadaSegs = 300;
 std::string gsaAncestroRecursivo(const std::string& ds);
 GsaLog gsaLogDelDaemon();
 extern std::mutex g_gsaNivMutex;

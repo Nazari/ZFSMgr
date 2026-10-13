@@ -3977,6 +3977,65 @@ void caso49() {
                       "content removal: the argv");
         }
 
+#ifndef _WIN32
+        {
+            // --- When the next period starts: what the status area shows as «next».
+            namespace G = zfsmgr::base::gsa;
+            const std::string tzPrevia = std::getenv("TZ") ? std::getenv("TZ") : "";
+            setenv("TZ", "Europe/Madrid", 1);
+            tzset();
+            auto local = [](int y, int mo, int d, int h, int mi) {
+                std::tm tmv{};
+                tmv.tm_year = y - 1900;
+                tmv.tm_mon = mo - 1;
+                tmv.tm_mday = d;
+                tmv.tm_hour = h;
+                tmv.tm_min = mi;
+                tmv.tm_isdst = -1;
+                return static_cast<long long>(std::mktime(&tmv));
+            };
+            const long long martes = local(2026, 10, 13, 9, 30);  // a Tuesday
+            comprobar(G::nextPeriodStart("hourly", martes) == local(2026, 10, 13, 10, 0),
+                      "next period: hourly, the next full hour");
+            comprobar(G::nextPeriodStart("daily", martes) == local(2026, 10, 14, 0, 0),
+                      "next period: daily, next midnight");
+            comprobar(G::nextPeriodStart("weekly", martes) == local(2026, 10, 19, 0, 0),
+                      "next period: weekly, next Monday (ISO week)");
+            comprobar(G::nextPeriodStart("weekly", local(2026, 10, 25, 23, 0))
+                          == local(2026, 10, 26, 0, 0),
+                      "next period: weekly from a Sunday, across the clock change, is Monday");
+            comprobar(G::nextPeriodStart("monthly", martes) == local(2026, 11, 1, 0, 0),
+                      "next period: monthly");
+            comprobar(G::nextPeriodStart("yearly", martes) == local(2027, 1, 1, 0, 0),
+                      "next period: yearly");
+            comprobar(G::nextPeriodStart("hourly", local(2026, 12, 31, 23, 59))
+                          == local(2027, 1, 1, 0, 0),
+                      "next period: hourly across the new year");
+            if (tzPrevia.empty()) {
+                unsetenv("TZ");
+            } else {
+                setenv("TZ", tzPrevia.c_str(), 1);
+            }
+            tzset();
+
+            G::ConnectionState a, b;
+            a.connection = "unib";
+            b.connection = "fc16";
+            G::DatasetState d1, d2, d3;
+            d1.dataset = "ppal/x";
+            d1.next = 300;
+            d2.dataset = "ppal/y";  // unknown: never the soonest
+            d3.dataset = "back/z";
+            d3.next = 200;
+            a.datasets = {d1, d2};
+            b.datasets = {d3};
+            std::string c, d;
+            comprobar(G::soonestNext({a, b}, c, d) == 200 && c == "fc16" && d == "back/z",
+                      "soonest next: the earliest, with its connection and dataset");
+            comprobar(G::soonestNext({}, c, d) == 0 && c.empty(), "soonest next: none, 0");
+        }
+#endif
+
         {
             // --- A schedule's target as the machine that runs it reads it.
             namespace G = zfsmgr::base::gsa;

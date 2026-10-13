@@ -2111,6 +2111,33 @@ ExecResult runGsaRunOnceCapture(const std::string& ds) {
 // El estado para el CLI: lo guardado, más las programaciones activadas que todavía no han
 // pasado por ninguna pasada (`pending`), y el reloj del daemon para que quien lo lea pueda
 // decir si el hilo está vivo sin fiarse del suyo.
+// When this schedule's next snapshot is due. A class already due (a failed snapshot is retried
+// on every pass) is taken on the next pass; otherwise, the soonest start of a next period.
+long long gsaProximaVez(const std::string& ds, long long ultimaPasada, long long ahora) {
+    const GsaProgramacion p = gsaLeeProgramacion(ds);
+    if (!gsaDueClasses(ds, p.hourly, p.daily, p.weekly, p.monthly, p.yearly,
+                       static_cast<std::time_t>(ahora))
+             .empty()) {
+        return std::max(ahora, ultimaPasada > 0 ? ultimaPasada + kGsaPasadaSegs : ahora);
+    }
+    long long mejor = 0;
+    const std::pair<const char*, int> clases[] = {{"hourly", p.hourly},
+                                                  {"daily", p.daily},
+                                                  {"weekly", p.weekly},
+                                                  {"monthly", p.monthly},
+                                                  {"yearly", p.yearly}};
+    for (const auto& c : clases) {
+        if (c.second <= 0) {
+            continue;
+        }
+        const long long t = zfsmgr::base::gsa::nextPeriodStart(c.first, ahora);
+        if (mejor == 0 || t < mejor) {
+            mejor = t;
+        }
+    }
+    return mejor;
+}
+
 ExecResult runDumpGsaStatusCapture() {
     namespace J = zfsmgr::base::json;
     ExecResult r;
@@ -2120,6 +2147,8 @@ ExecResult runDumpGsaStatusCapture() {
         raiz = gsaLeeEstadoSinBloqueo();
     }
     J::Value datasets;
+    const long long ultimaPasada = raiz["last_pass"].toInt(0);
+    const long long ahora = static_cast<long long>(std::time(nullptr));
     const ExecResult pools = runExecCapture("zpool", {"list", "-H", "-o", "name"});
     if (pools.rc == 0) {
         for (const std::string& rawPool : splitLines(pools.out)) {
@@ -2156,6 +2185,7 @@ ExecResult runDumpGsaStatusCapture() {
                         }
                         e.set("level_job", t);
                     }
+                    e.set("next", J::Value(gsaProximaVez(ds, ultimaPasada, ahora)));
                     datasets.set(ds, e);
                     continue;
                 }
@@ -2168,13 +2198,14 @@ ExecResult runDumpGsaStatusCapture() {
                       J::Value(gsaBoolOn(gsaPropValue(ds, "org.zfsmgr:schedule-level", false))));
                 e.set("destination",
                       J::Value(gsaPropValue(ds, "org.zfsmgr:schedule-target", false)));
+                e.set("next", J::Value(gsaProximaVez(ds, ultimaPasada, ahora)));
                 datasets.set(ds, e);
             }
         }
     }
     J::Value out;
     out.set("last_pass", J::Value(raiz["last_pass"].toInt(0)));
-    out.set("now", J::Value(static_cast<long long>(std::time(nullptr))));
+    out.set("now", J::Value(ahora));
     if (!datasets.isObject()) {
         datasets = J::Value(J::Object{});
     }
@@ -2226,7 +2257,7 @@ void runGsaSchedulerThread() {
     // para que una máquina que estuvo apagada recupere lo que le tocaba nada más encenderse.
     bool primera = true;
     while (!g_stop.load()) {
-        const int espera = primera ? 30 : 300;
+        const int espera = primera ? 30 : static_cast<int>(kGsaPasadaSegs);
         primera = false;
         for (int i = 0; i < espera && !g_stop.load(); ++i) {
             std::this_thread::sleep_for(std::chrono::seconds(1));

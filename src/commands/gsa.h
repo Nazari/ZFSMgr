@@ -236,6 +236,7 @@ struct DatasetState {
     std::string levelJob;         // its id
     std::string levelJobState;    // «queued» or «running»
     unsigned long long levelJobBytes{0};
+    long long next{0};  // when its next snapshot is due (daemon's clock); 0 unknown
 };
 
 struct ConnectionState {
@@ -247,6 +248,16 @@ struct ConnectionState {
     long long now{0};          // the daemon's clock when it answered
     std::vector<DatasetState> datasets;
 };
+
+// When the period of `klass` («hourly» … «yearly») after the one holding `now` starts, in
+// the local time of whoever calls it: the daemon, whose clock decides the periods. Weeks are
+// ISO weeks (they start on Monday), as in the snapshot names.
+long long nextPeriodStart(const std::string& klass, long long now);
+
+// The schedule due soonest among `states`, for one line: its connection and dataset in
+// `connection`/`dataset`. 0 if none says when.
+long long soonestNext(const std::vector<ConnectionState>& states, std::string& connection,
+                      std::string& dataset);
 
 // The daemon's JSON → structure. `stale` is decided here, with the daemon's own clock, so a
 // skewed client clock cannot make it lie: more than `staleAfterSecs` since the last pass with
