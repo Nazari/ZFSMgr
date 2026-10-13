@@ -14,7 +14,6 @@ el nombre va **dentro** del rótulo: `Editar «unibody»`, no `Editar`.
 - `Editar` · `Borrar`
 - `Conectar` · `Desconectar` · `Refrescar` · `Refrescar todas`
 - `Nuevo Pool`
-- `Instalar comandos auxiliares`
 - `Reinstalar/Actualizar daemon`
 - `Reparar mountpoints temporales`
 - `Exportar trust-store a esta conexión`
@@ -29,9 +28,6 @@ Condiciones de habilitación:
 - `Editar` y `Borrar`: no disponibles en la conexión Local ni en conexiones redirigidas a
   Local.
 - `Nuevo Pool`: conexión conectada.
-- `Instalar comandos auxiliares`: solo si el refresco detectó un gestor de paquetes y un
-  plan de instalación soportado para los comandos que faltan. No aplica a conexiones
-  Windows, que trabajan solo con el agente nativo.
 - `Reinstalar/Actualizar daemon`: cualquier conexión, Windows y Local incluidas, y **también
   desconectada** — que es justo cuando suele hacer falta.
 - `Reparar mountpoints temporales`: cualquier conexión no Windows, incluida Local (un

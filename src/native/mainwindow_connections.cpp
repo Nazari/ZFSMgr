@@ -562,40 +562,6 @@ struct ConnectivityProbeResult {
     QString detail;
     bool ok{false};
 };
-
-QString connectivityMatrixRemoteProbe(const ConnectionProfile& target, bool verbose = false) {
-    const QString unixPathPrefix =
-        QStringLiteral("PATH=\"/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/local/zfs/bin:/usr/sbin:/sbin:/usr/bin:/bin:$PATH\"; export PATH; ");
-    const QString targetHost = mwhelpers::shSingleQuote(mwhelpers::sshUserHost(target));
-    const QString targetCmd = mwhelpers::shSingleQuote(QStringLiteral("echo ZFSMGR_CONNECT_OK"));
-    QString sshBase = mwhelpers::sshBaseCommand(target);
-    if (verbose) {
-        sshBase.replace(QStringLiteral("-o LogLevel=ERROR"),
-                        QStringLiteral("-o LogLevel=DEBUG3 -vvv"));
-    }
-    if (!target.password.trimmed().isEmpty()) {
-        return unixPathPrefix + QStringLiteral(
-                   // La contraseña NO va aquí dentro. Entra por la ENTRADA ESTÁNDAR del
-                   // ssh exterior, y `sshpass -d0` la lee de ahí.
-                   //
-                   // Antes esto era `SSHPASS=<contraseña> sshpass -e`, y esa cadena acaba
-                   // siendo un argumento del ssh exterior: se veía en el `ps` de ESTE
-                   // equipo, no solo en el remoto. Y `-e` tampoco valdría aunque se
-                   // arreglara el argumento, porque el entorno de un proceso se lee en
-                   // /proc/<pid>/environ. Ver docs/diseno_tecnico_conectividad.md.
-                   "if command -v sshpass >/dev/null 2>&1; then "
-                   "sshpass -d0 %1 -o BatchMode=no "
-                   "-o PreferredAuthentications=password,keyboard-interactive,publickey "
-                   "-o NumberOfPasswordPrompts=1 %2 %3; "
-                   "else echo %4 >&2; exit 127; fi")
-            .arg(sshBase,
-                 targetHost,
-                 targetCmd,
-                 mwhelpers::shSingleQuote(QStringLiteral("ZFSMgr: sshpass no disponible para esta prueba")));
-    }
-    return unixPathPrefix + sshBase + QStringLiteral(" ") + targetHost + QStringLiteral(" ") + targetCmd;
-}
-
 }
 
 int MainWindow::connectionIndexByNameOrId(const QString& value) const {
@@ -607,33 +573,6 @@ int MainWindow::connectionIndexByNameOrId(const QString& value) const {
         const ConnectionProfile p = m_conns.profiles[i];
         if (p.name.trimmed().compare(wanted, Qt::CaseInsensitive) == 0
             || p.id.trimmed().compare(wanted, Qt::CaseInsensitive) == 0) {
-            return i;
-        }
-    }
-    return -1;
-}
-
-int MainWindow::equivalentSshForLocal(int localIdx) const {
-    if (localIdx < 0 || localIdx >= m_conns.profiles.size() || !isLocalConnection(localIdx)) {
-        return -1;
-    }
-    QString localUid = m_conns.profiles[localIdx].machineUid.trimmed().toLower();
-    if (localUid.isEmpty() && localIdx < m_conns.states.size()) {
-        localUid = m_conns.states[localIdx].machineUuid.trimmed().toLower();
-    }
-    for (int i = 0; i < m_conns.profiles.size(); ++i) {
-        if (i == localIdx || isLocalConnection(i)) {
-            continue;
-        }
-        const ConnectionProfile candidate = m_conns.profiles[i];
-        if (candidate.connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0) {
-            continue;
-        }
-        const QString candUid = candidate.machineUid.trimmed().toLower();
-        if (!localUid.isEmpty() && !candUid.isEmpty() && candUid == localUid) {
-            return i;
-        }
-        if (isConnectionRedirectedToLocal(i)) {
             return i;
         }
     }
@@ -694,313 +633,6 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
     Q_UNUSED(watched);
     Q_UNUSED(event);
     return QMainWindow::eventFilter(watched, event);
-}
-
-void MainWindow::openConnectivityMatrixDialog() {
-    if (m_conns.profiles.isEmpty()) {
-        QMessageBox::information(this,
-                                 trk(QStringLiteral("t_connectivity_title_001"),
-                                     QStringLiteral("Conectividad"),
-                                     QStringLiteral("Connectivity")),
-                                 trk(QStringLiteral("t_connectivity_empty_001"),
-                                     QStringLiteral("No hay conexiones definidas."),
-                                     QStringLiteral("There are no defined connections.")));
-        return;
-    }
-
-    auto sameMachine = [this](int a, int b) -> bool {
-        if (a < 0 || a >= m_conns.profiles.size() || b < 0 || b >= m_conns.profiles.size()) {
-            return false;
-        }
-        const QString ua = m_conns.profiles[a].machineUid.trimmed().toLower();
-        const QString ub = m_conns.profiles[b].machineUid.trimmed().toLower();
-        return !ua.isEmpty() && !ub.isEmpty() && ua == ub;
-    };
-    auto equivalentSshForLocal = [this](int localIdx) -> int {
-        if (localIdx < 0 || localIdx >= m_conns.profiles.size() || !isLocalConnection(localIdx)) {
-            return -1;
-        }
-        QString localUid = m_conns.profiles[localIdx].machineUid.trimmed().toLower();
-        if (localUid.isEmpty() && localIdx < m_conns.states.size()) {
-            localUid = m_conns.states[localIdx].machineUuid.trimmed().toLower();
-        }
-        for (int i = 0; i < m_conns.profiles.size(); ++i) {
-            if (i == localIdx || isLocalConnection(i)) {
-                continue;
-            }
-            const ConnectionProfile candidate = m_conns.profiles[i];
-            if (candidate.connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0) {
-                continue;
-            }
-            const QString candUid = candidate.machineUid.trimmed().toLower();
-            if (!localUid.isEmpty() && !candUid.isEmpty() && candUid == localUid) {
-                return i;
-            }
-            if (isConnectionRedirectedToLocal(i)) {
-                return i;
-            }
-        }
-        return -1;
-    };
-    auto probeConnectivity = [&](int rowIdx, int colIdx) -> ConnectivityProbeResult {
-        ConnectivityProbeResult result;
-        auto composeText = [](const QString& sshState) -> QString {
-            return QStringLiteral("SSH:%1").arg(sshState);
-        };
-        auto explainFailure = [this](const QString& raw, int rc) -> QString {
-            const QString merged = raw.trimmed();
-            if (merged.contains(QStringLiteral("sshpass no disponible"), Qt::CaseInsensitive)) {
-                return trk(QStringLiteral("t_connectivity_reason_sshpass_001"),
-                           QStringLiteral("Motivo: en la conexión origen no está instalado sshpass y el destino requiere autenticación por contraseña."),
-                           QStringLiteral("Reason: sshpass is not installed on the source connection and the target requires password authentication."));
-            }
-            if (merged.contains(QStringLiteral("permission denied"), Qt::CaseInsensitive)
-                || merged.contains(QStringLiteral("publickey"), Qt::CaseInsensitive)
-                || merged.contains(QStringLiteral("authentication"), Qt::CaseInsensitive)) {
-                return trk(QStringLiteral("t_connectivity_reason_auth_001"),
-                           QStringLiteral("Motivo: fallo de autenticación SSH hacia el destino."),
-                           QStringLiteral("Reason: SSH authentication to the target failed."));
-            }
-            if (merged.contains(QStringLiteral("could not resolve hostname"), Qt::CaseInsensitive)
-                || merged.contains(QStringLiteral("name or service not known"), Qt::CaseInsensitive)) {
-                return trk(QStringLiteral("t_connectivity_reason_dns_001"),
-                           QStringLiteral("Motivo: no se puede resolver el nombre del host destino."),
-                           QStringLiteral("Reason: the target hostname cannot be resolved."));
-            }
-            if (merged.contains(QStringLiteral("connection refused"), Qt::CaseInsensitive)) {
-                return trk(QStringLiteral("t_connectivity_reason_refused_001"),
-                           QStringLiteral("Motivo: el puerto SSH destino rechaza la conexión."),
-                           QStringLiteral("Reason: the target SSH port refused the connection."));
-            }
-            if (merged.contains(QStringLiteral("timed out"), Qt::CaseInsensitive)
-                || merged.contains(QStringLiteral("operation timed out"), Qt::CaseInsensitive)) {
-                return trk(QStringLiteral("t_connectivity_reason_timeout_001"),
-                           QStringLiteral("Motivo: tiempo de espera agotado al conectar con el destino."),
-                           QStringLiteral("Reason: timed out while connecting to the target."));
-            }
-            if (!merged.isEmpty()) {
-                return trk(QStringLiteral("t_connectivity_reason_raw_001"),
-                           QStringLiteral("Motivo: %1"),
-                           QStringLiteral("Reason: %1"))
-                    .arg(merged.left(300));
-            }
-            return trk(QStringLiteral("t_connectivity_reason_exit_001"),
-                       QStringLiteral("Motivo: la comprobación terminó con código %1."),
-                       QStringLiteral("Reason: the probe finished with exit code %1."))
-                .arg(rc);
-        };
-        if (rowIdx < 0 || rowIdx >= m_conns.profiles.size() || colIdx < 0 || colIdx >= m_conns.profiles.size()) {
-            result.text = composeText(QStringLiteral("-"));
-            return result;
-        }
-        const ConnectionProfile src = m_conns.profiles[rowIdx];
-        const ConnectionProfile dst = m_conns.profiles[colIdx];
-        const bool srcOk = rowIdx < m_conns.states.size() && m_conns.states[rowIdx].status.trimmed().compare(QStringLiteral("OK"), Qt::CaseInsensitive) == 0;
-        const bool dstOk = colIdx < m_conns.states.size() && m_conns.states[colIdx].status.trimmed().compare(QStringLiteral("OK"), Qt::CaseInsensitive) == 0;
-        if (!srcOk || !dstOk) {
-            result.text = composeText(QStringLiteral("-"));
-            result.tooltip = trk(QStringLiteral("t_connectivity_notready_001"),
-                                 QStringLiteral("La conexión origen o destino no está en estado OK."),
-                                 QStringLiteral("The source or target connection is not in OK state."));
-            result.detail = result.tooltip;
-            return result;
-        }
-        if (rowIdx == colIdx || sameMachine(rowIdx, colIdx)) {
-            result.text = composeText(QStringLiteral("✓"));
-            result.tooltip = trk(QStringLiteral("t_connectivity_same_machine_001"),
-                                 QStringLiteral("Misma máquina."),
-                                 QStringLiteral("Same machine."));
-            result.detail = result.tooltip;
-            result.ok = true;
-            return result;
-        }
-        ConnectionProfile effectiveDst = dst;
-        QString targetLabel = dst.name;
-        if (dst.connType.trimmed().compare(QStringLiteral("LOCAL"), Qt::CaseInsensitive) == 0) {
-            const int sshIdx = equivalentSshForLocal(colIdx);
-            if (sshIdx >= 0) {
-                effectiveDst = m_conns.profiles[sshIdx];
-                targetLabel = m_conns.profiles[sshIdx].name;
-                if (rowIdx == sshIdx || sameMachine(rowIdx, sshIdx)) {
-                    result.text = composeText(QStringLiteral("✓"));
-                    result.tooltip = trk(QStringLiteral("t_connectivity_same_machine_001"),
-                                         QStringLiteral("Misma máquina."),
-                                         QStringLiteral("Same machine."));
-                    result.detail = result.tooltip;
-                    result.ok = true;
-                    return result;
-                }
-            } else {
-                result.text = composeText(QStringLiteral("-"));
-                result.tooltip = trk(QStringLiteral("t_connectivity_local_no_ssh_001"),
-                                     QStringLiteral("Local no tiene una conexión SSH equivalente para comprobarla remotamente."),
-                                     QStringLiteral("Local has no equivalent SSH connection for remote probing."));
-                result.detail = result.tooltip;
-                return result;
-            }
-        }
-        if (effectiveDst.connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) != 0) {
-            result.text = composeText(QStringLiteral("-"));
-            result.tooltip = trk(QStringLiteral("t_connectivity_unsupported_target_001"),
-                                 QStringLiteral("Solo se comprueba conectividad SSH hacia conexiones SSH/Local."),
-                                 QStringLiteral("Only SSH connectivity to SSH/Local connections is checked."));
-            result.detail = result.tooltip;
-            return result;
-        }
-        const QString sshCmd = connectivityMatrixRemoteProbe(effectiveDst);
-        if (sshCmd.trimmed().isEmpty()) {
-            result.text = composeText(QStringLiteral("-"));
-            return result;
-        }
-        QString sshMerged;
-        QString sshDetail;
-        // La contraseña del destino viaja por la ENTRADA ESTÁNDAR, que es de donde la lee
-        // `sshpass -d0` en el otro extremo. Dentro de la orden se vería con un `ps` aquí.
-        const QByteArray claveDestino =
-            effectiveDst.password.trimmed().isEmpty()
-                ? QByteArray()
-                : (effectiveDst.password.toUtf8() + '\n');
-        const bool sshOk = fetchConnectionProbeOutput(rowIdx,
-                                                      QStringLiteral("Probe SSH"),
-                                                      sshCmd,
-                                                      &sshMerged,
-                                                      &sshDetail,
-                                                      12000,
-                                                      claveDestino);
-        const bool sshProbeOk = sshOk && sshMerged.contains(QStringLiteral("ZFSMGR_CONNECT_OK"));
-
-        QStringList tooltipLines;
-        if (sshProbeOk) {
-            tooltipLines << trk(QStringLiteral("t_connectivity_ok_001"),
-                                QStringLiteral("Conectividad SSH verificada hacia %1."),
-                                QStringLiteral("SSH connectivity verified to %1."))
-                                .arg(targetLabel);
-            result.text = composeText(QStringLiteral("✓"));
-            result.tooltip = tooltipLines.join(QStringLiteral("\n"));
-            result.detail = result.tooltip;
-            result.ok = true;
-            return result;
-        }
-        result.text = composeText(QStringLiteral("✗"));
-        result.tooltip = explainFailure(sshDetail.isEmpty() ? sshMerged : sshDetail, sshOk ? 0 : -1);
-        QString sshVerboseMerged;
-        QString sshVerboseDetail;
-        const QString sshVerboseCmd = connectivityMatrixRemoteProbe(effectiveDst, true);
-        if (!sshVerboseCmd.trimmed().isEmpty()) {
-            fetchConnectionProbeOutput(rowIdx,
-                                       QStringLiteral("Probe SSH verbose"),
-                                       sshVerboseCmd,
-                                       &sshVerboseMerged,
-                                       &sshVerboseDetail,
-                                       12000,
-                                       claveDestino);
-        }
-        result.detail = QStringList{
-                            result.tooltip,
-                            QString(),
-                            trk(QStringLiteral("t_connectivity_probe_log_001"),
-                                QStringLiteral("Log del probe:"),
-                                QStringLiteral("Probe log:")),
-                            (sshDetail.isEmpty() ? sshMerged : sshDetail).trimmed(),
-                            QString(),
-                            QStringLiteral("ssh -vvv:"),
-                            (sshVerboseDetail.isEmpty() ? sshVerboseMerged : sshVerboseDetail).trimmed()
-                        }.join(QStringLiteral("\n"));
-        return result;
-    };
-
-    QDialog dlg(this);
-    dlg.setWindowTitle(trk(QStringLiteral("t_connectivity_title_001"),
-                           QStringLiteral("Conectividad"),
-                           QStringLiteral("Connectivity")));
-    dlg.resize(760, 500);
-    auto* layout = new QVBoxLayout(&dlg);
-
-    // Qué mide esta tabla, dicho arriba y no en la documentación.
-    //
-    // Las sondas se ejecutan como el usuario de SU sesión SSH, pero quien abre la
-    // conexión en una transfer entre máquinas es el AGENTE, que corre como root o
-    // como SYSTEM y con otras credenciales. Un verde aquí no garantiza que el agente
-    // pueda salir, ni un rojo que no pueda. Sin decirlo, la tabla invita a confiar en
-    // algo que no ha comprobado.
-    auto* scopeLabel = new QLabel(
-        trk(QStringLiteral("t_connectivity_scope_001"),
-            QStringLiteral("Se comprueba desde la sesión SSH de cada conexión, con sus credenciales. "
-                           "Las transferencias entre máquinas las abre el agente, que se ejecuta con "
-                           "otro usuario, así que este resultado es orientativo para ellas."),
-            QStringLiteral("Checked from each connection's SSH session, with its credentials. "
-                           "Transfers between machines are opened by the agent, which runs as a "
-                           "different user, so this result is only indicative for them.")),
-        &dlg);
-    scopeLabel->setWordWrap(true);
-    layout->addWidget(scopeLabel);
-
-    auto* matrix = new QTableWidget(&dlg);
-    matrix->setColumnCount(m_conns.profiles.size());
-    matrix->setRowCount(m_conns.profiles.size());
-    QStringList labels;
-    for (const ConnectionProfile& p : m_conns.profiles) {
-        labels << (p.name.trimmed().isEmpty() ? p.id : p.name);
-    }
-    matrix->setHorizontalHeaderLabels(labels);
-    matrix->setVerticalHeaderLabels(labels);
-    matrix->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
-    matrix->verticalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
-    matrix->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    matrix->setSelectionMode(QAbstractItemView::SingleSelection);
-    matrix->setSelectionBehavior(QAbstractItemView::SelectItems);
-    matrix->setAlternatingRowColors(false);
-    auto* detailLabel = new QLabel(
-        trk(QStringLiteral("t_connectivity_detail_title_001"),
-            QStringLiteral("Detalle de la casilla seleccionada"),
-            QStringLiteral("Selected cell detail")),
-        &dlg);
-    auto* detailView = new QPlainTextEdit(&dlg);
-    detailView->setReadOnly(true);
-    detailView->setMaximumBlockCount(2000);
-    detailView->setPlaceholderText(
-        trk(QStringLiteral("t_connectivity_detail_ph_001"),
-            QStringLiteral("Seleccione una celda para ver su detalle."),
-            QStringLiteral("Select a cell to view its detail.")));
-    beginUiBusy();
-    m_connectivityMatrixInProgress = true;
-    updateConnectivityMatrixButtonState();
-    for (int r = 0; r < m_conns.profiles.size(); ++r) {
-        for (int c = 0; c < m_conns.profiles.size(); ++c) {
-            const ConnectivityProbeResult probe = probeConnectivity(r, c);
-            auto* item = new QTableWidgetItem(probe.text);
-            item->setTextAlignment(Qt::AlignCenter);
-            item->setToolTip(probe.tooltip);
-            item->setData(Qt::UserRole, probe.detail);
-            if (probe.ok) {
-                item->setForeground(QBrush(QColor(QStringLiteral("#1d6f42"))));
-            } else if (probe.text.contains(QStringLiteral("✗"))) {
-                item->setForeground(QBrush(QColor(QStringLiteral("#8b1e1e"))));
-                item->setBackground(QBrush(QColor(QStringLiteral("#fde7e7"))));
-            }
-            matrix->setItem(r, c, item);
-            qApp->processEvents();
-        }
-    }
-    m_connectivityMatrixInProgress = false;
-    updateConnectivityMatrixButtonState();
-    endUiBusy();
-    layout->addWidget(matrix, 1);
-    layout->addWidget(detailLabel);
-    layout->addWidget(detailView);
-    connect(matrix, &QTableWidget::currentItemChanged, &dlg, [detailView](QTableWidgetItem* current, QTableWidgetItem*) {
-        if (!detailView) {
-            return;
-        }
-        detailView->setPlainText(current ? current->data(Qt::UserRole).toString() : QString());
-    });
-    if (matrix->rowCount() > 0 && matrix->columnCount() > 0) {
-        matrix->setCurrentCell(0, 0);
-    }
-    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dlg);
-    connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
-    layout->addWidget(buttons);
-    dlg.exec();
 }
 
 // El menú «Conexiones» de la barra.
@@ -1262,7 +894,6 @@ void MainWindow::refreshAllConnections() {
         m_refreshInProgress = false;
         updateBusyCursor();
         updateStatus(QString());
-        updateConnectivityMatrixButtonState();
         rebuildConnectionsTable();
         populateAllPoolsTables();
         return;
@@ -1278,7 +909,6 @@ void MainWindow::refreshAllConnections() {
     m_refreshTotal = refreshable;
     m_refreshInProgress = (m_refreshPending > 0);
     updateBusyCursor();
-    updateConnectivityMatrixButtonState();
     if (refreshable <= 0) {
         if (!m_initialRefreshCompleted) {
             m_initialRefreshCompleted = true;
@@ -1342,7 +972,6 @@ void MainWindow::refreshSelectedConnection() {
     m_refreshTotal = 1;
     m_refreshInProgress = true;
     updateBusyCursor();
-    updateConnectivityMatrixButtonState();
     const ConnectionProfile profile = m_conns.profiles[idx];
     (void)QtConcurrent::run([this, generation, idx, profile]() {
         const ConnectionRuntimeState state = refreshConnection(profile);
@@ -1681,7 +1310,6 @@ void MainWindow::onAsyncRefreshDone(int generation) {
     // With the daemons' versions known: the status bar's schedules and outdated daemons.
     refreshStatusBarSchedulesAsync();
     refreshAllJobsAsync();
-    updateConnectivityMatrixButtonState();
     if (m_busyOnImportRefresh) {
         m_busyOnImportRefresh = false;
         endUiBusy();
@@ -2517,7 +2145,6 @@ void MainWindow::deleteConnection() {
     m_refreshPending = 0;
     m_refreshTotal = 0;
     m_refreshInProgress = false;
-    updateConnectivityMatrixButtonState();
     updateBusyCursor();
     loadConnections();
 }

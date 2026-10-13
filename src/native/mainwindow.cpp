@@ -1770,41 +1770,6 @@ bool MainWindow::fetchConnectionCommandOutput(int connIdx,
     return true;
 }
 
-bool MainWindow::fetchConnectionProbeOutput(int sourceConnIdx,
-                                            const QString& actionName,
-                                            const QString& remoteCmd,
-                                            QString* mergedOutputOut,
-                                            QString* failureDetailOut,
-                                            int timeoutMs,
-                                            const QByteArray& stdinPayload) {
-    if (sourceConnIdx < 0 || sourceConnIdx >= m_conns.profiles.size() || actionName.trimmed().isEmpty()) {
-        if (failureDetailOut) {
-            *failureDetailOut = QStringLiteral("invalid probe context");
-        }
-        return false;
-    }
-    const ConnectionProfile src = m_conns.profiles[sourceConnIdx];
-    QString out;
-    QString err;
-    int rc = -1;
-    const bool ok = runSsh(src, remoteCmd, timeoutMs, out, err, rc, nullptr, nullptr, nullptr,
-                           stdinPayload);
-    const QString merged = (out + QStringLiteral("\n") + err).trimmed();
-    if (mergedOutputOut) {
-        *mergedOutputOut = merged;
-    }
-    if (!ok || rc != 0) {
-        if (failureDetailOut) {
-            *failureDetailOut = merged.isEmpty() ? QStringLiteral("ssh exit %1").arg(rc) : merged;
-        }
-        return false;
-    }
-    if (failureDetailOut) {
-        failureDetailOut->clear();
-    }
-    return true;
-}
-
 QMap<QString, QMap<QString, QString>> MainWindow::poolAutoSnapshotPropsByDataset(int connIdx, const QString& poolName) const {
     if (const PoolInfo* poolInfo = findPoolInfo(connIdx, poolName)) {
         return poolInfo->runtime.autoSnapshotPropsByDataset;

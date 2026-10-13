@@ -1046,24 +1046,13 @@ private Q_SLOTS:
         QVERIFY(hasAction(connections, QStringLiteral("New Pool")));
         QVERIFY(hasAction(connections, QStringLiteral("daemon")));
 
-        // 2. Comprobar conectividad vive en Ayuda, y separada por una barra.
+        // 2. No «Check connectivity» and no «Install helper commands»: they tested SSH,
+        // which is not how anything runs any more.
         QMenu* help = menuNamed(QStringLiteral("Ayuda"));
         if (!help) help = menuNamed(QStringLiteral("Help"));
         QVERIFY(help);
-        QVERIFY(hasAction(help, QStringLiteral("connectivity")));
-        bool foundConnectivity = false;
-        bool separatorAfter = false;
-        for (QAction* a : help->actions()) {
-            if (foundConnectivity) {
-                separatorAfter = a && a->isSeparator();
-                break;
-            }
-            if (a && a->text().contains(QStringLiteral("connectivity"), Qt::CaseInsensitive)) {
-                foundConnectivity = true;
-            }
-        }
-        QVERIFY2(separatorAfter,
-                 "«Comprobar conectividad» tiene que quedar separada del resto por una barra");
+        QVERIFY(!hasAction(help, QStringLiteral("connectivity")));
+        QVERIFY(!hasAction(connections, QStringLiteral("helper")));
 
         // 3. Ajustes es de primer nivel, con Log dentro y la casilla de confirmación.
         QMenu* settings = menuNamed(QStringLiteral("Settings"));

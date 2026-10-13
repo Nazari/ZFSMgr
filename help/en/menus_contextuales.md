@@ -14,7 +14,6 @@ visible, the name goes **inside** the label: `Edit "unibody"`, not `Edit`.
 - `Edit` · `Delete`
 - `Connect` · `Disconnect` · `Refresh` · `Refresh all`
 - `New Pool`
-- `Install helper commands`
 - `Reinstall/Update daemon`
 - `Repair temporary mountpoints`
 - `Export trust-store to this connection`
@@ -29,9 +28,6 @@ Enablement rules:
 - `Edit` and `Delete`: not available on the Local connection nor on connections redirected to
   Local.
 - `New Pool`: connection connected.
-- `Install helper commands`: only if the refresh detected a package manager and a supported
-  install plan for the missing commands. Does not apply to Windows connections, which work
-  through the native agent only.
 - `Reinstall/Update daemon`: any connection, Windows and Local included, and **also when
   disconnected** — which is exactly when it is usually needed.
 - `Repair temporary mountpoints`: any non-Windows connection, Local included (a local dataset

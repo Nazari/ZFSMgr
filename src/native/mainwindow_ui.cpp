@@ -1497,19 +1497,6 @@ void MainWindow::buildUi() {
         trk(QStringLiteral("t_help_menu_001"),
             QStringLiteral("Ayuda")));
 
-    // Comprobar conectividad ABRE el menú y va separada por una barra. No es un tema de
-    // ayuda —hace algo, habla con las máquinas— y mezclarla con los temas la convertía en
-    // uno más de la lista.
-    m_connectivityMatrixAction = helpMenu->addAction(
-        trk(QStringLiteral("t_connectivity_menu_001"),
-            QStringLiteral("Comprobar conectividad"),
-            QStringLiteral("Check connectivity")));
-    connect(m_connectivityMatrixAction, &QAction::triggered, this, [this]() {
-        logUiAction(QStringLiteral("Comprobar conectividad (menú)"));
-        openConnectivityMatrixDialog();
-    });
-    helpMenu->addSeparator();
-
     QAction* quickManualAct = helpMenu->addAction(
         trk(QStringLiteral("t_help_quick_001"),
             QStringLiteral("Manual rápido")));
@@ -1659,8 +1646,6 @@ void MainWindow::buildUi() {
     connLayout->setSpacing(2);
     const int stdLeftBtnH = 34;
     m_poolMgmtBox = nullptr;
-
-    updateConnectivityMatrixButtonState();
 
     // La caja «Acciones» ya no existe. Contenía la rejilla de seis botones de
     // origen+destino, que pasaron al menú contextual del destino; con ellos fuera se

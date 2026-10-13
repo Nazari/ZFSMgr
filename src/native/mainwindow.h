@@ -439,7 +439,6 @@ private:
         MainWindow* m_w;
     };
     int connectionIndexByNameOrId(const QString& value) const;
-    int equivalentSshForLocal(int localIdx) const;
     void removeDuplicateMachineConnections(int keepIdx);
     void refreshAllConnections();
     void refreshSelectedConnection();
@@ -455,7 +454,6 @@ private:
     QColor connectionStateRowColor(int connIdx) const;
     QString connectionStateColorReason(int connIdx) const;
     QString connectionStateTooltipHtml(int connIdx) const;
-    void openConnectivityMatrixDialog();
     void fillConnectionsMenu(QMenu* menu);
     void rebuildConnectionEntityTabs();
     struct DatasetTreeRenderOptions {
@@ -713,22 +711,9 @@ private:
         const DatasetSelectionContext& ctx, const QTreeWidget* treeHint = nullptr) const;
     QStringList daemonizeZfsMutationArgs(int connIdx, const QStringList& argv) const;
     QStringList daemonizeZpoolMutationArgs(int connIdx, const QStringList& argv) const;
-    bool fetchConnectionCommandOutput(int connIdx,
-                                      const QString& actionName,
-                                      const QString& remoteCmd,
-                                      QString* outputOut,
-                                      QString* failureDetailOut = nullptr,
-                                      int timeoutMs = 45000);
-    // `stdinPayload` existe para que un secreto pueda llegar al otro extremo SIN ir dentro
-    // de `remoteCmd`: la orden acaba siendo un argumento de ssh y se lee con un `ps` aquí
-    // mismo. Lo usa la matriz de conectividad para darle la contraseña a `sshpass -d0`.
-    bool fetchConnectionProbeOutput(int sourceConnIdx,
-                                    const QString& actionName,
-                                    const QString& remoteCmd,
-                                    QString* mergedOutputOut,
-                                    QString* failureDetailOut = nullptr,
-                                    int timeoutMs = 12000,
-                                    const QByteArray& stdinPayload = QByteArray());
+    bool fetchConnectionCommandOutput(int connIdx, const QString& actionName,
+                                      const QString& remoteCmd, QString* outputOut,
+                                      QString* failureDetailOut = nullptr, int timeoutMs = 45000);
     bool ensureLocalSudoCredentials(ConnectionProfile& profile);
     bool hasEquivalentLocalSshConnection() const;
     void invalidateDatasetCacheEntry(int connIdx, const QString& poolName, const QString& objectName, bool invalidatePermissions = true);
@@ -878,7 +863,6 @@ private:
     void updateBusyCursor();
     QString defaultStatusTextForCurrentState() const;
     QString defaultIdleStatusText() const;
-    void updateConnectivityMatrixButtonState();
     bool actionsLocked() const;
     void loadUiSettings();
     void saveUiSettings() const;
@@ -1019,7 +1003,6 @@ private:
     // el invariante vive en el propio registro. Ver connectionregistry.h.
     ConnectionRegistry m_conns;
 
-    QAction* m_connectivityMatrixAction{nullptr};
     QTabWidget* m_rightTabs{nullptr};
     QWidget* m_pendingChangesTab{nullptr};
     QGroupBox* m_poolMgmtBox{nullptr};
@@ -1275,7 +1258,6 @@ private:
     bool m_actionsLocked{false};
     bool m_waitCursorActive{false};
     int m_uiBusyDepth{0};
-    bool m_connectivityMatrixInProgress{false};
     bool m_closing{false};
     // Set by the destructor only. Pool tasks read it from their threads, so it is atomic; once
     // set, nothing more is sent to the window's thread (see runWhereTunnelsAllowed).

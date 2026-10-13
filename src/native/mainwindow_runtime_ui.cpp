@@ -238,11 +238,3 @@ void MainWindow::updateBusyCursor() {
         }
     }
 }
-
-void MainWindow::updateConnectivityMatrixButtonState() {
-    if (!m_connectivityMatrixAction) {
-        return;
-    }
-    const bool enabled = !m_refreshInProgress && !m_connectivityMatrixInProgress;
-    m_connectivityMatrixAction->setEnabled(enabled);
-}
