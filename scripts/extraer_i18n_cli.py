@@ -10,7 +10,8 @@ Reconoce las dos formas en que se marca un texto traducible:
     T("clave", "castellano")  /  TC("clave", "castellano")
     {"clave", "castellano"}   (el catálogo de ayuda)
 """
-import json, re, sys
+import json
+import re, sys
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parents[1]
@@ -112,11 +113,27 @@ def main():
             print("   %-22s %s" % (k, repr(encontrados[k])[:76]))
     for k in sorted(sinTraducir, key=lambda x: encontrados[x]):
         print("   %-22s %s" % (k, repr(encontrados[k])[:76]))
+    # The printf specifiers of the English must be the Spanish ones, in order: a stale
+    # translation with one more («deploying %s (%zu bytes) to %s») reads arguments that
+    # are not there, which is undefined behaviour and printed a pointer and «(null)».
+    especificador = re.compile(r'%(?:\d+\$)?[-+ #0]*\d*(?:\.\d+)?(?:hh|h|ll|l|z|j|t|L)?'
+                               r'[diouxXeEfgGcspn%]|%\d')
+    def especificadores(s):
+        # printf's in order; the positional %1, %2 of B::format may move, so as a set.
+        todos = [m for m in especificador.findall(s) if m != '%%']
+        return ([m for m in todos if not m[1:].isdigit()],
+                sorted(m for m in todos if m[1:].isdigit()))
+    distintos = [k for k in encontrados
+                 if k in en and especificadores(encontrados[k]) != especificadores(en[k])]
+    for k in sorted(distintos):
+        print("   %-22s %r | %r" % (k, encontrados[k][:50], en[k][:50]))
+    if distintos:
+        print(f"\nFALLO: {len(distintos)} traducciones con otros especificadores de formato "
+              f"que el castellano.")
     if sinTraducir:
         print(f"\nFALLO: {len(sinTraducir)} textos del CLI saldrían EN CASTELLANO con la "
               f"interfaz en inglés.\n       Añádelos a i18n/en.json.")
-        return 1
-    return 0
+    return 1 if sinTraducir or distintos else 0
 
 if __name__ == '__main__':
     sys.exit(main())

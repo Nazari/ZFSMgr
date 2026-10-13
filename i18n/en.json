@@ -372,7 +372,7 @@
     "t_desc_no_valido": "invalid descriptor",
     "t_descarga_l_d86fbd": "Unload the encryption key.",
     "t_descend_8f0ee4": "--descend",
-    "t_desplegand_79081c": "deploying %s (%zu bytes) to %s...\n",
+    "t_desplegand_79081c": "deploying %s to %s...\n",
     "t_destino_132a32": "[destination]",
     "t_destino_bb3347": "<destination>",
     "t_destino_r__8b306f": "[destination] [-r|-R] [-f]",
