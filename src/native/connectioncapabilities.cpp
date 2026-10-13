@@ -116,15 +116,12 @@ QString featureAgentVerb(Feature f) {
 
 QString featureRequiredTool(Feature f) {
     switch (f) {
-    // Nada necesita ya rsync: Sincronizar, Desglosar, Ensamblar y Hacia Dir copian con la
-    // implementación propia del agente. Ver docs/diseno_tecnico_copia_nativa_sin_rsync.md.
-    // Las instantáneas programadas con destino remoto salen por ssh desde el agente.
-    case Feature::AutoSnapshotsGsa:
-        return QStringLiteral("ssh");
-    case Feature::ShellActions:
-        return QStringLiteral("sh");
-    default:
-        return QString();
+        // Nothing needs rsync any more: the agent copies with its own engine. Nor ssh for
+        // schedules: levelling to another machine goes daemon to daemon, through the peers.
+        case Feature::ShellActions:
+            return QStringLiteral("sh");
+        default:
+            return QString();
     }
 }
 

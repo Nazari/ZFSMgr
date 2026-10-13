@@ -1,5 +1,7 @@
 #include "mainwindow.h"
 
+#include "agentmsg.h"
+
 #include "transfer.h"
 #include "mainwindow_helpers.h"
 #include "requests.h"
@@ -2100,6 +2102,8 @@ void MainWindow::pollDaemonJobs() {
         if (i >= m_activeDaemonJobs.size() || m_activeDaemonJobs[i].jobId != pollJobId) continue;
         ActiveDaemonJob& job = m_activeDaemonJobs[i];
 
+        QString errorCode;
+        QString errorArgs;
         for (const QString& line : out.split('\n')) {
             if (line.startsWith(QStringLiteral("STATE=")))
                 job.state = line.mid(6).trimmed();
@@ -2111,8 +2115,15 @@ void MainWindow::pollDaemonJobs() {
                 job.elapsedSecs = line.mid(13).trimmed().toLong();
             else if (line.startsWith(QStringLiteral("PROGRESS_LINE=")))
                 job.lastProgressLine = line.mid(14).trimmed();
-            else if (line.startsWith(QStringLiteral("ERROR=")))
-                job.errorText = line.mid(6).trimmed();
+            else if (line.startsWith(QStringLiteral("ERROR_CODE=")))
+                errorCode = line.mid(11).trimmed();
+            else if (line.startsWith(QStringLiteral("ERROR_ARGS=")))
+                errorArgs = line.mid(11).trimmed();
+        }
+        // Why it failed comes as a code and its arguments; it is worded here.
+        if (!errorCode.isEmpty()) {
+            job.errorText = QString::fromStdString(zfsmgr::base::agentmsg::renderJsonArgs(
+                errorCode.toStdString(), errorArgs.toStdString()));
         }
 
         if (job.state == QStringLiteral("done")) {

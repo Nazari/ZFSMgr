@@ -31,6 +31,10 @@ bool isKnown(const std::string& code);
 // code INSTEAD of a sentence.
 std::string render(const std::string& code, const std::vector<std::string>& args);
 
+// The same, with the arguments as the JSON array a job's status carries (`ERROR_ARGS=`,
+// `error_args`). Empty when there is no code: the job did not fail with one.
+std::string renderJsonArgs(const std::string& code, const std::string& argsJson);
+
 // The code of the last answer read by the transport IN THIS THREAD, empty if it had none. For
 // the few places that decide by the kind of failure («the daemon does not have this verb»)
 // without changing the signature of everything in between, which only carries text.

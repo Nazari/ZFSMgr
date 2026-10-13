@@ -119,22 +119,26 @@ private Q_SLOTS:
     // no debe ofrecerse. Antes solo se sondeaban para pintar una lista informativa.
     void missingToolDisablesTheFeaturesThatNeedIt() {
         Platform p = unixReady();
-        p.missingTools.insert(QStringLiteral("ssh"));
+        p.missingTools.insert(QStringLiteral("sh"));
         // Y no debe afectar a lo que no lo usa.
         QVERIFY(featureAvailability(Feature::DatasetPermissions, p).available);
+        QCOMPARE(featureAvailability(Feature::ShellActions, p).reason, Reason::MissingTool);
+    }
 
-        Platform q = unixReady();
-        q.missingTools.insert(QStringLiteral("ssh"));
-        QCOMPARE(featureAvailability(Feature::AutoSnapshotsGsa, q).reason, Reason::MissingTool);
+    // Schedules do not need ssh: levelling goes daemon to daemon through the peers.
+    void schedulesDoNotNeedSsh() {
+        Platform p = unixReady();
+        p.missingTools.insert(QStringLiteral("ssh"));
+        QVERIFY(featureAvailability(Feature::AutoSnapshotsGsa, p).available);
     }
 
     // Una herramienta ausente pesa más que lo que declare el agente: da igual que sirva
     // el verbo si no puede ejecutar el programa.
     void missingToolWinsOverDeclaredCapabilities() {
         Platform p = unixReady();
-        p.daemonCaps.insert(featureAgentVerb(Feature::AutoSnapshotsGsa));
-        p.missingTools.insert(QStringLiteral("ssh"));
-        QCOMPARE(featureAvailability(Feature::AutoSnapshotsGsa, p).reason, Reason::MissingTool);
+        p.daemonCaps.insert(featureAgentVerb(Feature::ShellActions));
+        p.missingTools.insert(QStringLiteral("sh"));
+        QCOMPARE(featureAvailability(Feature::ShellActions, p).reason, Reason::MissingTool);
     }
 
     void unixKeepsEverythingAvailableWhenDaemonIsReady() {

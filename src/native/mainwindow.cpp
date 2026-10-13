@@ -2691,6 +2691,15 @@ quint64 MainWindow::daemonJobBytesForTest(const QString& jobId) const {
     return 0;
 }
 
+QString MainWindow::daemonJobErrorForTest(const QString& jobId) const {
+    for (const ActiveDaemonJob& j : m_activeDaemonJobs) {
+        if (j.jobId == jobId) {
+            return j.errorText;
+        }
+    }
+    return {};
+}
+
 MainWindow::TransferSelectionForTest MainWindow::transferSelectionForTest(const QString& side) const {
     const DatasetSelectionContext ctx = currentDatasetSelection(side);
     TransferSelectionForTest out;

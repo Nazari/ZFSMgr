@@ -252,17 +252,7 @@ bool cmdScheduleStatus(Estado& e, const LineaAnalizada& linea) {
 
 // El error de un trabajo en el idioma de quien lo lee: su código y sus argumentos (agentmsg).
 std::string errorDeTrabajo(const std::string& codigo, const std::string& argsJson) {
-    if (codigo.empty()) {
-        return {};
-    }
-    std::vector<std::string> args;
-    B::json::Value v;
-    std::string err;
-    if (B::json::parse(argsJson.empty() ? "[]" : argsJson, v, &err)) {
-        for (const auto& a : v.toArray())
-            args.push_back(a.toString());
-    }
-    return B::agentmsg::render(codigo, args);
+    return B::agentmsg::renderJsonArgs(codigo, argsJson);
 }
 
 std::string errorDeTrabajo(const std::map<std::string, std::string>& k) {

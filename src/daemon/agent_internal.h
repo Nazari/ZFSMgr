@@ -77,6 +77,7 @@ typedef int pid_t;
 #include "base/strutil.h"
 #include "base/tlsserver.h"
 #include "base/tlsclient.h"
+#include "base/transportcmd.h"
 #include "commands/zfsprops.h"
 #include "commands/transfer.h"
 #include <openssl/x509v3.h>
@@ -1095,11 +1096,7 @@ public:
             verbos_[n] = Verbo{haz, false};
         }
     }
-    void soloPorRpc(std::initializer_list<const char*> nombres) {
-        for (const char* n : nombres) {
-            verbos_.at(n).soloRpc = true;
-        }
-    }
+    void soloPorRpc(const std::string& nombre) { verbos_.at(nombre).soloRpc = true; }
     const Verbo* busca(const std::string& nombre) const {
         const auto it = verbos_.find(nombre);
         return it == verbos_.end() ? nullptr : &it->second;

@@ -738,6 +738,18 @@ struct VigilanteDeInactividad {
 
 }  // namespace
 
+namespace {
+// A verb carrying a secret whose RPC failed: running it through SSH would only get the agent's
+// refusal, so the RPC's own reason is what the caller gets.
+bool sinRespaldoParaSecretos(std::string& err, int& rc) {
+    const std::string motivo = trim(err);
+    err = i18n::tr("t_solo_por_rpc", "esto solo se hace por el RPC del daemon, y no ha respondido")
+          + (motivo.empty() ? std::string() : ": " + motivo);
+    rc = -1;
+    return false;
+}
+}  // namespace
+
 bool runSsh(TransportSession& ses,
             const ConnectionProfile& p,
             const std::string& remoteCmd,
@@ -806,6 +818,9 @@ bool runSsh(TransportSession& ses,
                 entregaLineas(ses, p.id, err, onStderrLine, echoOutputToLog);
                 ecoResumen(ses, p.id, out, err, echoOutputToLog);
                 return true;
+            }
+            if (!localAgentArgs.empty() && agentVerbCarriesSecret(localAgentArgs.front())) {
+                return sinRespaldoParaSecretos(err, rc);
             }
         }
 
@@ -884,6 +899,9 @@ bool runSsh(TransportSession& ses,
             && tryAgentRpcOverSsh(ses, p, agentArgs, timeoutMs, out, err, rc, onStdoutLine,
                                   onStderrLine, echoOutputToLog)) {
             return true;
+        }
+        if (!agentArgs.empty() && agentVerbCarriesSecret(agentArgs.front())) {
+            return sinRespaldoParaSecretos(err, rc);
         }
     }
 

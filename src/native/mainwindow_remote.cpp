@@ -1,5 +1,7 @@
 #include "mainwindow.h"
 
+#include "agentmsg.h"
+
 #include "transport.h"
 
 #include "base/json.h"
@@ -283,14 +285,18 @@ bool MainWindow::runAgentMutationAsJob(const ConnectionProfile& p,
         }
         QString state;
         QString jobErr;
+        QString jobErrCode;
+        QString jobErrArgs;
         QString jobOut;
         int jobRc = 0;
         for (const QString& line : stOut.split('\n', Qt::SkipEmptyParts)) {
             const QString t = line.trimmed();
             if (t.startsWith(QStringLiteral("STATE="))) {
                 state = t.mid(6).trimmed();
-            } else if (t.startsWith(QStringLiteral("ERROR="))) {
-                jobErr = t.mid(6).trimmed();
+            } else if (t.startsWith(QStringLiteral("ERROR_CODE="))) {
+                jobErrCode = t.mid(11).trimmed();
+            } else if (t.startsWith(QStringLiteral("ERROR_ARGS="))) {
+                jobErrArgs = t.mid(11).trimmed();
             } else if (t.startsWith(QStringLiteral("OUT="))) {
                 jobOut = t.mid(4).trimmed();
             } else if (t.startsWith(QStringLiteral("RC="))) {
@@ -314,6 +320,10 @@ bool MainWindow::runAgentMutationAsJob(const ConnectionProfile& p,
                 *cancelledOut = true;
             }
             out = jobOut;
+            // The agent says why as a code and its arguments; it is worded here, in the
+            // client's language.
+            jobErr = QString::fromStdString(zfsmgr::base::agentmsg::renderJsonArgs(
+                jobErrCode.toStdString(), jobErrArgs.toStdString()));
             err = jobErr;
             rc = (state == QStringLiteral("done")) ? jobRc : (jobRc != 0 ? jobRc : 1);
             if (progressCb && !jobOut.isEmpty()) {

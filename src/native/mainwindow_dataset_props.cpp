@@ -2,6 +2,7 @@
 #include "base/helpers.h"
 
 #include "commands/gsa.h"
+#include "commands/peers.h"
 #include "mainwindow_helpers.h"
 #include "mainwindow_ui_logic.h"
 
@@ -384,9 +385,12 @@ QString MainWindow::gsaMensajeDeMotivo(const zfsmgr::base::gsa::Reason& m,
                        QStringLiteral("La programación GSA de %1 tiene Nivelar=on pero no tiene Destino."),
                        QStringLiteral("GSA scheduling for %1 has Level=on but no Destination.")).arg(dataset);
         case F::MalformedTarget:
-            return trk(QStringLiteral("t_gsa_dest_format_001"),
-                       QStringLiteral("El destino GSA de %1 debe tener formato Con::Pool/Dataset."),
-                       QStringLiteral("The GSA destination for %1 must use the Con::Pool/Dataset format.")).arg(dataset);
+            return trk(QStringLiteral("t_gsa_dest_format_002"),
+                       QStringLiteral("El destino GSA de %1 tiene que ser la URL de un dataset: "
+                                      "zfsm://conexión/pool/dataset."),
+                       QStringLiteral("The GSA destination for %1 must be the URL of a dataset: "
+                                      "zfsm://connection/pool/dataset."))
+                .arg(dataset);
         case F::TargetHasNoConnection:
             return trk(QStringLiteral("t_gsa_dest_conn_missing_001"),
                        QStringLiteral("El destino GSA de %1 referencia una conexión inexistente: %2."),
@@ -1400,9 +1404,28 @@ void MainWindow::applyDatasetPropertyChanges() {
                                           ? item.draft.inheritByProp.value(prop)
                                           : originalInh;
                 const QString originalValue = originalValues.value(prop);
-                const QString finalValue = item.draft.valuesByProp.contains(prop)
-                                               ? item.draft.valuesByProp.value(prop)
-                                               : originalValue;
+                QString finalValue = item.draft.valuesByProp.contains(prop)
+                                         ? item.draft.valuesByProp.value(prop)
+                                         : originalValue;
+                // The target as the machine that RUNS the schedule reads it: «local» written
+                // here means THIS machine, which over there is called by its own name. Same
+                // rule as the shell's `schedule --to`.
+                if (prop.compare(QStringLiteral("org.zfsmgr:schedule-target"), Qt::CaseInsensitive)
+                    == 0) {
+                    std::string conexionDestino;
+                    std::string dsDestino;
+                    if (zfsmgr::base::gsa::splitTarget(finalValue.toStdString(), conexionDestino,
+                                                       dsDestino)) {
+                        const int idxDestino =
+                            connectionIndexByNameOrId(QString::fromStdString(conexionDestino));
+                        finalValue =
+                            QString::fromStdString(zfsmgr::base::gsa::targetForScheduleMachine(
+                                finalValue.toStdString(),
+                                idxDestino >= 0 && isLocalConnection(idxDestino),
+                                isLocalConnection(item.ctx.connIdx),
+                                zfsmgr::base::peers::thisMachineName()));
+                    }
+                }
 
                 if (prop == QStringLiteral("mounted")) {
                     bool finalMounted = false;

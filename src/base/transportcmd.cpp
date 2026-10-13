@@ -4,6 +4,7 @@
 #include "helpers.h"
 #include "strutil.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
@@ -161,6 +162,17 @@ int parseConfigInt(const std::string& v, int fallback) {
 }
 
 }  // namespace
+
+const std::vector<std::string>& agentVerbsCarryingSecrets() {
+    static const std::vector<std::string> verbos = {"--mutate-zfs-load-key",
+                                                    "--mutate-zfs-change-key"};
+    return verbos;
+}
+
+bool agentVerbCarriesSecret(const std::string& verb) {
+    const auto& v = agentVerbsCarryingSecrets();
+    return std::find(v.begin(), v.end(), verb) != v.end();
+}
 
 bool isLocalConnection(const ConnectionProfile& p) {
     return toLowerAscii(p.connType) == "local";

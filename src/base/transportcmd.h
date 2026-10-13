@@ -58,6 +58,12 @@ bool isMutatingAgentCommand(const std::vector<std::string>& agentArgs);
 // least once.
 bool extractLocalAgentArgs(const std::string& remoteCmd, std::vector<std::string>& argsOut);
 
+// The agent verbs that carry a SECRET in their parameters (a key's passphrase). They only go
+// through the RPC, encrypted by mTLS: on the agent's command line they would sit in argv, in
+// sight of `ps`, so the agent refuses them there. A client must not fall back to SSH for them.
+const std::vector<std::string>& agentVerbsCarryingSecrets();
+bool agentVerbCarriesSecret(const std::string& verb);
+
 // --- El material TLS que el daemon remoto manda por SSH.
 
 struct RemoteTlsBundle {

@@ -1036,6 +1036,7 @@
     "t_peers_listen": "--listen <0.0.0.0|::|127.0.0.1>",
     "t_peers_listen_q": "En qué dirección atiende su daemon. Reinicia el daemon.",
     "t_peers_local_red": "%s alcanzará esta máquina como «%s»: su daemon tiene que atender en la red («peers %s --listen 0.0.0.0»)\n",
+    "t_solo_por_rpc": "esto solo se hace por el RPC del daemon, y no ha respondido",
     "t_peers_puestos": "entregadas %zu credenciales a %s\n",
     "t_peers_push": "--push",
     "t_peers_push_q": "Le entrega las credenciales de las demás conexiones.",

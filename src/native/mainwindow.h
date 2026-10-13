@@ -178,6 +178,7 @@ public:
     bool selectTransferJobForTest(const QString& jobId);
     QString selectedTransferJobForTest() const;
     quint64 daemonJobBytesForTest(const QString& jobId) const;
+    QString daemonJobErrorForTest(const QString& jobId) const;
     bool selectSnapshotInPaneDetailForTest(const QString& datasetName, const QString& snapshotName,
                                            bool bottom = false);
     // Deja el panel como lo deja un refresco: sin selección en el árbol y sin origen/destino.

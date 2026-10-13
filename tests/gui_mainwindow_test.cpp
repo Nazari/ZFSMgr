@@ -421,6 +421,36 @@ private Q_SLOTS:
         QVERIFY(preguntoPorElTrabajo);
     }
 
+    // Why a job failed reaches the panel. The agent says it as `ERROR_CODE=` and `ERROR_ARGS=`
+    // and the client words it; the GUI kept reading the old `ERROR=` and a failed transfer
+    // showed no reason at all.
+    void failedJobShowsItsReason() {
+        MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
+        ConnectionProfile profile;
+        profile.id = QStringLiteral("local");
+        profile.name = QStringLiteral("Local");
+        profile.connType = QStringLiteral("Local");
+        profile.useSudo = true;
+        window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank1")}, {});
+        window.setConnectionDaemonStateForTest(0, true, true);
+        window.setAgentTransportForTest(
+            [](const std::vector<std::string>& argv, std::string& out, std::string& err, int& rc) {
+                err.clear();
+                rc = 0;
+                out.clear();
+                if (!argv.empty() && argv[0] == "--job-status") {
+                    out =
+                        "STATE=failed\nBYTES=0\nERROR_CODE=snapshot_not_found\n"
+                        "ERROR_ARGS=[\"tank1/datos@noexiste\"]\n";
+                }
+                return true;
+            });
+        window.addActiveDaemonJobForTest(0, 0, QStringLiteral("job-falla"));
+        window.pollDaemonJobsForTest();
+        const QString motivo = window.daemonJobErrorForTest(QStringLiteral("job-falla"));
+        QVERIFY2(motivo.contains(QStringLiteral("tank1/datos@noexiste")), qPrintable(motivo));
+    }
+
     // La lista de Transferencias se rehace cada 2,5 segundos con el progreso, y `clear()`
     // se llevaba la selección por delante: marcar una para cancelarla y llegar al botón era
     // una carrera contra el siguiente refresco.

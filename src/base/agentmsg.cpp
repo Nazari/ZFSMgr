@@ -1,6 +1,7 @@
 #include "agentmsg.h"
 
 #include "i18n.h"
+#include "json.h"
 
 #include <cstring>
 
@@ -386,5 +387,20 @@ std::string render(const std::string& code, const std::vector<std::string>& args
 
 const std::string& lastCode() { return t_ultimoCodigo; }
 void setLastCode(const std::string& code) { t_ultimoCodigo = code; }
+
+std::string renderJsonArgs(const std::string& code, const std::string& argsJson) {
+    if (code.empty()) {
+        return {};
+    }
+    std::vector<std::string> args;
+    json::Value v;
+    std::string err;
+    if (json::parse(argsJson.empty() ? "[]" : argsJson, v, &err)) {
+        for (const auto& a : v.toArray()) {
+            args.push_back(a.toString());
+        }
+    }
+    return render(code, args);
+}
 
 }  // namespace zfsmgr::base::agentmsg

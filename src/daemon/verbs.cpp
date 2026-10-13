@@ -1114,7 +1114,9 @@ const TablaDeVerbos& tablaDeVerbos() {
             return runRepairAltMountpointsCapture(apply);
         });
 #endif
-        t.soloPorRpc({"--mutate-zfs-load-key", "--mutate-zfs-change-key"});
+        for (const std::string& v : zfsmgr::base::transport::agentVerbsCarryingSecrets()) {
+            t.soloPorRpc(v);
+        }
         return t;
     }();
     return tabla;
