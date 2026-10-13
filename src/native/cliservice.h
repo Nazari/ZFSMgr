@@ -38,7 +38,8 @@ public:
     // A secret the command asks for (a passphrase): false to refuse.
     using AskSecret = std::function<bool(const QString& prompt, QString& secret)>;
     void setAskSecret(AskSecret ask) { m_askSecret = std::move(ask); }
-    void run(const QString& line, Done done);
+    // `format`: empty for the session's (JSON), or "text" for this line only.
+    void run(const QString& line, Done done, const QString& format = QString());
 
     // For the tests: no process; each line is answered by `fake`, and remembered.
     using Fake = std::function<Result(const QString& line)>;
@@ -53,6 +54,7 @@ private:
         int id{0};
         QString line;
         Done done;
+        QString format;
     };
     void startProcess();
     void sendNext();

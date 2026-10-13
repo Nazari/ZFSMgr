@@ -421,10 +421,16 @@ MainWindowConnectionDatasetTreeDelegate::buildPoolRootMenu(QMenu& menu, QTreeWid
     actions.importRename = menu.addAction(m_mainWindow->trk(QStringLiteral("t_ctx_import_rename01"),
                               QStringLiteral("Importar renombrando"),
                               QStringLiteral("Import renaming")));
+    actions.importForce = menu.addAction(m_mainWindow->trk(QStringLiteral("t_ctx_import_force_001"),
+                                                           QStringLiteral("Importar forzando (-f)"),
+                                                           QStringLiteral("Import forcing (-f)")));
     actions.exportPool = menu.addAction(
         m_mainWindow->trk(QStringLiteral("t_export_btn001"),
                           QStringLiteral("Exportar"),
                           QStringLiteral("Export")));
+    actions.exportForce = menu.addAction(m_mainWindow->trk(QStringLiteral("t_ctx_export_force_001"),
+                                                           QStringLiteral("Exportar forzando (-f)"),
+                                                           QStringLiteral("Export forcing (-f)")));
     actions.history = menu.addAction(
         m_mainWindow->trk(QStringLiteral("t_pool_history_t1"),
                           QStringLiteral("Historial")));
@@ -433,6 +439,8 @@ MainWindowConnectionDatasetTreeDelegate::buildPoolRootMenu(QMenu& menu, QTreeWid
                               QStringLiteral("Management")));
     actions.sync = management->addAction(QStringLiteral("Sync"));
     actions.scrub = management->addAction(QStringLiteral("Scrub"));
+    actions.scrubPause = management->addAction(QStringLiteral("Scrub pause"));
+    actions.scrubStop = management->addAction(QStringLiteral("Scrub stop"));
     actions.upgrade = management->addAction(QStringLiteral("Upgrade"));
     actions.reguid = management->addAction(QStringLiteral("Reguid"));
     actions.trim = management->addAction(QStringLiteral("Trim"));
@@ -2135,11 +2143,15 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
         poolActions = buildPoolRootMenu(*poolMenu, tree);
         poolActions.update->setEnabled(poolMenuState.canRefresh);
         poolActions.importPool->setEnabled(poolMenuState.canImport);
+        poolActions.importForce->setEnabled(poolMenuState.canImport);
         poolActions.importRename->setEnabled(poolMenuState.canImport);
         poolActions.exportPool->setEnabled(poolMenuState.canExport);
+        poolActions.exportForce->setEnabled(poolMenuState.canExport);
         poolActions.history->setEnabled(poolMenuState.canHistory);
         poolActions.sync->setEnabled(poolMenuState.canSync);
         poolActions.scrub->setEnabled(poolMenuState.canScrub);
+        poolActions.scrubPause->setEnabled(poolMenuState.canScrub);
+        poolActions.scrubStop->setEnabled(poolMenuState.canScrub);
         poolActions.upgrade->setEnabled(poolMenuState.canUpgrade);
         poolActions.reguid->setEnabled(poolMenuState.canReguid);
         poolActions.trim->setEnabled(poolMenuState.canTrim);
@@ -2149,11 +2161,15 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
         if (poolSuspendedContext) {
             poolActions.update->setEnabled(false);
             poolActions.importPool->setEnabled(false);
+            poolActions.importForce->setEnabled(false);
             poolActions.importRename->setEnabled(false);
             poolActions.exportPool->setEnabled(false);
+            poolActions.exportForce->setEnabled(false);
             poolActions.history->setEnabled(false);
             poolActions.sync->setEnabled(false);
             poolActions.scrub->setEnabled(false);
+            poolActions.scrubPause->setEnabled(false);
+            poolActions.scrubStop->setEnabled(false);
             poolActions.upgrade->setEnabled(false);
             poolActions.reguid->setEnabled(false);
             poolActions.trim->setEnabled(false);
@@ -2736,53 +2752,65 @@ void MainWindowConnectionDatasetTreeDelegate::showGeneralMenu(QTreeWidget* tree,
                 m_mainWindow->refreshPoolStatusNow(connIdx, poolName);
                 return;
             }
-            if (picked == poolActions.importPool && poolMenuState.canImport && poolRow >= 0) {
-                m_mainWindow->importPoolFromRow(poolRow);
+            // Each entry is a shell command on the pool's URL; the shell asks where it asks.
+            const auto enPool = [&](const QString& verbo, const QString& resto = QString()) {
+                m_mainWindow->cliPool(connIdx, poolName, verbo, resto);
+            };
+            if ((picked == poolActions.importPool || picked == poolActions.importForce)
+                && poolMenuState.canImport) {
+                m_mainWindow->cliImportPool(connIdx, poolName, QString(),
+                                            picked == poolActions.importForce);
                 return;
             }
-            if (picked == poolActions.importRename && poolMenuState.canImport && poolRow >= 0) {
-                m_mainWindow->importPoolRenamingFromRow(poolRow);
+            if (picked == poolActions.importRename && poolMenuState.canImport) {
+                bool ok = false;
+                const QString nuevo =
+                    QInputDialog::getText(m_mainWindow, QStringLiteral("ZFSMgr"),
+                                          m_mainWindow->trk(QStringLiteral("t_new_name_001"),
+                                                            QStringLiteral("Nuevo nombre"),
+                                                            QStringLiteral("New name")),
+                                          QLineEdit::Normal, poolName, &ok)
+                        .trimmed();
+                if (ok && !nuevo.isEmpty() && nuevo != poolName) {
+                    m_mainWindow->cliImportPool(connIdx, poolName, nuevo, false);
+                }
                 return;
             }
-            if (picked == poolActions.exportPool && poolMenuState.canExport && poolRow >= 0) {
-                m_mainWindow->exportPoolFromRow(poolRow);
+            if ((picked == poolActions.exportPool || picked == poolActions.exportForce)
+                && poolMenuState.canExport) {
+                enPool(QStringLiteral("export"),
+                       picked == poolActions.exportForce ? QStringLiteral("-f") : QString());
                 return;
             }
-            if (picked == poolActions.history && poolMenuState.canHistory && poolRow >= 0) {
-                m_mainWindow->showPoolHistoryFromRow(poolRow);
+            if (picked == poolActions.history && poolMenuState.canHistory) {
+                m_mainWindow->cliShowOutput(
+                    QStringLiteral("history --on ") + m_mainWindow->zfsmUrl(connIdx, poolName),
+                    m_mainWindow->trk(QStringLiteral("t_pool_history_t1"),
+                                      QStringLiteral("Historial")));
                 return;
             }
-            if (picked == poolActions.sync && poolMenuState.canSync && poolRow >= 0) {
-                m_mainWindow->syncPoolFromRow(poolRow);
-                return;
-            }
-            if (picked == poolActions.scrub && poolMenuState.canScrub && poolRow >= 0) {
-                m_mainWindow->scrubPoolFromRow(poolRow);
-                return;
-            }
-            if (picked == poolActions.upgrade && poolMenuState.canUpgrade && poolRow >= 0) {
-                m_mainWindow->upgradePoolFromRow(poolRow);
-                return;
-            }
-            if (picked == poolActions.reguid && poolMenuState.canReguid && poolRow >= 0) {
-                m_mainWindow->reguidPoolFromRow(poolRow);
-                return;
-            }
-            if (picked == poolActions.trim && poolMenuState.canTrim && poolRow >= 0) {
-                m_mainWindow->trimPoolFromRow(poolRow);
-                return;
-            }
-            if (picked == poolActions.initialize && poolMenuState.canInitialize && poolRow >= 0) {
-                m_mainWindow->initializePoolFromRow(poolRow);
-                return;
-            }
-            if (picked == poolActions.clear && poolMenuState.canClear && poolRow >= 0) {
-                m_mainWindow->clearPoolFromRow(poolRow);
-                return;
-            }
-            if (picked == poolActions.destroy && poolMenuState.canDestroy && poolRow >= 0) {
-                m_mainWindow->destroyPoolFromRow(poolRow);
-                return;
+            const struct {
+                QAction* accion;
+                bool puede;
+                const char* verbo;
+                const char* resto;
+            } simples[] = {
+                {poolActions.sync, poolMenuState.canSync, "flush", ""},
+                {poolActions.scrub, poolMenuState.canScrub, "scrub", ""},
+                {poolActions.scrubPause, poolMenuState.canScrub, "scrub", "pause"},
+                {poolActions.scrubStop, poolMenuState.canScrub, "scrub", "stop"},
+                {poolActions.upgrade, poolMenuState.canUpgrade, "upgrade", ""},
+                {poolActions.reguid, poolMenuState.canReguid, "reguid", ""},
+                {poolActions.trim, poolMenuState.canTrim, "trim", ""},
+                {poolActions.initialize, poolMenuState.canInitialize, "initialize", ""},
+                {poolActions.clear, poolMenuState.canClear, "clear", ""},
+                {poolActions.destroy, poolMenuState.canDestroy, "destroy", ""},
+            };
+            for (const auto& s : simples) {
+                if (picked == s.accion && s.puede) {
+                    enPool(QString::fromLatin1(s.verbo), QString::fromLatin1(s.resto));
+                    return;
+                }
             }
         }
         if (picked == aManageProps) {

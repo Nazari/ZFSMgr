@@ -48,6 +48,11 @@ private:
         QAction* initialize{nullptr};
         QAction* clear{nullptr};
         QAction* destroy{nullptr};
+        // The variants the shell's commands take, as menu entries instead of dialogs.
+        QAction* importForce{nullptr};
+        QAction* exportForce{nullptr};
+        QAction* scrubPause{nullptr};
+        QAction* scrubStop{nullptr};
     };
 
     struct InlineVisibilityMenuActions {

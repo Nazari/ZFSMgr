@@ -502,11 +502,19 @@ private Q_SLOTS:
                                      QStringLiteral("tank1/other/user")));
         window.releaseHoldForTest(0, QStringLiteral("tank1/user"), QStringLiteral("s1"),
                                   QStringLiteral("keep"));
+        window.cliPoolForTest(0, QStringLiteral("tank1"), QStringLiteral("scrub"),
+                              QStringLiteral("pause"));
+        window.cliPoolForTest(0, QStringLiteral("tank1"), QStringLiteral("export"),
+                              QStringLiteral("-f"));
+        window.cliImportPoolForTest(0, QStringLiteral("tank2"), QStringLiteral("tank9"), false);
         const QStringList esperado = {
             QStringLiteral("mount --on zfsm://local/tank1/user"),
             QStringLiteral("destroy -R --on zfsm://local/tank1/user@s1"),
             QStringLiteral("rename tank1/other/user --on zfsm://local/tank1/user"),
             QStringLiteral("release keep --on zfsm://local/tank1/user@s1"),
+            QStringLiteral("scrub pause --on zfsm://local/tank1"),
+            QStringLiteral("export -f --on zfsm://local/tank1"),
+            QStringLiteral("import tank2 --as tank9 --on zfsm://local"),
         };
         QCOMPARE(window.cliLinesForTest(), esperado);
     }

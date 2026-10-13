@@ -186,11 +186,19 @@ int servirOrdenes(Sesion& ses) {
         e.ultimoRc = 0;
         std::string out;
         std::string errTexto;
+        // An optional "format" for this request only: "text" for what is read as it is
+        // (history, status), the session's (json) otherwise.
+        const Formato formatoSesion = e.formato;
+        if (pet["format"].isString()) {
+            const std::string f = pet["format"].toString();
+            e.formato = f == "text" ? Formato::Texto : f == "tsv" ? Formato::Tsv : Formato::Json;
+        }
         {
             CapturaDeOrden captura;
             ejecutaLinea(e, pet["line"].toString(), nullptr);
             captura.termina(out, errTexto);
         }
+        e.formato = formatoSesion;
         res.set("rc", J::Value(static_cast<double>(e.ultimoRc)));
         res.set("stdout", J::Value(out));
         res.set("stderr", J::Value(errTexto));

@@ -38,7 +38,8 @@ namespace zfsmgr::cli {
 // `{"id":N,"type":"result","rc":…,"stdout":…,"stderr":…}`. A secret the command needs (a
 // passphrase) is asked with `{"id":N,"type":"secret","text":…}` and answered with
 // `{"id":N,"secret":"…"}` (or `{"id":N,"secret":null}` to refuse). A command that fails does not end
-// the service. Output is JSON (`--format json` tables) unless a line changes it.
+// the service. Output is JSON (`--format json` tables), or what a request's optional
+// `"format"` (text, tsv, json) says for that request only.
 int servirOrdenes(Sesion& ses);
 
 int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial = {},

@@ -172,9 +172,19 @@ public:
     void addActiveDaemonJobForTest(int srcConnIdx, int dstConnIdx, const QString& jobId);
     void pollDaemonJobsForTest();
     void refreshAllJobsForTest() { refreshAllJobsAsync(); }
-    void setCliFakeForTest(CliService::Fake fake) { m_cli->setFakeForTest(std::move(fake)); }
+    void setCliFakeForTest(CliService::Fake fake) {
+        m_cli->setFakeForTest(std::move(fake));
+        m_refreshAfterCli = false;
+    }
     QStringList cliLinesForTest() const { return m_cli->linesForTest(); }
     bool mountDatasetForTest(int connIdx, const QString& ds);
+    bool cliPoolForTest(int connIdx, const QString& pool, const QString& verb,
+                        const QString& rest) {
+        return cliPool(connIdx, pool, verb, rest);
+    }
+    bool cliImportPoolForTest(int connIdx, const QString& pool, const QString& as, bool force) {
+        return cliImportPool(connIdx, pool, as, force);
+    }
     void destroyForTest(int connIdx, const QString& ds, const QString& snap, const QString& flags);
     bool renameForTest(int connIdx, const QString& src, const QString& target);
     void releaseHoldForTest(int connIdx, const QString& ds, const QString& snap,
@@ -945,16 +955,8 @@ private:
     bool installOrUpdateDaemonForConnectionInternal(int idx, bool interactive);
     void exportPoolFromRow(int row);
     void importPoolFromRow(int row);
-    void importPoolRenamingFromRow(int row);
     void scrubPoolFromRow(int row);
-    void upgradePoolFromRow(int row);
-    void reguidPoolFromRow(int row);
-    void syncPoolFromRow(int row);
-    void trimPoolFromRow(int row);
-    void initializePoolFromRow(int row);
-    void clearPoolFromRow(int row);
     void destroyPoolFromRow(int row);
-    void showPoolHistoryFromRow(int row);
     void createPoolForSelectedConnection();
     void refreshSelectedPoolDetails(bool forceRefresh = false, bool allowRemoteLoadIfMissing = true);
     void refreshPoolStatusNow(int connIdx, const QString& poolName);
@@ -965,19 +967,27 @@ private:
     void updateStatus(const QString& text);
     // The shell service every action goes through (mainwindow_cli.cpp).
     void initCliService();
-    void runCli(const QString& line, std::function<void(const CliService::Result&)> done = {});
+    void runCli(const QString& line, std::function<void(const CliService::Result&)> done = {},
+                const QString& format = QString());
     // The zfsm:// URL of what is selected: a connection, a dataset or a snapshot.
     QString zfsmUrl(int connIdx, const QString& dataset = QString(),
                     const QString& snapshot = QString()) const;
     // After a line that changed something under `ctx`: what the tree shows is read again.
     void refreshAfterCli(const DatasetSelectionContext& ctx);
     // The same, waiting for the answer (mainwindow_cli_actions.cpp).
-    CliService::Result runCliAndWait(const QString& line);
+    CliService::Result runCliAndWait(const QString& line, const QString& format = QString());
     // `<verb> <rest> --on <url of ctx>`; refreshes on success.
     bool cliRunOn(const DatasetSelectionContext& ctx, const QString& verb,
                   const QString& rest = QString());
     void cliDestroy(const DatasetSelectionContext& ctx, const QString& flags);
     void cliHold(const DatasetSelectionContext& ctx);
+    // `<verb> <rest> --on zfsm://<conn>/<pool>`; the connection is read again on success.
+    bool cliPool(int connIdx, const QString& pool, const QString& verb,
+                 const QString& rest = QString());
+    // `import <pool> [--as <new>] [-f] --on zfsm://<conn>`.
+    bool cliImportPool(int connIdx, const QString& pool, const QString& newName, bool force);
+    // A command whose answer is text to read (history, status): shown in a window.
+    void cliShowOutput(const QString& line, const QString& title);
     void buildStatusBar();
     void composeStatusBar();
     void refreshStatusBarSchedulesAsync();
@@ -1205,6 +1215,7 @@ private:
     QList<LogWindow> m_logWindows;
     CliService* m_cli{nullptr};
     bool m_cliRefused{false};  // the user answered «no» to the last confirmation
+    bool m_refreshAfterCli{true};  // off only in tests, where no machine is behind
     QLabel* m_statusBarLabel{nullptr};
     QString m_statusActivity;
     QString m_statusLastError;

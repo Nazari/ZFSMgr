@@ -42,27 +42,32 @@ void MainWindow::initCliService() {
     });
 }
 
-void MainWindow::runCli(const QString& line, std::function<void(const CliService::Result&)> done) {
+void MainWindow::runCli(const QString& line, std::function<void(const CliService::Result&)> done,
+                        const QString& format) {
     // The log shows each line as it would be typed in the shell.
     appLog(QStringLiteral("NORMAL"), QStringLiteral("$ %1").arg(line));
     updateStatus(line);
     m_cliRefused = false;
-    m_cli->run(line, [this, line, done](const CliService::Result& r) {
-        updateStatus(QString());
-        const QString mensaje = r.err.trimmed();
-        if (r.rc == 0) {
-            if (!mensaje.isEmpty()) {
-                appLog(QStringLiteral("INFO"), mensaje);
+    m_cli->run(
+        line,
+        [this, line, done](const CliService::Result& r) {
+            updateStatus(QString());
+            const QString mensaje = r.err.trimmed();
+            if (r.rc == 0) {
+                if (!mensaje.isEmpty()) {
+                    appLog(QStringLiteral("INFO"), mensaje);
+                }
+            } else if (!m_cliRefused) {
+                appLog(QStringLiteral("ERROR"), mensaje.isEmpty() ? line : mensaje);
+                QMessageBox::warning(
+                    this, QStringLiteral("ZFSMgr"),
+                    mensaje.isEmpty() ? QStringLiteral("rc=%1").arg(r.rc) : mensaje);
             }
-        } else if (!m_cliRefused) {
-            appLog(QStringLiteral("ERROR"), mensaje.isEmpty() ? line : mensaje);
-            QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
-                                 mensaje.isEmpty() ? QStringLiteral("rc=%1").arg(r.rc) : mensaje);
-        }
-        if (done) {
-            done(r);
-        }
-    });
+            if (done) {
+                done(r);
+            }
+        },
+        format);
 }
 
 QString MainWindow::zfsmUrl(int connIdx, const QString& dataset, const QString& snapshot) const {
@@ -87,6 +92,9 @@ QString MainWindow::zfsmUrl(int connIdx, const QString& dataset, const QString& 
 }
 
 void MainWindow::refreshAfterCli(const DatasetSelectionContext& ctx) {
+    if (!m_refreshAfterCli) {
+        return;
+    }
     PendingShellActionDraft d;
     d.refreshScope = PendingShellActionDraft::RefreshScope::TargetOnly;
     d.refreshTarget = ctx;

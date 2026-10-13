@@ -25,7 +25,7 @@ void CliService::configure(const QString& executable, const QStringList& argumen
     m_master = master;
 }
 
-void CliService::run(const QString& line, Done done) {
+void CliService::run(const QString& line, Done done, const QString& format) {
     m_lines.push_back(line);
     if (m_fake) {
         // Answered after returning, as the real service would be.
@@ -37,7 +37,7 @@ void CliService::run(const QString& line, Done done) {
         });
         return;
     }
-    m_queue.enqueue(Pending{m_nextId++, line, std::move(done)});
+    m_queue.enqueue(Pending{m_nextId++, line, std::move(done), format});
     if (!m_proc) {
         startProcess();
         return;
@@ -86,6 +86,9 @@ void CliService::sendNext() {
     QJsonObject req;
     req[QStringLiteral("id")] = m_current.id;
     req[QStringLiteral("line")] = m_current.line;
+    if (!m_current.format.isEmpty()) {
+        req[QStringLiteral("format")] = m_current.format;
+    }
     m_proc->write(QJsonDocument(req).toJson(QJsonDocument::Compact) + "\n");
 }
 
