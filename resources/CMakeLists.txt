@@ -541,6 +541,7 @@ add_executable(zfsmgr-cli
     ../src/cli/shell_completion.cpp
     ../src/cli/shell_patterns.cpp
     ../src/cli/shell_loop.cpp
+    ../src/cli/shell_serve.cpp
     ../src/cli/shell_internal.h
     ../src/cli/shell.h
     ../src/cli/tabla.h

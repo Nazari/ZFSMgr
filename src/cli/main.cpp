@@ -35,6 +35,7 @@
 #include <cstdlib>
 
 #ifdef _WIN32
+#include <io.h>
 #include <windows.h>
 #endif
 #include <algorithm>
@@ -68,51 +69,55 @@ constexpr const char* kNombre = "zfsmgr-cli";
 // stderr con estado distinto de 0, para que un guion pueda separar una cosa de la otra.
 void uso(std::FILE* salida) {
     std::fprintf(salida,
-                 TC("t_uso_s_opci_010447", "Uso: %s [opciones] <orden>\n"
-                 "\n"
-                 "Sin ninguna orden entra en MODO INTERACTIVO: un intérprete donde la\n"
-                 "posición es una URL zfsm:// y todas las órdenes actúan sobre ella.\n"
-                 "\n"
-                 "Órdenes:\n"
-                 "  (ninguna)             Modo interactivo, empezando en la raíz (zfsm://)\n"
-                 "  connections list      Lista las conexiones configuradas\n"
-                 "  url parse <zfsm://…>  Analiza una URL y enseña qué nombra\n"
-                 "  version               Versión de esta herramienta\n"
-                 "\n"
-                 "Opciones:\n"
-                 "  --password-fd <n>     Lee la contraseña maestra de ese descriptor.\n"
-                 "                        Sin ella se pregunta por el terminal.\n"
-                 "  --config-dir <ruta>   Directorio de configuración (por omisión,\n"
-                 "                        ~/.config/ZFSMgr)\n"
-                 "  --no-secrets          No descifra nada: no pide contraseña maestra.\n"
-                 "                        Los campos cifrados salen como <cifrado>.\n"
-                 "  --format text|tsv|json\n"
-                 "                        text (por omisión) es para leer; tsv es para\n"
-                 "                        guiones: sin encabezado, tabuladores, columnas\n"
-                 "                        fijas en inglés y «-» donde no hay valor, igual\n"
-                 "                        que `zfs list -H`; json es para programas: los\n"
-                 "                        números salen como números, los booleanos como\n"
-                 "                        booleanos y lo que no aplica como null.\n"
-                 "                        connections list: id, name, type, os, user,\n"
-                 "                        host, port, sudo, tls, connected\n"
-                 "  --url <zfsm://…>      Dónde empezar en el modo interactivo\n"
-                 "  --lang es|en          Idioma de los mensajes. Sin él, el que use la\n"
-                 "                        interfaz gráfica (app.language de config.json).\n"
-                 "  -v, --verbose         Cuenta por la salida de error lo que hace el\n"
-                 "                        transporte con cada máquina\n"
-                 "  -y, --yes             No preguntar antes de las acciones destructivas\n"
-                 "  --no-schedule-check   No comprobar al arrancar el estado de las\n"
-                 "                        programaciones de snapshots\n"
-                 "  --no-tui              Terminal sencillo: sin línea multilínea, sin\n"
-                 "                        repintar al cambiar el tamaño ni zona de estado\n"
-                 "  -h, --help            Esta ayuda\n"
-                 "\n"
-                 "La contraseña maestra NO se pasa por argumento ni por variable de\n"
-                 "entorno: las dos cosas quedan visibles en `ps` para cualquier usuario\n"
-                 "de la máquina. Con el descriptor se puede usar cualquier gestor de\n"
-                 "secretos:\n"
-                 "\n"
-                 "  %s --password-fd 3 connections list  3< <(pass show zfsmgr)\n"),
+                 TC("t_uso_s_opci_010447",
+                    "Uso: %s [opciones] <orden>\n"
+                    "\n"
+                    "Sin ninguna orden entra en MODO INTERACTIVO: un intérprete donde la\n"
+                    "posición es una URL zfsm:// y todas las órdenes actúan sobre ella.\n"
+                    "\n"
+                    "Órdenes:\n"
+                    "  (ninguna)             Modo interactivo, empezando en la raíz (zfsm://)\n"
+                    "  connections list      Lista las conexiones configuradas\n"
+                    "  url parse <zfsm://…>  Analiza una URL y enseña qué nombra\n"
+                    "  version               Versión de esta herramienta\n"
+                    "\n"
+                    "Opciones:\n"
+                    "  --password-fd <n>     Lee la contraseña maestra de ese descriptor.\n"
+                    "                        Sin ella se pregunta por el terminal.\n"
+                    "  --config-dir <ruta>   Directorio de configuración (por omisión,\n"
+                    "                        ~/.config/ZFSMgr)\n"
+                    "  --no-secrets          No descifra nada: no pide contraseña maestra.\n"
+                    "                        Los campos cifrados salen como <cifrado>.\n"
+                    "  --format text|tsv|json\n"
+                    "                        text (por omisión) es para leer; tsv es para\n"
+                    "                        guiones: sin encabezado, tabuladores, columnas\n"
+                    "                        fijas en inglés y «-» donde no hay valor, igual\n"
+                    "                        que `zfs list -H`; json es para programas: los\n"
+                    "                        números salen como números, los booleanos como\n"
+                    "                        booleanos y lo que no aplica como null.\n"
+                    "                        connections list: id, name, type, os, user,\n"
+                    "                        host, port, sudo, tls, connected\n"
+                    "  --url <zfsm://…>      Dónde empezar en el modo interactivo\n"
+                    "  --lang es|en          Idioma de los mensajes. Sin él, el que use la\n"
+                    "                        interfaz gráfica (app.language de config.json).\n"
+                    "  -v, --verbose         Cuenta por la salida de error lo que hace el\n"
+                    "                        transporte con cada máquina\n"
+                    "  -y, --yes             No preguntar antes de las acciones destructivas\n"
+                    "  --no-schedule-check   No comprobar al arrancar el estado de las\n"
+                    "                        programaciones de snapshots\n"
+                    "  --no-tui              Terminal sencillo: sin línea multilínea, sin\n"
+                    "                        repintar al cambiar el tamaño ni zona de estado\n"
+                    "  --serve               Servicio para otro programa: una orden JSON por\n"
+                    "                        línea en la entrada y eventos JSON en la salida\n"
+                    "                        (la contraseña maestra, en la primera línea)\n"
+                    "  -h, --help            Esta ayuda\n"
+                    "\n"
+                    "La contraseña maestra NO se pasa por argumento ni por variable de\n"
+                    "entorno: las dos cosas quedan visibles en `ps` para cualquier usuario\n"
+                    "de la máquina. Con el descriptor se puede usar cualquier gestor de\n"
+                    "secretos:\n"
+                    "\n"
+                    "  %s --password-fd 3 connections list  3< <(pass show zfsmgr)\n"),
                  kNombre, kNombre);
 }
 
@@ -157,6 +162,7 @@ struct Opciones {
     bool asumirSi{false};
     bool sinComprobarProgramaciones{false};
     bool sinPantalla{false};
+    bool servir{false};  // --serve: the shell as a service for another program
     std::vector<std::string> orden;
 };
 
@@ -191,6 +197,30 @@ int listarConexiones(const Opciones& op, const std::string& maestra) {
 // puede dejar una rotación interrumpida. Ahora se recorren todos.
 bool hasSomethingEncrypted(const std::string& dirConfig) {
     return ST::hasSomethingEncrypted(dirConfig);
+}
+
+// One line of standard input, read byte by byte (see --serve). False at end of input.
+bool leeLineaDeEntrada(std::string& linea) {
+    linea.clear();
+    char c = 0;
+    while (true) {
+#ifdef _WIN32
+        const int n = _read(0, &c, 1);
+#else
+        const ssize_t n = ::read(0, &c, 1);
+#endif
+        if (n <= 0) {
+            return !linea.empty();
+        }
+        if (c == '\n') {
+            break;
+        }
+        linea.push_back(c);
+    }
+    if (!linea.empty() && linea.back() == '\r') {
+        linea.pop_back();
+    }
+    return true;
 }
 
 bool maestraAbre(const std::string& dirConfig, const std::string& maestra) {
@@ -291,6 +321,10 @@ int main(int argc, char** argv) {
         }
         if (a == "-y" || a == "--yes") {
             op.asumirSi = true;
+            continue;
+        }
+        if (a == "--serve") {
+            op.servir = true;
             continue;
         }
         if (a == "--no-tui") {
@@ -557,9 +591,20 @@ int main(int argc, char** argv) {
     // solo se leía cuando ya lo había, y eso es un pez que se muerde la cola: para dar de
     // alta la PRIMERA conexión con contraseña hace falta una maestra, y no se pedía porque
     // aún no había nada que descifrar.
-    if (!op.sinSecretos && (op.passwordFd >= 0 || hasSomethingEncrypted(op.dirConfig))) {
+    if (!op.sinSecretos
+        && (op.passwordFd >= 0 || op.servir || hasSomethingEncrypted(op.dirConfig))) {
         std::string err;
-        if (op.passwordFd >= 0) {
+        if (op.servir && op.passwordFd < 0) {
+            // The service's first line of input. Read byte by byte: a buffered read would
+            // swallow the requests the client may already have written behind it.
+            // The first line is always the master password, empty when nothing is encrypted.
+            const bool leida = leeLineaDeEntrada(maestra) || maestra.empty();
+            if (!leida
+                || (hasSomethingEncrypted(op.dirConfig) && !maestraAbre(op.dirConfig, maestra))) {
+                std::fputs("{\"type\":\"error\",\"text\":\"wrong master password\"}\n", stdout);
+                return 1;
+            }
+        } else if (op.passwordFd >= 0) {
             if (!zfsmgr::cli::leerSecretoDeDescriptor(op.passwordFd, maestra, err)) {
                 std::fprintf(stderr, "%s: %s\n", kNombre, err.c_str());
                 return 1;
@@ -596,7 +641,11 @@ int main(int argc, char** argv) {
     }
 
     int rc = 0;
-    if (op.orden.empty()) {
+    if (op.servir) {
+        auto ses = zfsmgr::cli::crearSesionDeFondo(op.dirConfig, maestra);
+        rc = zfsmgr::cli::servirOrdenes(*ses);
+        zfsmgr::base::transport::closeAllTunnels(ses->transporte);
+    } else if (op.orden.empty()) {
         // Sin orden, el intérprete. Es la puerta por la que el CLI pasa de leer la
         // configuración a hablar con las máquinas.
         auto ses = zfsmgr::cli::crearSesion(op.dirConfig, maestra, op.verboso, op.sinSecretos);

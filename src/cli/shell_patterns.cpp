@@ -427,6 +427,7 @@ const std::map<std::string, ReglaPatron>& reglasDePatron() {
         {"disconnect", {Politica::Varios, {}}},
         {"destroy", {Politica::VariosModifica, {Pieza::Hijo, Pieza::Instantanea}}},
         {"set", {Politica::VariosModifica, {Pieza::Pool, Pieza::Hijo, Pieza::Instantanea}}},
+        {"inherit", {Politica::VariosModifica, {Pieza::Pool, Pieza::Hijo, Pieza::Instantanea}}},
         {"mount", {Politica::VariosModifica, {Pieza::Pool, Pieza::Hijo}}},
         {"unmount", {Politica::VariosModifica, {Pieza::Pool, Pieza::Hijo}}},
         {"hold", {Politica::VariosModifica, {Pieza::Instantanea}}},

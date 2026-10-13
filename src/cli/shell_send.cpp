@@ -400,7 +400,7 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
     }
     const std::string jobId = trabajo.id;
     e.ultimoRc = 0;
-    std::fprintf(stdout, "%s\n", jobId.c_str());
+    imprimeTrabajo(e, jobId, origen.connection);
     std::fprintf(stderr,
                  TC("t_transferen_07aa2e", "transferencia en marcha como trabajo %s en %s\n"),
                  jobId.c_str(), origen.connection.c_str());

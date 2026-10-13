@@ -186,6 +186,9 @@ struct Estado {
     bool hayAnterior{false};
     Formato formato{Formato::Texto};
     bool asumirSi{false};  // `-y`: no preguntar antes de lo destructivo
+    // In service mode (--serve), how a confirmation is asked: as an event to the client, whose
+    // answer comes back on standard input. Empty in the terminal.
+    std::function<bool(const std::string&)> preguntaServicio;
     bool salir{false};
     int ultimoRc{0};
 };
@@ -280,6 +283,9 @@ bool esSeccionDeFicheros(const ZfsmUrl& u);
 bool esRutaSuelta(const ZfsmUrl& u);
 bool equivaleADataset(Estado& e, ZfsmUrl& u, const std::string& comoSeEscribio);
 bool prepara(Estado& e, const LineaAnalizada& linea, Peticion& p);
+// The id of a job a command launched, on standard output: alone, or `{"job_id":…,
+// "connection":…}` with --format json, so a program reading the output can follow it.
+void imprimeTrabajo(const Estado& e, const std::string& id, const std::string& conexion);
 bool confirma(const Estado& e, const std::string& que);
 bool aplicaFiltro(Estado& e, Tabla& t, std::initializer_list<std::size_t> columnas = {0});
 void olvidaVersionDaemon(Estado& e, const B::ConnectionProfile& p);
@@ -352,6 +358,7 @@ bool cmdRename(Estado& e, const LineaAnalizada& linea);
 bool cmdMontaje(Estado& e, const LineaAnalizada& linea, bool montar);
 bool cmdPromote(Estado& e, const LineaAnalizada& linea);
 bool cmdSet(Estado& e, const LineaAnalizada& linea);
+bool cmdInherit(Estado& e, const LineaAnalizada& linea);
 bool cmdGet(Estado& e, const LineaAnalizada& linea);
 bool leeProgramaciones(Estado& e, const ZfsmUrl& destino, const std::string& raiz,
                        std::vector<B::gsa::Entry>& out);
@@ -1135,5 +1142,6 @@ bool ejecutaConPatrones(Estado& e, const std::string& orden, const LineaAnalizad
                         const std::function<bool(Estado&, const LineaAnalizada&)>& f);
 int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, bool asumirSi,
                   bool compruebaProgramaciones, bool pantallaCompleta);
+bool ejecutaLinea(Estado& e, const std::string& linea, LectorDeLinea* lector);
 
 }  // namespace zfsmgr::cli

@@ -1342,6 +1342,85 @@ class Tmux:
         subprocess.run(self.t + ["kill-server"], capture_output=True)
 
 
+def casos_servicio(ctx):
+    """`zfsmgr-cli --serve`: el intérprete como servicio de otro programa (la interfaz gráfica).
+
+    Una orden JSON por línea y eventos JSON de vuelta. Una orden que falla no termina el
+    servicio; una confirmación sale como evento y la respuesta vuelve por la entrada.
+    """
+    P = POOL_LOCAL
+    prepara(ctx)
+    U = f"zfsm://local/{P}/datos"
+
+    def comprueba(nombre, problemas, vista=""):
+        if problemas:
+            ctx.fallos.append((nombre, problemas, vista[-600:]))
+            print(f"  FALLO  {nombre}")
+            for x in problemas:
+                print(f"         {x}")
+        else:
+            ctx.pasados.append(nombre)
+            print(f"  ok     {nombre}")
+
+    p = subprocess.Popen([CLI, "--serve", "--lang", "es"], stdin=subprocess.PIPE,
+                         stdout=subprocess.PIPE, text=True, bufsize=1)
+    p.stdin.write(ctx.maestra + "\n")
+    p.stdin.flush()
+
+    def evento():
+        linea = p.stdout.readline()
+        return json.loads(linea) if linea else None
+
+    def pide(i, linea, respuesta=None):
+        """Manda una orden; devuelve (resultado, preguntas recibidas)."""
+        p.stdin.write(json.dumps({"id": i, "line": linea}) + "\n")
+        p.stdin.flush()
+        preguntas = []
+        while True:
+            ev = evento()
+            if ev is None:
+                return None, preguntas
+            if ev.get("type") == "confirm":
+                preguntas.append(ev.get("text", ""))
+                p.stdin.write(json.dumps({"id": i, "answer": bool(respuesta)}) + "\n")
+                p.stdin.flush()
+                continue
+            return ev, preguntas
+
+    try:
+        listo = evento()
+        comprueba("servicio: anuncia que está listo", [] if listo and listo.get("type") == "ready"
+                  else [f"primer evento: {listo}"])
+        r, _ = pide(1, "noexiste")
+        comprueba("servicio: una orden desconocida da 127 y lo dice",
+                  [] if r and r["rc"] == 127 and "noexiste" in r["stderr"] else [f"{r}"])
+        r, _ = pide(2, "pwd")
+        comprueba("servicio: y sigue atendiendo después", [] if r and r["rc"] == 0
+                  and r["stdout"].strip() == "zfsm://" else [f"{r}"])
+        r, _ = pide(3, f"set atime=off --on {U}")
+        _, vista = sh(ctx, f"zfs get -H -o value atime {P}/datos", root=True)
+        comprueba("servicio: set cambia la propiedad", [] if r and r["rc"] == 0
+                  and vista.strip() == "off" else [f"{r} / atime={vista.strip()}"])
+        r, _ = pide(4, f"inherit atime --on {U}")
+        _, vista = sh(ctx, f"zfs get -H -o source atime {P}/datos", root=True)
+        comprueba("servicio: inherit la devuelve a heredada", [] if r and r["rc"] == 0
+                  and vista.strip() != "local" else [f"{r} / source={vista.strip()}"])
+        r, preguntas = pide(5, f"destroy {U}", respuesta=False)
+        _, vista = sh(ctx, f"zfs list -H -o name {P}/datos", root=True)
+        comprueba("servicio: la confirmación llega como evento y un «no» no destruye",
+                  [] if preguntas and "DESTRUIR" in preguntas[0] and r and r["rc"] != 0
+                  and vista.strip() == f"{P}/datos" else [f"{preguntas} {r} {vista}"])
+        r, _ = pide(6, f"ls zfsm://local/{P}")
+        try:
+            filas = json.loads(r["stdout"]).get("entries", [])
+        except (ValueError, TypeError, KeyError):
+            filas = None
+        comprueba("servicio: ls responde en JSON", [] if filas else [f"{r}"])
+    finally:
+        p.stdin.close()
+        p.wait(timeout=60)
+
+
 def casos_pantalla(ctx):
     """La pantalla del intérprete con terminal: la línea de órdenes partida en filas como en
     bash, lo escrito repintado al cambiar el tamaño, las preguntas y Ctrl-C."""
@@ -2752,7 +2831,7 @@ def casos_arranque(ctx):
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
 LOCALES = [casos_arranque, casos_identidad, casos_devices, casos_ayuda, casos_version_openzfs, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
-           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_recepcion_a_medias, casos_send_fichero, casos_send_comprimido, casos_gsa, casos_sin_montar, casos_cp_destino, casos_load_key, casos_editor_ancho, casos_tab_continua, casos_pantalla, casos_path, casos_info_labelclear, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
+           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_recepcion_a_medias, casos_send_fichero, casos_send_comprimido, casos_gsa, casos_sin_montar, casos_cp_destino, casos_load_key, casos_editor_ancho, casos_tab_continua, casos_pantalla, casos_path, casos_info_labelclear, casos_servicio, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
 ENTRE_MAQUINAS = [casos_entre_maquinas]

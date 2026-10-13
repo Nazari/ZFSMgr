@@ -395,6 +395,13 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
       {"get quota --on zfsm://unibody/sback/docs",
        {"t_ej_get_3", "la de otro dataset, sin moverse"}},
      }},
+    {"inherit",
+     {
+      {"inherit compression",
+       {"t_ej_inherit_1", "vuelve a heredar la compresión del padre"}},
+      {"inherit -r atime relatime",
+       {"t_ej_inherit_2", "dos propiedades, también en los descendientes"}},
+     }},
     {"set",
      {
       {"set compression=zstd",
@@ -1025,6 +1032,12 @@ const std::vector<Orden> kOrdenes = {
       "`mountpoint` no ofrece nada, que es mejor que inventar."}},
      Objetivo::DatasetOInstantanea,
      {{"props", Ranura::Tipo::Property, Ranura::Cuantas::UnaOMas}}},
+    {"inherit", {"t_dataset_105268", "Datasets"}, {"t_inherit_uso", "<prop> [más...] [-r]"},
+     {"t_inherit_desc", "Devuelve propiedades a su valor heredado (o al de por omisión)."},
+     {{{"t_r_90cdb7", "-r"}, {"t_con_sus_de_7eb43b", "Con sus descendientes."}}},
+     {},
+     Objetivo::DatasetOInstantanea,
+     {{"props", Ranura::Tipo::Texto, Ranura::Cuantas::UnaOMas}}},
     {"load-key", {"t_dataset_105268", "Datasets"}, {"t_lk_uso", "[--password-fd <n>]"},
      {"t_carga_la_c_0013a3", "Carga la clave de cifrado. La frase se teclea."},
      {{{"t_edit_pfd", "--password-fd <n>"}, {"t_lk_fd_q", "La frase, por descriptor. Sin ella se "

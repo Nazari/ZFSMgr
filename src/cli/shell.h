@@ -31,6 +31,14 @@ namespace zfsmgr::cli {
 //
 // `pantallaCompleta`: con terminal, la pantalla de `pantalla.h` —línea multilínea, repintado
 // al cambiar el tamaño, zona de estado—; `--no-tui` la quita.
+// The shell as a SERVICE for another program (the graphical interface): one JSON request per
+// line on standard input, `{"id":N,"line":"<a shell command>"}`, and on standard output one
+// JSON event per line: `{"type":"ready"}` once, `{"id":N,"type":"confirm","text":…}` when the
+// command asks (answered with `{"id":N,"answer":true|false}`), and
+// `{"id":N,"type":"result","rc":…,"stdout":…,"stderr":…}`. A command that fails does not end
+// the service. Output is JSON (`--format json` tables) unless a line changes it.
+int servirOrdenes(Sesion& ses);
+
 int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial = {},
                   bool asumirSi = false, bool compruebaProgramaciones = true,
                   bool pantallaCompleta = true);

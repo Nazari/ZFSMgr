@@ -425,84 +425,12 @@ bool ejecutaConPatrones(Estado& e, const std::string& orden, const LineaAnalizad
     return todoBien;
 }
 
-int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, bool asumirSi,
-                  bool compruebaProgramaciones, bool pantallaCompleta) {
-    Estado e;
-    // Al salir —por donde sea: `exit`, fin de la entrada o una orden que falla en un guion—
-    // se sueltan los montajes de solo lectura que queden.
-    struct AlSalir {
-        Estado& e;
-        ~AlSalir() {
-            if (!e.montajesLectura.empty()) {
-                sueltaMontajesLectura(e, /*todos=*/true);
-            }
-        }
-    } alSalir{e};
-    e.ses = &ses;
-    e.formato = formato;
-    e.asumirSi = asumirSi;
-    recarga(e);
-    if (!e.conns.aviso.empty()) {
-        std::fprintf(stderr, "%s\n", e.conns.aviso.c_str());
-    }
+using Manejador = std::function<bool(Estado&, const LineaAnalizada&)>;
 
-    // Se empieza en la RAÍZ, no en «Local».
-    //
-    // Antes se arrancaba en `zfsm://Local` por parecer el sitio útil, pero da una primera
-    // impresión falsa: hace creer que esa máquina es el punto de partida obligado, y en un
-    // cliente cuyo trabajo es gobernar VARIAS máquinas eso es lo contrario de lo que se
-    // quiere enseñar. Desde la raíz, `ls` lista las conexiones y se ve el mapa entero antes
-    // de bajar a ninguna; `cd local` sigue estando a una orden de distancia.
-    //
-    // Una URL dada en la línea de órdenes SÍ se respeta: quien la escribe sabe dónde quiere
-    // empezar. Y por eso el aviso de fallo solo tiene sentido en ese caso —arrancar en la
-    // raíz porque no se pidió otra cosa no es un error del que avisar—.
-    //
-    // Se resuelve con `resuelve()` y no con `parseZfsmUrl()` a secas para que el nombre de
-    // la conexión quede normalizado a su IDENTIFICADOR desde el primer momento: si no, el
-    // indicador diría «zfsm://Local» y «zfsm://local/...» tras el primer `cd`, que parecen
-    // dos sitios distintos.
-    if (urlInicial.empty()) {
-        e.actual = ZfsmUrl{};
-    } else {
-        std::string errInicio;
-        if (!resuelve(e, urlInicial, e.actual, errInicio)
-            || buscarConexion(e.conns, e.actual.connection) == nullptr) {
-            std::fprintf(stderr, TC("t_no_se_pudo_3b2240", "no se pudo empezar en %s: %s\n"),
-                         urlInicial.c_str(), errInicio.c_str());
-            e.actual = ZfsmUrl{};
-        }
-    }
-
-    const bool interactivo = hayTerminal();
-    // La pantalla: línea multilínea, repintado al cambiar el tamaño y zona de estado. Antes
-    // que nada que escriba, para que entre en su historial.
-    if (interactivo && pantallaCompleta) {
-        pantalla::arranca();
-    }
-    struct ParaPantalla {
-        ~ParaPantalla() { pantalla::para(); }
-    } paraPantalla;
-    // El estado de las programaciones, en segundo plano. Solo con terminal: en un guion o en
-    // una tubería, una línea de más en la salida de error que nadie ha pedido estorba.
-    // Con pantalla, la zona de estado (que lleva también el veredicto de las programaciones);
-    // sin ella, la comprobación del arranque de siempre, en una línea.
-    std::unique_ptr<ComprobacionDeArranque> comprobacion;
-    std::unique_ptr<MonitorDeEstado> monitor;
-    if (interactivo && pantalla::activa() && !ses.sinSecretos) {
-        monitor = std::make_unique<MonitorDeEstado>(ses, e.conns, compruebaProgramaciones);
-    } else if (interactivo && compruebaProgramaciones && !ses.sinSecretos) {
-        comprobacion = std::make_unique<ComprobacionDeArranque>(ses, e.conns);
-    }
-    if (interactivo) {
-        std::fputs(TC("t_zfsmgr_cli_44809f",
-                      "zfsmgr-cli — «help» lista las órdenes y «help <orden>» explica una.\n"
-                      "El tabulador completa órdenes y URL; las flechas recorren el historial.\n"),
-                   stderr);
-    }
-
-    using Manejador = std::function<bool(Estado&, const LineaAnalizada&)>;
-    const std::map<std::string, Manejador> ordenes = {
+// The shell's commands, by name. The ones the line loop answers itself (exit, help, cls,
+// master-password, pwd, format, yes) are in ejecutaLinea.
+const std::map<std::string, Manejador>& ordenesDelInterprete() {
+    static const std::map<std::string, Manejador> ordenes = {
         {"cd", cmdCd},
         {"ls", cmdLs},
         {"info", cmdInfo},
@@ -585,6 +513,7 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
         {"clone", cmdClone},
         {"get", cmdGet},
         {"set", cmdSet},
+        {"inherit", cmdInherit},
         {"load-key",
          [](Estado& s, const LineaAnalizada& l) { return cmdClaves(s, l, "load-key"); }},
         {"unload-key",
@@ -603,6 +532,324 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
         {"todir", cmdToDir},
         {"fromdir", cmdFromDir},
     };
+    return ordenes;
+}
+
+// One line of the shell, as it was typed. Leaves its result in e.ultimoRc and returns whether,
+// in a script, the line must stop the session (a syntax error, an unknown command, a command
+// that failed): going on over a state that is not the expected one is how what nobody wanted
+// to touch gets destroyed. The interactive loop and the service (--serve) both run lines
+// through here.
+bool ejecutaLinea(Estado& e, const std::string& linea, LectorDeLinea* lector) {
+    const std::string recortada = B::trim(linea);
+    if (recortada.empty() || recortada.front() == '#') {
+        return false;
+    }
+    // Se ANALIZA con la gramática, una sola vez. Antes se troceaba como un shell POSIX
+    // y cada orden repartía los trozos por su cuenta, con cuatro criterios distintos
+    // conviviendo; de ahí salían los argumentos ignorados en silencio.
+    if (lector) {
+        lector->recuerda(recortada);
+    }
+    const LineaAnalizada an = analizaLinea(recortada);
+    if (!an.error.empty()) {
+        std::fprintf(stderr, "%s\n", an.error.c_str());
+        e.ultimoRc = 2;
+        // En un guion, un error de sintaxis DETIENE la sesión, como una orden
+        // desconocida. Antes seguía con la línea siguiente y, al acabarse la entrada,
+        // salía con 0: `set atime=off tank` —con el destino detrás— decía «uso: …» y el
+        // guion se daba por bueno sin haber cambiado nada.
+        return true;
+    }
+    if (an.vacia) {
+        return false;
+    }
+    const std::string orden = B::toLowerAscii(an.verbo);
+    const std::vector<std::string> args = an.lista("texto");
+
+    if (orden == "exit" || orden == "quit") {
+        e.salir = true;
+        return false;
+    }
+    if (orden == "help" || orden == "?") {
+        // `help load-key --on ..` enseña la ayuda y NO ejecuta nada. Se dice, porque lo
+        // que se escribió detrás parece una orden que uno esperaba ver hecha.
+        // `--on`/`--from` y las opciones no llegan como texto: se reconstruyen de lo
+        // analizado para enseñar la orden tal y como se escribió.
+        std::string resto;
+        for (std::size_t i = 1; i < args.size(); ++i) {
+            resto += " " + args[i];
+        }
+        if (!an.objetivo.empty()) {
+            resto += " --on " + an.objetivo;
+        }
+        for (const auto& kv : an.opciones) {
+            resto += " --" + kv.first + (kv.second.empty() ? "" : " " + kv.second);
+        }
+        for (const std::string& b : an.banderas) {
+            resto += " " + b;
+        }
+        if (!args.empty() && !resto.empty()) {
+            std::fprintf(stderr,
+                         TC("t_help_no_ejecuta",
+                            "help solo enseña la ayuda y no ejecuta nada: ¿quería «%s%s»?\n"),
+                         args.front().c_str(), resto.c_str());
+        }
+        if (!args.empty()) {
+            if (!imprimeAyudaDe(args.front(), anchoTerminal())) {
+                std::fprintf(stderr, TC("t_no_hay_nin_fea411", "no hay ninguna orden «%s»\n"),
+                             args.front().c_str());
+            }
+        } else {
+            imprimeAyuda(anchoTerminal());
+        }
+        return false;
+    }
+    // Limpiar la pantalla. Con la secuencia ANSI y no llamando a `clear(1)`: no hay que
+    // lanzar un proceso para esto, y en Windows ese binario no existe.
+    //
+    // Se borra también el HISTORIAL de desplazamiento —`3J`—, que es lo que uno espera
+    // de limpiar: sin eso queda todo ahí arriba y basta con subir para verlo.
+    if (orden == "cls") {
+        if (pantalla::activa()) {
+            pantalla::limpia();  // y lo guardado para repintar, que si no volvería
+        } else if (hayTerminal()) {
+            std::fputs("\033[H\033[2J\033[3J", stdout);
+            std::fflush(stdout);
+        }
+        return false;
+    }
+    // Cambiar la clave maestra. La rotación la hace la capa base; aquí se piden las dos
+    // claves sin que asomen por el argv y se recarga lo que la sesión tenía en memoria.
+    if (orden == "master-password") {
+        std::string vieja;
+        std::string nueva;
+        std::string err;
+        const auto opcionDe = [&an](const char* clave) {
+            const auto it = an.opciones.find(clave);
+            return it == an.opciones.end() ? std::string() : it->second;
+        };
+        const std::string fdVieja = opcionDe("old-fd");
+        const std::string fdNueva = opcionDe("new-fd");
+        if (!fdVieja.empty()) {
+            if (!leerSecretoDeDescriptor(std::atoi(fdVieja.c_str()), vieja, err)) {
+                std::fprintf(stderr, "%s\n", err.c_str());
+                e.ultimoRc = 2;
+                return false;
+            }
+        } else {
+            vieja = e.ses->maestra;  // la de esta sesión: ya se comprobó al entrar
+        }
+        if (!fdNueva.empty()) {
+            if (!leerSecretoDeDescriptor(std::atoi(fdNueva.c_str()), nueva, err)) {
+                std::fprintf(stderr, "%s\n", err.c_str());
+                e.ultimoRc = 2;
+                return false;
+            }
+        } else {
+            if (!hayTerminal()) {
+                std::fputs(TC("t_mp_sin_terminal",
+                              "sin terminal: use --new-fd para dar la contraseña nueva\n"),
+                           stderr);
+                e.ultimoRc = 2;
+                return false;
+            }
+            std::string otra;
+            if (!preguntarSecretoPorTerminal(T("t_mp_p1", "Contraseña maestra nueva: "), nueva, err)
+                || !preguntarSecretoPorTerminal(T("t_mp_p2", "Repítala: "), otra, err)) {
+                std::fprintf(stderr, "%s\n", err.c_str());
+                e.ultimoRc = 2;
+                return false;
+            }
+            if (nueva != otra) {
+                std::fputs(TC("t_mp_no_coincide", "las dos no coinciden: no se ha cambiado nada\n"),
+                           stderr);
+                e.ultimoRc = 2;
+                return false;
+            }
+        }
+        if (nueva.empty()) {
+            std::fputs(TC("t_mp_vacia", "la contraseña maestra no puede quedar vacía\n"), stderr);
+            e.ultimoRc = 2;
+            return false;
+        }
+        std::string copia;
+        B::store::Warning aviso;
+        if (!B::store::rotateMasterKey(e.ses->dirConfig, vieja, nueva, copia, aviso)) {
+            std::fprintf(stderr, "%s\n", B::store::labelOf(aviso).c_str());
+            e.ultimoRc = 1;
+            return false;
+        }
+        // La sesión sigue abierta, así que su copia de la maestra tiene que moverse con
+        // el fichero: si no, la siguiente escritura cifraría con la vieja.
+        e.ses->maestra = nueva;
+        recarga(e);
+        std::fprintf(stdout,
+                     TC("t_mp_ok", "contraseña maestra cambiada; copia de seguridad en «*%s»\n"),
+                     copia.c_str());
+        return false;
+    }
+    if (orden == "pwd") {
+        std::fprintf(stdout, "%s\n", textoDe(e.actual).c_str());
+        return false;
+    }
+    if (orden == "format") {
+        if (args.empty()) {
+            std::fprintf(stdout, "%s\n",
+                         e.formato == Formato::Tsv    ? "tsv"
+                         : e.formato == Formato::Json ? "json"
+                                                      : "text");
+            return false;
+        }
+        const std::string v = B::toLowerAscii(args.front());
+        if (v == "tsv") {
+            e.formato = Formato::Tsv;
+        } else if (v == "json") {
+            e.formato = Formato::Json;
+        } else if (v == "text") {
+            e.formato = Formato::Texto;
+        } else {
+            std::fprintf(
+                stderr,
+                TC("t_formato_de_9610b7", "formato desconocido: %s (use text, tsv o json)\n"),
+                v.c_str());
+        }
+        return false;
+    }
+    if (orden == "yes") {
+        e.asumirSi = args.empty() || B::toLowerAscii(args.front()) != "off";
+        std::fprintf(stderr, "confirmaciones %s\n", e.asumirSi ? "desactivadas" : "activadas");
+        return false;
+    }
+
+    const auto it = ordenesDelInterprete().find(orden);
+    if (it == ordenesDelInterprete().end()) {
+        // Basta con las primeras letras de una orden mientras no haya dos que empiecen
+        // igual. Cuando las hay, decir «desconocida» es mentir: la orden existe, lo que
+        // pasa es que hay varias. Se enumeran, que es lo que hace falta para elegir.
+        // Del CATÁLOGO, no del mapa de este bucle: hay órdenes que se atienden antes de
+        // llegar a él —`cls`, `format`, `yes`, `exit`— y no estarían en la lista. Es
+        // además la misma función que usa el TABULADOR, así que lo que se ofrece al
+        // completar y lo que se enumera al abreviar no pueden discrepar.
+        std::vector<std::string> candidatas = nombresQueEmpiezanPor(orden);
+        if (candidatas.size() > 1) {
+            std::sort(candidatas.begin(), candidatas.end());
+            std::string lista;
+            for (const std::string& c : candidatas) {
+                if (!lista.empty()) {
+                    lista += ", ";
+                }
+                lista += c;
+            }
+            std::fprintf(stderr, TC("t_orden_ambigua", "«%s» es ambigua: %s\n"), orden.c_str(),
+                         lista.c_str());
+            e.ultimoRc = 127;
+            return true;
+        }
+        std::fprintf(stderr, TC("t_orden_desc_b05fd4", "orden desconocida: %s (pruebe «help»)\n"),
+                     orden.c_str());
+        e.ultimoRc = 127;
+        // En un guion, una orden que no existe DETIENE la sesión, igual que una que
+        // falla. Antes seguía adelante y su 127 lo pisaba la siguiente orden que
+        // saliera bien, así que una errata terminaba con código 0: el guion se daba por
+        // bueno habiendo hecho otra cosa. Es el peor final posible para una errata.
+        return true;
+    }
+    const bool bien = ejecutaConPatrones(e, orden, an, it->second);
+    // Los montajes de solo lectura que ya no contienen la posición se sueltan aquí,
+    // tras cada orden: un `ls` de un dataset sin montar no deja nada montado detrás.
+    if (!e.montajesLectura.empty()) {
+        const int rcOrden = e.ultimoRc;
+        sueltaMontajesLectura(e, /*todos=*/false);
+        e.ultimoRc = rcOrden;
+    }
+    if (!bien) {
+        if (e.ultimoRc == 0) {
+            e.ultimoRc = 1;
+        }
+        // En un guion —sin terminal— un fallo detiene la sesión: seguir ejecutando
+        // órdenes sobre un estado que no es el previsto es cómo se destruye lo que no
+        // se quería tocar.
+        return true;
+    }
+    return false;
+}
+
+int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, bool asumirSi,
+                  bool compruebaProgramaciones, bool pantallaCompleta) {
+    Estado e;
+    // Al salir —por donde sea: `exit`, fin de la entrada o una orden que falla en un guion—
+    // se sueltan los montajes de solo lectura que queden.
+    struct AlSalir {
+        Estado& e;
+        ~AlSalir() {
+            if (!e.montajesLectura.empty()) {
+                sueltaMontajesLectura(e, /*todos=*/true);
+            }
+        }
+    } alSalir{e};
+    e.ses = &ses;
+    e.formato = formato;
+    e.asumirSi = asumirSi;
+    recarga(e);
+    if (!e.conns.aviso.empty()) {
+        std::fprintf(stderr, "%s\n", e.conns.aviso.c_str());
+    }
+
+    // Se empieza en la RAÍZ, no en «Local».
+    //
+    // Antes se arrancaba en `zfsm://Local` por parecer el sitio útil, pero da una primera
+    // impresión falsa: hace creer que esa máquina es el punto de partida obligado, y en un
+    // cliente cuyo trabajo es gobernar VARIAS máquinas eso es lo contrario de lo que se
+    // quiere enseñar. Desde la raíz, `ls` lista las conexiones y se ve el mapa entero antes
+    // de bajar a ninguna; `cd local` sigue estando a una orden de distancia.
+    //
+    // Una URL dada en la línea de órdenes SÍ se respeta: quien la escribe sabe dónde quiere
+    // empezar. Y por eso el aviso de fallo solo tiene sentido en ese caso —arrancar en la
+    // raíz porque no se pidió otra cosa no es un error del que avisar—.
+    //
+    // Se resuelve con `resuelve()` y no con `parseZfsmUrl()` a secas para que el nombre de
+    // la conexión quede normalizado a su IDENTIFICADOR desde el primer momento: si no, el
+    // indicador diría «zfsm://Local» y «zfsm://local/...» tras el primer `cd`, que parecen
+    // dos sitios distintos.
+    if (urlInicial.empty()) {
+        e.actual = ZfsmUrl{};
+    } else {
+        std::string errInicio;
+        if (!resuelve(e, urlInicial, e.actual, errInicio)
+            || buscarConexion(e.conns, e.actual.connection) == nullptr) {
+            std::fprintf(stderr, TC("t_no_se_pudo_3b2240", "no se pudo empezar en %s: %s\n"),
+                         urlInicial.c_str(), errInicio.c_str());
+            e.actual = ZfsmUrl{};
+        }
+    }
+
+    const bool interactivo = hayTerminal();
+    // La pantalla: línea multilínea, repintado al cambiar el tamaño y zona de estado. Antes
+    // que nada que escriba, para que entre en su historial.
+    if (interactivo && pantallaCompleta) {
+        pantalla::arranca();
+    }
+    struct ParaPantalla {
+        ~ParaPantalla() { pantalla::para(); }
+    } paraPantalla;
+    // El estado de las programaciones, en segundo plano. Solo con terminal: en un guion o en
+    // una tubería, una línea de más en la salida de error que nadie ha pedido estorba.
+    // Con pantalla, la zona de estado (que lleva también el veredicto de las programaciones);
+    // sin ella, la comprobación del arranque de siempre, en una línea.
+    std::unique_ptr<ComprobacionDeArranque> comprobacion;
+    std::unique_ptr<MonitorDeEstado> monitor;
+    if (interactivo && pantalla::activa() && !ses.sinSecretos) {
+        monitor = std::make_unique<MonitorDeEstado>(ses, e.conns, compruebaProgramaciones);
+    } else if (interactivo && compruebaProgramaciones && !ses.sinSecretos) {
+        comprobacion = std::make_unique<ComprobacionDeArranque>(ses, e.conns);
+    }
+    if (interactivo) {
+        std::fputs(TC("t_zfsmgr_cli_44809f",
+                      "zfsmgr-cli — «help» lista las órdenes y «help <orden>» explica una.\n"
+                      "El tabulador completa órdenes y URL; las flechas recorren el historial.\n"),
+                   stderr);
+    }
 
     LectorDeLinea lector;
     lector.setCompletador([&e](const std::string& l, std::size_t c, std::size_t& d, bool& sigue) {
@@ -634,249 +881,8 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
         if (monitor) {
             e.ultimoRc = 0;
         }
-        const std::string recortada = B::trim(linea);
-        if (recortada.empty() || recortada.front() == '#') {
-            continue;
-        }
-        // Se ANALIZA con la gramática, una sola vez. Antes se troceaba como un shell POSIX
-        // y cada orden repartía los trozos por su cuenta, con cuatro criterios distintos
-        // conviviendo; de ahí salían los argumentos ignorados en silencio.
-        lector.recuerda(recortada);
-        const LineaAnalizada an = analizaLinea(recortada);
-        if (!an.error.empty()) {
-            std::fprintf(stderr, "%s\n", an.error.c_str());
-            e.ultimoRc = 2;
-            // En un guion, un error de sintaxis DETIENE la sesión, como una orden
-            // desconocida. Antes seguía con la línea siguiente y, al acabarse la entrada,
-            // salía con 0: `set atime=off tank` —con el destino detrás— decía «uso: …» y el
-            // guion se daba por bueno sin haber cambiado nada.
-            if (!interactivo) {
-                return e.ultimoRc;
-            }
-            continue;
-        }
-        if (an.vacia) {
-            continue;
-        }
-        const std::string orden = B::toLowerAscii(an.verbo);
-        const std::vector<std::string> args = an.lista("texto");
-
-        if (orden == "exit" || orden == "quit") {
-            e.salir = true;
-            continue;
-        }
-        if (orden == "help" || orden == "?") {
-            // `help load-key --on ..` enseña la ayuda y NO ejecuta nada. Se dice, porque lo
-            // que se escribió detrás parece una orden que uno esperaba ver hecha.
-            // `--on`/`--from` y las opciones no llegan como texto: se reconstruyen de lo
-            // analizado para enseñar la orden tal y como se escribió.
-            std::string resto;
-            for (std::size_t i = 1; i < args.size(); ++i) {
-                resto += " " + args[i];
-            }
-            if (!an.objetivo.empty()) {
-                resto += " --on " + an.objetivo;
-            }
-            for (const auto& kv : an.opciones) {
-                resto += " --" + kv.first + (kv.second.empty() ? "" : " " + kv.second);
-            }
-            for (const std::string& b : an.banderas) {
-                resto += " " + b;
-            }
-            if (!args.empty() && !resto.empty()) {
-                std::fprintf(stderr,
-                             TC("t_help_no_ejecuta",
-                                "help solo enseña la ayuda y no ejecuta nada: ¿quería «%s%s»?\n"),
-                             args.front().c_str(), resto.c_str());
-            }
-            if (!args.empty()) {
-                if (!imprimeAyudaDe(args.front(), anchoTerminal())) {
-                    std::fprintf(stderr, TC("t_no_hay_nin_fea411", "no hay ninguna orden «%s»\n"),
-                                 args.front().c_str());
-                }
-            } else {
-                imprimeAyuda(anchoTerminal());
-            }
-            continue;
-        }
-        // Limpiar la pantalla. Con la secuencia ANSI y no llamando a `clear(1)`: no hay que
-        // lanzar un proceso para esto, y en Windows ese binario no existe.
-        //
-        // Se borra también el HISTORIAL de desplazamiento —`3J`—, que es lo que uno espera
-        // de limpiar: sin eso queda todo ahí arriba y basta con subir para verlo.
-        if (orden == "cls") {
-            if (pantalla::activa()) {
-                pantalla::limpia();  // y lo guardado para repintar, que si no volvería
-            } else if (hayTerminal()) {
-                std::fputs("\033[H\033[2J\033[3J", stdout);
-                std::fflush(stdout);
-            }
-            continue;
-        }
-        // Cambiar la clave maestra. La rotación la hace la capa base; aquí se piden las dos
-        // claves sin que asomen por el argv y se recarga lo que la sesión tenía en memoria.
-        if (orden == "master-password") {
-            std::string vieja;
-            std::string nueva;
-            std::string err;
-            const auto opcionDe = [&an](const char* clave) {
-                const auto it = an.opciones.find(clave);
-                return it == an.opciones.end() ? std::string() : it->second;
-            };
-            const std::string fdVieja = opcionDe("old-fd");
-            const std::string fdNueva = opcionDe("new-fd");
-            if (!fdVieja.empty()) {
-                if (!leerSecretoDeDescriptor(std::atoi(fdVieja.c_str()), vieja, err)) {
-                    std::fprintf(stderr, "%s\n", err.c_str());
-                    e.ultimoRc = 2;
-                    continue;
-                }
-            } else {
-                vieja = e.ses->maestra;  // la de esta sesión: ya se comprobó al entrar
-            }
-            if (!fdNueva.empty()) {
-                if (!leerSecretoDeDescriptor(std::atoi(fdNueva.c_str()), nueva, err)) {
-                    std::fprintf(stderr, "%s\n", err.c_str());
-                    e.ultimoRc = 2;
-                    continue;
-                }
-            } else {
-                if (!hayTerminal()) {
-                    std::fputs(TC("t_mp_sin_terminal",
-                                  "sin terminal: use --new-fd para dar la contraseña nueva\n"),
-                               stderr);
-                    e.ultimoRc = 2;
-                    continue;
-                }
-                std::string otra;
-                if (!preguntarSecretoPorTerminal(T("t_mp_p1", "Contraseña maestra nueva: "), nueva,
-                                                 err)
-                    || !preguntarSecretoPorTerminal(T("t_mp_p2", "Repítala: "), otra, err)) {
-                    std::fprintf(stderr, "%s\n", err.c_str());
-                    e.ultimoRc = 2;
-                    continue;
-                }
-                if (nueva != otra) {
-                    std::fputs(
-                        TC("t_mp_no_coincide", "las dos no coinciden: no se ha cambiado nada\n"),
-                        stderr);
-                    e.ultimoRc = 2;
-                    continue;
-                }
-            }
-            if (nueva.empty()) {
-                std::fputs(TC("t_mp_vacia", "la contraseña maestra no puede quedar vacía\n"),
-                           stderr);
-                e.ultimoRc = 2;
-                continue;
-            }
-            std::string copia;
-            B::store::Warning aviso;
-            if (!B::store::rotateMasterKey(e.ses->dirConfig, vieja, nueva, copia, aviso)) {
-                std::fprintf(stderr, "%s\n", B::store::labelOf(aviso).c_str());
-                e.ultimoRc = 1;
-                continue;
-            }
-            // La sesión sigue abierta, así que su copia de la maestra tiene que moverse con
-            // el fichero: si no, la siguiente escritura cifraría con la vieja.
-            e.ses->maestra = nueva;
-            recarga(e);
-            std::fprintf(
-                stdout, TC("t_mp_ok", "contraseña maestra cambiada; copia de seguridad en «*%s»\n"),
-                copia.c_str());
-            continue;
-        }
-        if (orden == "pwd") {
-            std::fprintf(stdout, "%s\n", textoDe(e.actual).c_str());
-            continue;
-        }
-        if (orden == "format") {
-            if (args.empty()) {
-                std::fprintf(stdout, "%s\n",
-                             e.formato == Formato::Tsv    ? "tsv"
-                             : e.formato == Formato::Json ? "json"
-                                                          : "text");
-                continue;
-            }
-            const std::string v = B::toLowerAscii(args.front());
-            if (v == "tsv") {
-                e.formato = Formato::Tsv;
-            } else if (v == "json") {
-                e.formato = Formato::Json;
-            } else if (v == "text") {
-                e.formato = Formato::Texto;
-            } else {
-                std::fprintf(
-                    stderr,
-                    TC("t_formato_de_9610b7", "formato desconocido: %s (use text, tsv o json)\n"),
-                    v.c_str());
-            }
-            continue;
-        }
-        if (orden == "yes") {
-            e.asumirSi = args.empty() || B::toLowerAscii(args.front()) != "off";
-            std::fprintf(stderr, "confirmaciones %s\n", e.asumirSi ? "desactivadas" : "activadas");
-            continue;
-        }
-
-        const auto it = ordenes.find(orden);
-        if (it == ordenes.end()) {
-            // Basta con las primeras letras de una orden mientras no haya dos que empiecen
-            // igual. Cuando las hay, decir «desconocida» es mentir: la orden existe, lo que
-            // pasa es que hay varias. Se enumeran, que es lo que hace falta para elegir.
-            // Del CATÁLOGO, no del mapa de este bucle: hay órdenes que se atienden antes de
-            // llegar a él —`cls`, `format`, `yes`, `exit`— y no estarían en la lista. Es
-            // además la misma función que usa el TABULADOR, así que lo que se ofrece al
-            // completar y lo que se enumera al abreviar no pueden discrepar.
-            std::vector<std::string> candidatas = nombresQueEmpiezanPor(orden);
-            if (candidatas.size() > 1) {
-                std::sort(candidatas.begin(), candidatas.end());
-                std::string lista;
-                for (const std::string& c : candidatas) {
-                    if (!lista.empty()) {
-                        lista += ", ";
-                    }
-                    lista += c;
-                }
-                std::fprintf(stderr, TC("t_orden_ambigua", "«%s» es ambigua: %s\n"), orden.c_str(),
-                             lista.c_str());
-                e.ultimoRc = 127;
-                if (!interactivo) {
-                    return e.ultimoRc;
-                }
-                continue;
-            }
-            std::fprintf(stderr,
-                         TC("t_orden_desc_b05fd4", "orden desconocida: %s (pruebe «help»)\n"),
-                         orden.c_str());
-            e.ultimoRc = 127;
-            // En un guion, una orden que no existe DETIENE la sesión, igual que una que
-            // falla. Antes seguía adelante y su 127 lo pisaba la siguiente orden que
-            // saliera bien, así que una errata terminaba con código 0: el guion se daba por
-            // bueno habiendo hecho otra cosa. Es el peor final posible para una errata.
-            if (!interactivo) {
-                return e.ultimoRc;
-            }
-            continue;
-        }
-        const bool bien = ejecutaConPatrones(e, orden, an, it->second);
-        // Los montajes de solo lectura que ya no contienen la posición se sueltan aquí,
-        // tras cada orden: un `ls` de un dataset sin montar no deja nada montado detrás.
-        if (!e.montajesLectura.empty()) {
-            const int rcOrden = e.ultimoRc;
-            sueltaMontajesLectura(e, /*todos=*/false);
-            e.ultimoRc = rcOrden;
-        }
-        if (!bien) {
-            if (e.ultimoRc == 0) {
-                e.ultimoRc = 1;
-            }
-            // En un guion —sin terminal— un fallo detiene la sesión: seguir ejecutando
-            // órdenes sobre un estado que no es el previsto es cómo se destruye lo que no
-            // se quería tocar.
-            if (!interactivo) {
-                return e.ultimoRc;
-            }
+        if (ejecutaLinea(e, linea, &lector) && !interactivo) {
+            return e.ultimoRc;
         }
     }
     return 0;

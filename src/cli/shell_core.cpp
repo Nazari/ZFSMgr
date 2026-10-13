@@ -833,9 +833,23 @@ bool prepara(Estado& e, const LineaAnalizada& linea, Peticion& p) {
     return true;
 }
 
+void imprimeTrabajo(const Estado& e, const std::string& id, const std::string& conexion) {
+    if (e.formato == Formato::Json) {
+        B::json::Value v;
+        v.set("job_id", B::json::Value(id));
+        v.set("connection", B::json::Value(conexion));
+        std::fprintf(stdout, "%s\n", B::json::toCompact(v).c_str());
+        return;
+    }
+    std::fprintf(stdout, "%s\n", id.c_str());
+}
+
 bool confirma(const Estado& e, const std::string& que) {
     if (e.asumirSi) {
         return true;
+    }
+    if (e.preguntaServicio) {
+        return e.preguntaServicio(que);
     }
     if (!hayTerminal()) {
         std::fprintf(stderr,

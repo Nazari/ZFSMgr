@@ -3971,7 +3971,7 @@ static const struct { const char* nombre; int token; } kVerbos[] = {
     {"scrub", V_SCRUB}, {"trim", V_TRIM}, {"initialize", V_INITIALIZE}, {"clear", V_CLEAR},
     {"create", V_CREATE}, {"destroy", V_DESTROY}, {"rename", V_RENAME},
     {"mount", V_MOUNT}, {"unmount", V_UNMOUNT}, {"promote", V_PROMOTE},
-    {"get", V_GET}, {"set", V_SET}, {"load-key", V_LOAD_KEY}, {"unload-key", V_UNLOAD_KEY},
+    {"get", V_GET}, {"set", V_SET}, {"inherit", V_INHERIT}, {"load-key", V_LOAD_KEY}, {"unload-key", V_UNLOAD_KEY},
     {"change-key", V_CHANGE_KEY},
     {"schedule", V_SCHEDULE}, {"schedules", V_SCHEDULES},
     {"log", V_LOG}, {"peers", V_PEERS}, {"repair-mounts", V_REPAIR_MOUNTS},

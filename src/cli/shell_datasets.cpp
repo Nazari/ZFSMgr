@@ -740,8 +740,33 @@ bool cmdSet(Estado& e, const LineaAnalizada& linea) {
     if (!zfsGeneric(e, destino, argv)) {
         return false;
     }
-    std::fprintf(stderr, "aplicadas %zu propiedades a %s\n", pet.lista("props").size(),
-                 objetivo.c_str());
+    std::fprintf(stderr, TC("t_set_aplicadas", "aplicadas %zu propiedades a %s\n"),
+                 pet.lista("props").size(), objetivo.c_str());
+    return true;
+}
+
+// `inherit <prop>…`: the properties go back to what they inherit, or to their default. It is
+// what the graphical interface does when a property's «inherited» box is ticked again.
+bool cmdInherit(Estado& e, const LineaAnalizada& linea) {
+    Peticion pet;
+    if (!prepara(e, linea, pet)) {
+        return false;
+    }
+    const ZfsmUrl& destino = pet.objetivo;
+    const std::string objetivo = destino.zfsName();
+    for (const auto& prop : pet.lista("props")) {
+        std::vector<std::string> argv{"inherit"};
+        if (pet.tiene("-r")) {
+            argv.push_back("-r");
+        }
+        argv.push_back(prop);
+        argv.push_back(objetivo);
+        if (!zfsGeneric(e, destino, argv)) {
+            return false;
+        }
+    }
+    std::fprintf(stderr, TC("t_inherit_hecho", "heredadas %zu propiedades en %s\n"),
+                 pet.lista("props").size(), objetivo.c_str());
     return true;
 }
 

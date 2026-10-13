@@ -548,7 +548,7 @@ bool enviaComoTrabajo(Estado& e, const ZfsmUrl& destino, const std::vector<std::
                    stderr);
         return false;
     }
-    std::fprintf(stdout, "%s\n", it->second.c_str());
+    imprimeTrabajo(e, it->second, destino.connection);
     std::fprintf(stderr,
                  TC("t_en_marcha__e494cb", "en marcha como trabajo %s; siga con «job %s»\n"),
                  it->second.c_str(), it->second.c_str());

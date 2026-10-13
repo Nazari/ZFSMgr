@@ -61,7 +61,7 @@ void zfsmclierror(void* scanner, AnalisisCli* res, const char* msg);
 %token <texto> V_FLUSH V_UPGRADE V_REGUID V_EXPORT V_STATUS V_HISTORY
 %token <texto> V_SCRUB V_TRIM V_INITIALIZE V_CLEAR
 %token <texto> V_CREATE V_DESTROY V_RENAME V_MOUNT V_UNMOUNT V_PROMOTE
-%token <texto> V_GET V_SET V_LOAD_KEY V_UNLOAD_KEY V_CHANGE_KEY
+%token <texto> V_GET V_SET V_INHERIT V_LOAD_KEY V_UNLOAD_KEY V_CHANGE_KEY
 %token <texto> V_SCHEDULE V_SCHEDULES V_LOG V_PEERS V_REPAIR_MOUNTS
 %token <texto> V_AUTHORIZE_KEY V_EXPORT_TRUST
 %token <texto> V_ROLLBACK V_HOLDS V_HOLD V_RELEASE V_CLONE V_DIFF V_SEND
@@ -174,6 +174,7 @@ orden
     | V_GET url_opt                      { astVerbo(res, $1); }
     | V_GET url_opt palabra              { astVerbo(res, $1); astRanura(res, "propiedad", $3); }
     | V_SET destino_opt asignaciones         { astVerbo(res, $1); }
+    | V_INHERIT url_opt nombres_prop         { astVerbo(res, $1); }
     | V_CREATE textos                    { astVerbo(res, $1); }
     | V_CLONE textos                     { astVerbo(res, $1); }
 /* `allow` y `unallow` SIN lista de permisos son formas documentadas y ya implementadas:
@@ -246,6 +247,12 @@ vdev_opt
     | URL                                { astRanura(res, "disco", $1); }
     ;
 
+
+/* The property names of `inherit`: plain words, the target goes by URL or `--on`. */
+nombres_prop
+    : palabra                            { astRanura(res, "props", $1); }
+    | nombres_prop palabra               { astRanura(res, "props", $2); }
+    ;
 
 /* Una lista de componentes libres: `create <nombre> [prop=valor...]`,
  * `breakdown <directorio> <hijo> ...`. */
