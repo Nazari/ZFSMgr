@@ -1348,10 +1348,16 @@ void MainWindow::applyDatasetPropertyChanges() {
                 touched.insert(it.key());
             }
 
+            // Each change is a line of the shell, on the object's URL.
             struct PropertyOp {
                 QString command;
                 QString displayLine;
             };
+            const QString urlObjeto =
+                zfsmUrl(item.ctx.connIdx, item.objectName.section(QLatin1Char('@'), 0, 0),
+                        item.objectName.contains(QLatin1Char('@'))
+                            ? item.objectName.section(QLatin1Char('@'), 1)
+                            : QString());
             QVector<PropertyOp> ops;
             bool touchedAnyProperty = false;
             bool touchedOnlyGsaProperties = true;
@@ -1422,46 +1428,36 @@ void MainWindow::applyDatasetPropertyChanges() {
                     const bool finalKnown = mountedStateFromText(finalValue, &finalMounted);
                     const bool originalKnown = mountedStateFromText(originalValue, &originalMounted);
                     if (finalKnown && originalKnown && finalMounted != originalMounted) {
-                        ops.push_back(PropertyOp{
-                            QStringLiteral("zfs %1 %2")
-                                .arg((isWindowsConnection(item.ctx.connIdx)
-                                          ? (finalMounted ? QStringLiteral("mount")
-                                                          : QStringLiteral("unmount"))
-                                          : (finalMounted ? QStringLiteral("mount")
-                                                          : QStringLiteral("umount"))),
-                                     shSingleQuote(item.ctx.datasetName)),
-                            QStringLiteral("%1 dataset %2")
-                                .arg(finalMounted ? QStringLiteral("Montar")
-                                                  : QStringLiteral("Desmontar"),
-                                     item.objectName)
-                        });
+                        ops.push_back(
+                            PropertyOp{(finalMounted ? QStringLiteral("mount --on ")
+                                                     : QStringLiteral("unmount --on "))
+                                           + urlObjeto,
+                                       QStringLiteral("%1 dataset %2")
+                                           .arg(finalMounted ? QStringLiteral("Montar")
+                                                             : QStringLiteral("Desmontar"),
+                                                item.objectName)});
                     }
                     continue;
                 }
                 if (finalInh != originalInh) {
                     if (finalInh) {
-                        ops.push_back(PropertyOp{
-                            QStringLiteral("zfs inherit %1 %2")
-                                .arg(shSingleQuote(prop), shSingleQuote(item.ctx.datasetName)),
-                            QStringLiteral("Heredar propiedad %1 en %2").arg(prop, item.objectName)
-                        });
+                        ops.push_back(
+                            PropertyOp{QStringLiteral("inherit %1 --on %2").arg(prop, urlObjeto),
+                                       QStringLiteral("Heredar propiedad %1 en %2")
+                                           .arg(prop, item.objectName)});
                     } else {
-                        ops.push_back(PropertyOp{
-                            QStringLiteral("zfs set %1 %2")
-                                .arg(shSingleQuote(prop + QStringLiteral("=") + finalValue),
-                                     shSingleQuote(item.ctx.datasetName)),
-                            QStringLiteral("Cambiar propiedad %1=%2 en %3").arg(prop, finalValue, item.objectName)
-                        });
+                        ops.push_back(PropertyOp{QStringLiteral("set %1=%2 --on %3")
+                                                     .arg(prop, cliQuote(finalValue), urlObjeto),
+                                                 QStringLiteral("Cambiar propiedad %1=%2 en %3")
+                                                     .arg(prop, finalValue, item.objectName)});
                     }
                     continue;
                 }
                 if (!finalInh && finalValue != originalValue) {
-                    ops.push_back(PropertyOp{
-                        QStringLiteral("zfs set %1 %2")
-                            .arg(shSingleQuote(prop + QStringLiteral("=") + finalValue),
-                                 shSingleQuote(item.ctx.datasetName)),
-                        QStringLiteral("Cambiar propiedad %1=%2 en %3").arg(prop, finalValue, item.objectName)
-                    });
+                    ops.push_back(PropertyOp{QStringLiteral("set %1=%2 --on %3")
+                                                 .arg(prop, cliQuote(finalValue), urlObjeto),
+                                             QStringLiteral("Cambiar propiedad %1=%2 en %3")
+                                                 .arg(prop, finalValue, item.objectName)});
                 }
             }
 
@@ -1470,7 +1466,6 @@ void MainWindow::applyDatasetPropertyChanges() {
                 continue;
             }
 
-            const bool isWin = isWindowsConnection(item.ctx.connIdx);
             const bool useGranularDatasetRefresh = touchedAnyProperty;
             const bool useGranularGsaRefresh = useGranularDatasetRefresh && touchedOnlyGsaProperties;
             for (const PropertyOp& op : std::as_const(ops)) {
@@ -1478,76 +1473,54 @@ void MainWindow::applyDatasetPropertyChanges() {
                     QStringLiteral("%1  %2").arg(pendingLinePrefix(item.ctx.connIdx, item.ctx.poolName),
                                                  op.displayLine.trimmed());
                 markPendingRunning(displayLine);
+                // runCli writes the line to the log before running it: a change of state
+                // never leaves no trace.
                 const QString cmd = op.command;
-                // Registrar ANTES de ejecutar, siempre.
-                //
-                // Un cambio de propiedad aplicado en Windows no dejó NI UNA línea en el
-                // registro: se cambió `driveletter`, el pool se suspendió a continuación
-                // y no había forma de saber qué orden se había enviado ni si había
-                // llegado a enviarse. Toda la depuración de esta jornada se ha apoyado en
-                // el registro; una acción que cambia estado sin dejar rastro no puede
-                // existir.
-                appLog(QStringLiteral("NORMAL"),
-                       QStringLiteral("Aplicar propiedades en %1::%2 -> %3")
-                           .arg(m_conns.profiles.value(item.ctx.connIdx).name,
-                                item.objectName,
-                                mwhelpers::oneLine(mwhelpers::maskCommandSecrets(cmd))));
-                if (!executeDatasetAction(QStringLiteral("conncontent"),
-                                          QStringLiteral("Aplicar propiedades"),
-                                          item.ctx,
-                                          cmd,
-                                          60000,
-                                          isWin,
-                                          {},
-                                          !useGranularDatasetRefresh,
-                                          useGranularDatasetRefresh
-                                              ? [this, item, gsaProps, useGranularGsaRefresh]() {
-                                                    invalidateDatasetCacheEntry(item.ctx.connIdx,
-                                                                                item.ctx.poolName,
-                                                                                item.objectName,
-                                                                                false);
-                                                    if (useGranularGsaRefresh) {
-                                                        ensureDatasetPropertySubsetLoaded(item.ctx.connIdx,
-                                                                                         item.ctx.poolName,
-                                                                                         item.objectName,
-                                                                                         gsaProps);
-                                                        if (PoolInfo* poolInfo = findPoolInfo(item.ctx.connIdx, item.ctx.poolName)) {
-                                                            poolInfo->runtime.schedulesState = LoadState::NotLoaded;
-                                                            poolInfo->runtime.autoSnapshotPropsByDataset.remove(item.objectName);
-                                                        }
-                                                    } else {
-                                                        ensureDatasetAllPropertiesLoaded(item.ctx.connIdx,
-                                                                                         item.ctx.poolName,
-                                                                                         item.objectName);
-                                                    }
-                                                    const QString token = item.token.trimmed();
-                                                    const QList<QTreeWidget*> trees{m_connContentTree};
-                                                    for (QTreeWidget* tree : trees) {
-                                                        if (!tree || connContentTokenForTree(tree).trimmed() != token) {
-                                                            continue;
-                                                        }
-                                                        syncConnContentPropertyColumnsFor(tree, token);
-                                                        syncConnContentPoolColumnsFor(tree, token);
-                                                        restoreConnContentTreeStateFor(tree, token);
-                                                        const DatasetSelectionContext selected = currentConnContentSelection(tree);
-                                                        const QString selectedObjectName =
-                                                            selected.snapshotName.trimmed().isEmpty()
-                                                                ? selected.datasetName.trimmed()
-                                                                : QStringLiteral("%1@%2")
-                                                                      .arg(selected.datasetName.trimmed(),
-                                                                           selected.snapshotName.trimmed());
-                                                        if (selected.valid
-                                                            && selected.connIdx == item.ctx.connIdx
-                                                            && selected.poolName.trimmed() == item.ctx.poolName.trimmed()
-                                                            && selectedObjectName == item.objectName.trimmed()) {
-                                                            refreshConnContentPropertiesFor(tree);
-                                                        }
-                                                    }
-                                                }
-                                              : std::function<void()>{})) {
+                // The shell's line; on success, the same granular refresh as before.
+                const auto refrescoGranular = [this, item, gsaProps, useGranularGsaRefresh]() {
+                    invalidateDatasetCacheEntry(item.ctx.connIdx, item.ctx.poolName,
+                                                item.objectName, false);
+                    if (useGranularGsaRefresh) {
+                        ensureDatasetPropertySubsetLoaded(item.ctx.connIdx, item.ctx.poolName,
+                                                          item.objectName, gsaProps);
+                        if (PoolInfo* poolInfo =
+                                findPoolInfo(item.ctx.connIdx, item.ctx.poolName)) {
+                            poolInfo->runtime.schedulesState = LoadState::NotLoaded;
+                            poolInfo->runtime.autoSnapshotPropsByDataset.remove(item.objectName);
+                        }
+                    } else {
+                        ensureDatasetAllPropertiesLoaded(item.ctx.connIdx, item.ctx.poolName,
+                                                         item.objectName);
+                    }
+                    const QString token = item.token.trimmed();
+                    const QList<QTreeWidget*> trees{m_connContentTree};
+                    for (QTreeWidget* tree : trees) {
+                        if (!tree || connContentTokenForTree(tree).trimmed() != token) {
+                            continue;
+                        }
+                        syncConnContentPropertyColumnsFor(tree, token);
+                        syncConnContentPoolColumnsFor(tree, token);
+                        restoreConnContentTreeStateFor(tree, token);
+                        const DatasetSelectionContext selected = currentConnContentSelection(tree);
+                        const QString selectedObjectName =
+                            selected.snapshotName.trimmed().isEmpty()
+                                ? selected.datasetName.trimmed()
+                                : QStringLiteral("%1@%2").arg(selected.datasetName.trimmed(),
+                                                              selected.snapshotName.trimmed());
+                        if (selected.valid && selected.connIdx == item.ctx.connIdx
+                            && selected.poolName.trimmed() == item.ctx.poolName.trimmed()
+                            && selectedObjectName == item.objectName.trimmed()) {
+                            refreshConnContentPropertiesFor(tree);
+                        }
+                    }
+                };
+                if (runCliAndWait(cmd).rc != 0) {
                     markPendingDone(displayLine, false);
                     updateApplyPropsButtonState();
                     return;
+                }
+                if (useGranularDatasetRefresh && m_refreshAfterCli) {
+                    refrescoGranular();
                 }
                 markPendingDone(displayLine, true);
             }
@@ -1922,7 +1895,8 @@ void MainWindow::applyDatasetPropertyChanges() {
         }
         const bool inheritChecked = (pi->flags() & Qt::ItemIsUserCheckable) && (pi->checkState() == Qt::Checked);
         if (inheritChecked) {
-            subcmds << QStringLiteral("zfs inherit %1 %2").arg(shSingleQuote(prop), shSingleQuote(targetDataset));
+            subcmds << QStringLiteral("inherit %1 --on %2")
+                           .arg(prop, zfsmUrl(ctx.connIdx, targetDataset));
             propChanges.push_back(PropChange{true, prop, QString()});
             continue;
         }
@@ -1931,20 +1905,15 @@ void MainWindow::applyDatasetPropertyChanges() {
         if (now == old) {
             continue;
         }
-        const QString assign = prop + QStringLiteral("=") + now;
-        subcmds << QStringLiteral("zfs set %1 %2").arg(shSingleQuote(assign), shSingleQuote(targetDataset));
+        subcmds << QStringLiteral("set %1=%2 --on %3")
+                       .arg(prop, cliQuote(now), zfsmUrl(ctx.connIdx, targetDataset));
         propChanges.push_back(PropChange{false, prop, now});
     }
     if (mountStateChangeRequested) {
-        subcmds << (isWindowsConnection(ctx.connIdx)
-                        ? QStringLiteral("zfs %1 %2")
-                              .arg(mountStateTargetOn ? QStringLiteral("mount")
-                                                      : QStringLiteral("unmount"),
-                                   shSingleQuote(targetDataset))
-                        : QStringLiteral("zfs %1 %2")
-                              .arg(mountStateTargetOn ? QStringLiteral("mount")
-                                                      : QStringLiteral("umount"),
-                                   shSingleQuote(targetDataset)));
+        subcmds << QStringLiteral("%1 --on %2")
+                       .arg(
+                           mountStateTargetOn ? QStringLiteral("mount") : QStringLiteral("unmount"),
+                           zfsmUrl(ctx.connIdx, targetDataset));
     }
     bool localRenameDone = false;
 
@@ -1963,10 +1932,12 @@ void MainWindow::applyDatasetPropertyChanges() {
             return;
         }
         if (renameRequested) {
-            subcmds << QStringLiteral("zfs rename %1 %2").arg(shSingleQuote(renameOld), shSingleQuote(renameNew));
+            subcmds << QStringLiteral("rename %1 --on %2")
+                           .arg(renameNew, zfsmUrl(ctx.connIdx, renameOld));
         }
     } else if (renameRequested && !localRenameDone) {
-        subcmds.prepend(QStringLiteral("zfs rename %1 %2").arg(shSingleQuote(renameOld), shSingleQuote(renameNew)));
+        subcmds.prepend(
+            QStringLiteral("rename %1 --on %2").arg(renameNew, zfsmUrl(ctx.connIdx, renameOld)));
     }
     if (subcmds.isEmpty()) {
         m_propsDirty = false;
@@ -1976,10 +1947,15 @@ void MainWindow::applyDatasetPropertyChanges() {
         updateApplyPropsButtonState();
         return;
     }
-    const bool isWin = isWindowsConnection(ctx.connIdx);
-    const QString cmd = isWin ? subcmds.join(QStringLiteral("; "))
-                              : QStringLiteral("set -e; %1").arg(subcmds.join(QStringLiteral("; ")));
-    if (executeDatasetAction(m_propsSide, QStringLiteral("Aplicar propiedades"), ctx, cmd, 60000, isWin)) {
+    // The shell's lines in order; the first that fails stops the rest, as `set -e` did.
+    bool todas = true;
+    for (const QString& linea : std::as_const(subcmds)) {
+        if (runCliAndWait(linea).rc != 0) {
+            todas = false;
+            break;
+        }
+    }
+    if (todas) {
         if (targetDataset != ctx.datasetName) {
             setSelectedDataset(m_propsSide, targetDataset, QString());
         }

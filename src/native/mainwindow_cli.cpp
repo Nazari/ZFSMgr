@@ -100,3 +100,22 @@ void MainWindow::refreshAfterCli(const DatasetSelectionContext& ctx) {
     d.refreshTarget = ctx;
     refreshPendingShellActionDraft(d);
 }
+
+QString MainWindow::cliQuote(const QString& value) {
+    static const QString kSeguros =
+        QStringLiteral("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-.,:/+@%");
+    bool simple = !value.isEmpty();
+    for (const QChar c : value) {
+        if (!kSeguros.contains(c)) {
+            simple = false;
+            break;
+        }
+    }
+    if (simple) {
+        return value;
+    }
+    QString esc = value;
+    esc.replace(QLatin1Char('\\'), QStringLiteral("\\\\"));
+    esc.replace(QLatin1Char('"'), QStringLiteral("\\\""));
+    return QLatin1Char('"') + esc + QLatin1Char('"');
+}

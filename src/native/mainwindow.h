@@ -972,6 +972,9 @@ private:
     // The zfsm:// URL of what is selected: a connection, a dataset or a snapshot.
     QString zfsmUrl(int connIdx, const QString& dataset = QString(),
                     const QString& snapshot = QString()) const;
+    // A value as the shell's line takes it: as is, or in double quotes when it has spaces or
+    // characters the line would split on.
+    static QString cliQuote(const QString& value);
     // After a line that changed something under `ctx`: what the tree shows is read again.
     void refreshAfterCli(const DatasetSelectionContext& ctx);
     // The same, waiting for the answer (mainwindow_cli_actions.cpp).
