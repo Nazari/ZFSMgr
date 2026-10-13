@@ -765,29 +765,6 @@ bool cmdGet(Estado& e, const LineaAnalizada& linea) {
 // la capa base —`src/base/gsa.h`—, compartidas con la interfaz gráfica. Aquí solo se
 // hablan: leer lo que hay, escribir lo que se pide y enseñarlo.
 
-// La salida cruda del agente: «dataset<TAB>propiedad<TAB>valor[<TAB>origen]», una línea por
-// propiedad. Se agrupa por dataset y se descartan las HEREDADAS: una programación heredada
-// no es de ese dataset, es del padre, y enseñarla como suya haría creer que hay dos.
-std::map<std::string, std::map<std::string, std::string>> agrupaGsa(const std::string& crudo) {
-    std::map<std::string, std::map<std::string, std::string>> out;
-    for (const std::string& linea : B::split(crudo, "\n", true)) {
-        const std::vector<std::string> campos = B::split(linea, "\t", false);
-        if (campos.size() < 3) {
-            continue;
-        }
-        const std::string origen = campos.size() > 3 ? B::toLowerAscii(B::trim(campos[3])) : "";
-        if (B::startsWith(origen, "inherited")) {
-            continue;
-        }
-        const std::string valor = B::trim(campos[2]);
-        if (valor.empty() || valor == "-") {
-            continue;
-        }
-        out[B::trim(campos[0])][B::trim(campos[1])] = valor;
-    }
-    return out;
-}
-
 // Lo programado bajo un dataset o un pool, ya convertido a estructuras.
 bool leeProgramaciones(Estado& e, const ZfsmUrl& destino, const std::string& raiz,
                        std::vector<B::gsa::Entry>& out) {
@@ -795,7 +772,7 @@ bool leeProgramaciones(Estado& e, const ZfsmUrl& destino, const std::string& rai
     if (!agente(e, destino, PET::gsaOfDataset(raiz), crudo, 30000)) {
         return false;
     }
-    for (const auto& kv : agrupaGsa(crudo)) {
+    for (const auto& kv : B::gsa::groupProperties(crudo)) {
         B::gsa::Schedule p;
         B::gsa::Reason m;
         if (!B::gsa::fromProperties(kv.second, p, m)) {

@@ -453,6 +453,26 @@ std::string newestOfClass(const std::vector<std::string>& nombres, const std::st
     return mejor;
 }
 
+std::map<std::string, std::map<std::string, std::string>> groupProperties(const std::string& raw) {
+    std::map<std::string, std::map<std::string, std::string>> out;
+    for (const std::string& linea : split(raw, "\n", true)) {
+        const std::vector<std::string> campos = split(linea, "\t", false);
+        if (campos.size() < 3) {
+            continue;
+        }
+        const std::string origen = campos.size() > 3 ? toLowerAscii(trim(campos[3])) : "";
+        if (startsWith(origen, "inherited")) {
+            continue;
+        }
+        const std::string valor = trim(campos[2]);
+        if (valor.empty() || valor == "-") {
+            continue;
+        }
+        out[trim(campos[0])][trim(campos[1])] = valor;
+    }
+    return out;
+}
+
 long long nextPeriodStart(const std::string& klass, long long now) {
     const std::time_t t = static_cast<std::time_t>(now);
     std::tm tmv{};

@@ -2195,35 +2195,3 @@ void MainWindow::scanOrphanedJobsForConnection(int connIdx) {
         if (m_jobPollTimer && !m_jobPollTimer->isActive()) m_jobPollTimer->start();
     }
 }
-
-void MainWindow::updateJobsListWidget() {
-    if (!m_jobsListWidget) return;
-    // Qué fila estaba marcada, para volver a marcarla.
-    //
-    // Esta lista se rehace cada 2,5 segundos con el progreso, y `clear()` se lleva la
-    // selección por delante: marcar una transferencia para cancelarla y llegar al botón era
-    // una carrera contra el siguiente refresco. Se recuerda por IDENTIFICADOR del trabajo y
-    // no por número de fila, porque entre un refresco y otro la lista puede haber cambiado
-    // de orden o haber perdido uno que terminó.
-    QString marcado;
-    if (QListWidgetItem* actual = m_jobsListWidget->currentItem()) {
-        marcado = actual->data(Qt::UserRole).toString();
-    }
-    const QSignalBlocker sinSenales(m_jobsListWidget);
-    m_jobsListWidget->clear();
-    for (const ActiveDaemonJob& job : m_activeDaemonJobs) {
-        const double gib = static_cast<double>(job.bytesTransferred) / (1024.0 * 1024.0 * 1024.0);
-        const QString text = QStringLiteral("[%1]  %2   %3 GiB @ %4 MiB/s  %5s")
-                                 .arg(job.state,
-                                      job.displayLabel,
-                                      QString::number(gib, 'f', 2),
-                                      QString::number(job.rateMiBs, 'f', 1),
-                                      QString::number(job.elapsedSecs));
-        auto* item = new QListWidgetItem(text, m_jobsListWidget);
-        item->setData(Qt::UserRole, job.jobId);
-        item->setData(Qt::UserRole + 1, job.srcConnIdx);
-        if (!marcado.isEmpty() && job.jobId == marcado) {
-            m_jobsListWidget->setCurrentItem(item);
-        }
-    }
-}

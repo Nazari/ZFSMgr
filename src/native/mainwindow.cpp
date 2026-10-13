@@ -2665,9 +2665,9 @@ bool MainWindow::selectTransferJobForTest(const QString& jobId) {
     if (!m_jobsListWidget) {
         return false;
     }
-    for (int i = 0; i < m_jobsListWidget->count(); ++i) {
-        QListWidgetItem* item = m_jobsListWidget->item(i);
-        if (item && item->data(Qt::UserRole).toString() == jobId) {
+    for (int i = 0; i < m_jobsListWidget->topLevelItemCount(); ++i) {
+        QTreeWidgetItem* item = m_jobsListWidget->topLevelItem(i);
+        if (item && item->data(0, Qt::UserRole).toString() == jobId) {
             m_jobsListWidget->setCurrentItem(item);
             return true;
         }
@@ -2679,8 +2679,8 @@ QString MainWindow::selectedTransferJobForTest() const {
     if (!m_jobsListWidget) {
         return QString();
     }
-    QListWidgetItem* item = m_jobsListWidget->currentItem();
-    return item ? item->data(Qt::UserRole).toString() : QString();
+    QTreeWidgetItem* item = m_jobsListWidget->currentItem();
+    return item ? item->data(0, Qt::UserRole).toString() : QString();
 }
 
 void MainWindow::pollDaemonJobsForTest() {

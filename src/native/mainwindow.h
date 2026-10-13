@@ -34,6 +34,10 @@ class QComboBox;
 class QColor;
 class QGroupBox;
 class QLabel;
+class QLineEdit;
+class QCheckBox;
+class QSpinBox;
+class QDialog;
 class QListWidget;
 class QListWidgetItem;
 class QPoint;
@@ -166,6 +170,12 @@ public:
     // error, solo deja el panel de Transferencias sin progreso.
     void addActiveDaemonJobForTest(int srcConnIdx, int dstConnIdx, const QString& jobId);
     void pollDaemonJobsForTest();
+    void refreshAllJobsForTest() { refreshAllJobsAsync(); }
+    void fillPaneSchedulesForTest(int pane, int connIdx, const QString& pool, const QString& ds) {
+        fillPaneSchedules(pane, connIdx, pool, ds);
+    }
+    void setPaneScheduleDailyForTest(int pane, int daily, bool enabled);
+    void applyPaneScheduleForTest(int pane) { applyPaneSchedule(pane); }
     void refreshTransfersListForTest();
     // El estado de validación de una conexión, y cómo queda su fila en el desplegable del
     // panel: «<rótulo>|caida» o «<rótulo>|viva».
@@ -627,8 +637,10 @@ private:
     void startPendingApplyAnimation();
     void finishPendingApplyAnimation();
     void buildDatasetPane(int paneIdx);
-    QWidget* buildPaneLog(int paneIdx, QWidget* parent);
-    void updatePaneLog(int paneIdx);
+    // A connection's log or its daemon's, in a window of its own (Connections menu).
+    void openConnectionLogWindow(int connIdx, bool daemon);
+    // Before a connection's log owner is destroyed: its windows let go of its document.
+    void releaseLogWindowsOf(const QString& connId);
     void refillDatasetPaneCombos();
     void onPaneConnectionChosen(int paneIdx);
     void onPanePoolChosen(int paneIdx);
@@ -646,6 +658,13 @@ private:
     void releaseSnapshotHoldNamed(int connIdx, const QString& poolName,
                                   const QString& datasetName, const QString& snapshotName,
                                   const QString& holdName);
+    QWidget* buildPaneSchedulesTab(int paneIdx, QWidget* parent);
+    void fillPaneSchedules(int paneIdx, int connIdx, const QString& poolName,
+                           const QString& dataset);
+    void loadPaneScheduleStatusAsync(int paneIdx);
+    void applyPaneSchedule(int paneIdx);
+    void clearPaneSchedule(int paneIdx);
+    void runPaneScheduleNow(int paneIdx);
     void fillPanePermissions(int paneIdx, int connIdx, const QString& poolName,
                              const QString& datasetName);
     void commitPanePermissionGrant(int paneIdx, QTreeWidgetItem* grantNode);
@@ -880,7 +899,7 @@ private:
     void trimLogWidget(QPlainTextEdit* widget);
     void syncConnectionLogTabs();
     void appendConnectionLog(const QString& connId, const QString& line);
-    void refreshConnectionDaemonLogAsync(int idx, bool fullReset = false);
+    void refreshConnectionDaemonLogAsync(int idx, bool fullReset = false, bool userAsked = false);
     void runDaemonHeartbeat(const QString& connId);
     void pollDaemonZedAllConnections();
     bool launchDaemonJobTransfer(const QString& srcSnap, const QString& recvTarget,
@@ -892,6 +911,9 @@ private:
     void pollDaemonJobs();
     void scanOrphanedJobsForConnection(int connIdx);
     void updateJobsListWidget();
+    // The jobs of every connection with a daemon, asked in the background.
+    void refreshAllJobsAsync();
+    void cancelSelectedJob();
     void onAsyncRefreshResult(int generation, int idx, const QString& connId, const ConnectionRuntimeState& state);
     void onAsyncRefreshDone(int generation);
     QString userExpandedKey(QTreeWidget* tree, QTreeWidgetItem* item) const;
@@ -927,12 +949,16 @@ private:
     int selectedConnectionIndexForPoolManagement() const;
     void updatePoolManagementBoxTitle();
     void updateStatus(const QString& text);
+    void buildStatusBar();
+    void composeStatusBar();
+    void refreshStatusBarSchedulesAsync();
     void beginUiBusy();
     void endUiBusy();
     void beginTransientUiBusy(const QString& statusText);
     void endTransientUiBusy();
     void updateBusyCursor();
     QString defaultStatusTextForCurrentState() const;
+    QString defaultIdleStatusText() const;
     void updateConnectivityMatrixButtonState();
     void setActionsLocked(bool locked);
     bool actionsLocked() const;
@@ -1139,8 +1165,21 @@ private:
     QPushButton* m_btnApplyConnContentProps{nullptr};
     QPushButton* m_btnDiscardPendingChanges{nullptr};
 
-    QTextEdit* m_statusText{nullptr};
-    QTextEdit* m_lastDetailText{nullptr};
+    // The STATUS BAR, the same line as the shell's status area: what is being done now, the
+    // next scheduled snapshot, jobs, outdated daemons and the last error.
+    struct LogWindow {
+        QPointer<QDialog> dialog;
+        QPointer<QPlainTextEdit> view;
+        QString connId;
+        bool daemon{false};
+    };
+    QList<LogWindow> m_logWindows;
+    QLabel* m_statusBarLabel{nullptr};
+    QString m_statusActivity;
+    QString m_statusLastError;
+    std::vector<zfsmgr::base::gsa::ConnectionState> m_statusSchedules;
+    int m_statusJobsRunning{-1};  // -1 while not asked yet
+    QTimer* m_statusScheduleTimer{nullptr};
     QGroupBox* m_transfersBox{nullptr};
     QGroupBox* m_pendingBox{nullptr};
     QPlainTextEdit* m_logView{nullptr};
@@ -1166,7 +1205,22 @@ private:
         QString errorText;
     };
     QList<ActiveDaemonJob> m_activeDaemonJobs;
-    QListWidget* m_jobsListWidget{nullptr};
+    QTreeWidget* m_jobsListWidget{nullptr};
+    // A row of the Jobs box: what `jobs -a` shows for one job of one connection.
+    struct DaemonJobRow {
+        int connIdx{-1};
+        QString connName;
+        QString id;
+        QString state;
+        QString type;
+        QString snap;
+        qulonglong bytes{0};
+        double rate{0.0};
+        long long elapsed{0};
+        QString error;
+    };
+    QVector<DaemonJobRow> m_allJobs;
+    QTimer* m_allJobsTimer{nullptr};
     int m_pendingSpinnerFrame{0};
     bool m_pendingApplyInProgress{false};
     bool m_pendingApplyFinishSuppressed{false};
@@ -1193,10 +1247,6 @@ private:
         // es lo que hace que mover el divisor mueva los dos paneles a la vez.
         QWidget* treeBox{nullptr};
         QWidget* detailBox{nullptr};
-        QWidget* logBox{nullptr};
-        QTabWidget* logTabs{nullptr};
-        QPlainTextEdit* logTerminalView{nullptr};
-        QPlainTextEdit* logDaemonView{nullptr};
         // El detalle de lo seleccionado, debajo del árbol.
         // Enseña una de tres cosas según qué haya marcado: la conexión del panel cuando
         // no hay nada marcado, el pool, o el dataset.
@@ -1222,6 +1272,17 @@ private:
         // cualquier otra cosa.
         QString detailForced;
         QTableWidget* datasetHoldsTable{nullptr};
+        // Schedules tab: what `schedule status` says and what `schedule` sets.
+        QWidget* schedulesTab{nullptr};
+        QTreeWidget* schedStatus{nullptr};
+        QCheckBox* schedEnabled{nullptr};
+        QCheckBox* schedRecursive{nullptr};
+        QCheckBox* schedLevel{nullptr};
+        QSpinBox* schedRetention[5]{};  // hourly, daily, weekly, monthly, yearly
+        QLineEdit* schedTarget{nullptr};
+        int schedConnIdx{-1};
+        QString schedPool;
+        QString schedDataset;
     };
     DatasetPane m_datasetPanes[2];
     // UN solo partidor para los dos paneles: tres filas —árboles, detalles, logs— y

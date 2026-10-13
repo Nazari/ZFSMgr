@@ -2,6 +2,8 @@
 #include "connectionstore.h"
 #include "transportsession.h"
 
+#include <QLabel>
+#include <QTextEdit>
 #include <QApplication>
 #include <QPlainTextEdit>
 #include <QPushButton>
@@ -197,20 +199,22 @@ private Q_SLOTS:
         QVERIFY2(window.findChild<QTreeWidget*>(QStringLiteral("connContentTreeUnified")) == nullptr,
                  "el árbol unificado con todas las conexiones dentro ya no existe");
 
-        // UN solo partidor para los dos paneles, con sus tres filas. Se comprueba el
-        // número de secciones porque es lo que se rompe al «añadir un divisor aquí»: dos
-        // partidores, uno por panel, y el reparto vertical de los dos lados se descuadra.
+        // ONE splitter for both panes, with its two rows: trees and details. The count is
+        // checked because that is what «adding a divider here» breaks.
         auto* rows = window.findChild<QSplitter*>(QStringLiteral("zfsmgrPaneRowsSplit"));
         QVERIFY2(rows, "no hay partidor compartido de filas");
         QCOMPARE(rows->orientation(), Qt::Vertical);
-        QCOMPARE(rows->count(), 3);
+        QCOMPARE(rows->count(), 2);
         QVERIFY2(!window.findChild<QSplitter*>(QStringLiteral("zfsmgrDatasetPanesSplit")),
                  "entre los dos paneles no debe haber divisor: el ancho va al 50%");
 
-        // Cada panel con su log de conexión debajo.
-        QVERIFY(window.findChild<QPlainTextEdit*>(QStringLiteral("originConnLogView")) != nullptr);
-        QVERIFY(window.findChild<QPlainTextEdit*>(QStringLiteral("destinationConnLogView")) != nullptr);
-
+        // The logs are windows of their own now (Connections menu), not tabs under the panes;
+        // and the Status/Progress fields gave way to the status bar.
+        QVERIFY(!window.findChild<QPlainTextEdit*>(QStringLiteral("originConnLogView")));
+        QVERIFY(!window.findChild<QPlainTextEdit*>(QStringLiteral("destinationConnLogView")));
+        QVERIFY(!window.findChild<QTextEdit*>(QStringLiteral("statusText")));
+        QVERIFY(!window.findChild<QTextEdit*>(QStringLiteral("lastDetailText")));
+        QVERIFY(window.findChild<QLabel*>(QStringLiteral("statusBarLine")) != nullptr);
 
         auto* logView = window.findChild<QPlainTextEdit*>(QStringLiteral("applicationLogView"));
         QVERIFY(logView != nullptr);
@@ -421,6 +425,69 @@ private Q_SLOTS:
         QVERIFY(preguntoPorElTrabajo);
     }
 
+    // The Jobs box lists the jobs of every daemon, not only those this window launched: a
+    // levelling started by a schedule appears there too, as in the shell's `jobs -a`.
+    void jobsBoxListsJobsTheWindowDidNotLaunch() {
+        MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
+        ConnectionProfile profile;
+        profile.id = QStringLiteral("local");
+        profile.name = QStringLiteral("Local");
+        profile.connType = QStringLiteral("Local");
+        profile.useSudo = true;
+        window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank1")}, {});
+        window.setConnectionDaemonStateForTest(0, true, true);
+        window.setAgentTransportForTest(
+            [](const std::vector<std::string>& argv, std::string& out, std::string& err, int& rc) {
+                err.clear();
+                rc = 0;
+                out.clear();
+                if (!argv.empty() && argv[0] == "--job-list") {
+                    out =
+                        "JOB={\"id\":\"gsa0001\",\"state\":\"running\",\"type\":\"gsa-level\","
+                        "\"snap\":\"tank1/x@GSA-hourly\",\"bytes\":1024,\"rate\":1.5,"
+                        "\"elapsed\":3,\"error_code\":\"\",\"error_args\":[]}\nJOBS_COUNT=1\n";
+                }
+                return true;
+            });
+        window.refreshAllJobsForTest();
+        QTRY_VERIFY_WITH_TIMEOUT(window.selectTransferJobForTest(QStringLiteral("gsa0001")), 5000);
+    }
+
+    // The Schedules tab writes what the core's rules produce, through the agent: enabling a
+    // daily retention of 7 sets org.zfsmgr:schedule-daily=7 on the dataset.
+    void schedulesTabAppliesThroughTheAgent() {
+        MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
+        ConnectionProfile profile;
+        profile.id = QStringLiteral("local");
+        profile.name = QStringLiteral("Local");
+        profile.connType = QStringLiteral("Local");
+        profile.useSudo = true;
+        window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank1")}, {});
+        window.setConnectionDaemonStateForTest(0, true, true);
+        window.setAgentTransportForTest(
+            [](const std::vector<std::string>&, std::string& out, std::string& err, int& rc) {
+                out.clear();
+                err.clear();
+                rc = 0;
+                return true;
+            });
+        window.fillPaneSchedulesForTest(0, 0, QStringLiteral("tank1"),
+                                        QStringLiteral("tank1/datos"));
+        window.setPaneScheduleDailyForTest(0, 7, true);
+        window.applyPaneScheduleForTest(0);
+        bool escrito = false;
+        for (const auto& call : window.agentCallsForTest()) {
+            if (call.argv.size() >= 2 && call.argv[0] == "--mutate-zfs-generic") {
+                const QByteArray json =
+                    QByteArray::fromBase64(QByteArray::fromStdString(call.argv[1]));
+                escrito = escrito
+                          || (json.contains("org.zfsmgr:schedule-daily=7")
+                              && json.contains("tank1/datos"));
+            }
+        }
+        QVERIFY2(escrito, "no se escribió org.zfsmgr:schedule-daily=7 en tank1/datos");
+    }
+
     // Why a job failed reaches the panel. The agent says it as `ERROR_CODE=` and `ERROR_ARGS=`
     // and the client words it; the GUI kept reading the old `ERROR=` and a failed transfer
     // showed no reason at all.
@@ -601,6 +668,15 @@ private Q_SLOTS:
             }
         }
         QVERIFY(hasRefresh);
+        // The connection's log and its daemon's open from here, in windows of their own.
+        bool hasLog = false;
+        bool hasDaemonLog = false;
+        for (const QString& label : topLevel) {
+            hasLog = hasLog || label.startsWith(QStringLiteral("Log"));
+            hasDaemonLog = hasDaemonLog || label.startsWith(QStringLiteral("Daemon log"));
+        }
+        QVERIFY(hasLog);
+        QVERIFY(hasDaemonLog);
 
         const QStringList refreshLabels = window.connectionRefreshMenuLabelsForTest();
         QCOMPARE(refreshLabels.size(), 2);

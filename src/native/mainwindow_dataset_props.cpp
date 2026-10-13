@@ -872,6 +872,17 @@ void MainWindow::refreshDatasetProperties(const QString& side, QTreeWidget* conn
         rows.push_back(byProp.value(prop));
     }
 
+    // The schedule properties live in the Schedules tab, which edits them as `schedule` does.
+    if (!selectedInsideGsaNode) {
+        rows.erase(std::remove_if(rows.begin(), rows.end(),
+                                  [](const PropRow& r) {
+                                      return r.prop.startsWith(
+                                          QStringLiteral("org.zfsmgr:schedule-"),
+                                          Qt::CaseInsensitive);
+                                  }),
+                   rows.end());
+    }
+
     if (selectedInsideGsaNode) {
         QVector<PropRow> gsaRows;
         const QStringList wanted = gsaPropsForView();

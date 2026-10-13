@@ -353,7 +353,6 @@ bool cmdMontaje(Estado& e, const LineaAnalizada& linea, bool montar);
 bool cmdPromote(Estado& e, const LineaAnalizada& linea);
 bool cmdSet(Estado& e, const LineaAnalizada& linea);
 bool cmdGet(Estado& e, const LineaAnalizada& linea);
-std::map<std::string, std::map<std::string, std::string>> agrupaGsa(const std::string& crudo);
 bool leeProgramaciones(Estado& e, const ZfsmUrl& destino, const std::string& raiz,
                        std::vector<B::gsa::Entry>& out);
 Tabla tablaDeProgramaciones(const std::vector<std::pair<std::string, B::gsa::Entry>>& filas);

@@ -423,6 +423,9 @@ QWidget* MainWindow::buildPaneDetail(int paneIdx, QWidget* parent) {
                              trk(QStringLiteral("t_detail_tab_perms_001"),
                                  QStringLiteral("Permisos"),
                                  QStringLiteral("Permissions")));
+    pane.datasetTabs->addTab(buildPaneSchedulesTab(paneIdx, pane.datasetTabs),
+                             trk(QStringLiteral("t_detail_tab_sched_001"),
+                                 QStringLiteral("Programaciones"), QStringLiteral("Schedules")));
     // Holds: solo tiene sentido para un snapshot, así que la pestaña se apaga cuando lo
     // marcado es un dataset. Estaban también en el árbol, como nodo «Holds (n)» con sus
     // filas de propiedades en las columnas C1...C10.
@@ -476,6 +479,12 @@ QWidget* MainWindow::buildPaneDetail(int paneIdx, QWidget* parent) {
     connect(pane.datasetTabs, &QTabWidget::currentChanged, this,
             [this, paneIdx](int index) {
                 DatasetPane& p = m_datasetPanes[paneIdx];
+                // The schedule's status is asked when its tab is opened, like the permissions.
+                if (p.datasetTabs && p.schedulesTab
+                    && p.datasetTabs->widget(index) == p.schedulesTab) {
+                    loadPaneScheduleStatusAsync(paneIdx);
+                    return;
+                }
                 if (!p.datasetTabs || !p.datasetPermsTree
                     || p.datasetTabs->widget(index) != p.datasetPermsTree) {
                     return;
@@ -780,6 +789,9 @@ void MainWindow::updatePaneDetail(int paneIdx) {
                 trk(QStringLiteral("t_detail_tab_perms_001"),
                     QStringLiteral("Permisos"),
                     QStringLiteral("Permissions")));
+        showTab(pane.schedulesTab, !isSnapshot, 4,
+                trk(QStringLiteral("t_detail_tab_sched_001"), QStringLiteral("Programaciones"),
+                    QStringLiteral("Schedules")));
         showTab(pane.datasetHoldsTable, isSnapshot, 4,
                 trk(QStringLiteral("t_detail_tab_holds_001"),
                     QStringLiteral("Holds"),
@@ -796,6 +808,10 @@ void MainWindow::updatePaneDetail(int paneIdx) {
         // que sigue siendo cierto, y vuelve a estar viva en cuanto se marque algo en él.
         m_connContentPropsTable = pane.datasetDetailTable;
         refreshConnContentPropertiesFor(tree);
+        // After the properties: the form is filled from them.
+        if (!isSnapshot) {
+            fillPaneSchedules(paneIdx, connIdx, poolName, dataset);
+        }
         return;
     }
 

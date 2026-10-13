@@ -90,6 +90,11 @@ struct Entry {
 };
 bool isValidSet(const std::vector<Entry>& fromTheSamePool, Reason& why);
 
+// The agent's raw schedule properties («dataset<TAB>property<TAB>value[<TAB>source]», one line
+// per property) grouped by dataset. INHERITED ones are left out: an inherited schedule belongs
+// to the parent, and showing it as the child's would make it look like there are two.
+std::map<std::string, std::map<std::string, std::string>> groupProperties(const std::string& raw);
+
 // Is `dataset` the same as `ancestor`, or does it hang from it?
 bool isSameOrDescendant(const std::string& dataset, const std::string& ancestor);
 

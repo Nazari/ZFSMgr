@@ -1244,6 +1244,19 @@ void MainWindow::fillConnectionsMenu(QMenu* menu) {
         refreshAllConnections();
     });
 
+    // The connection's log and its daemon's, each in its own window.
+    a = menu->addAction(onConn(
+        trk(QStringLiteral("t_conn_log_menu_001"), QStringLiteral("Log"), QStringLiteral("Log"))));
+    a->setEnabled(m_topDetailConnIdx >= 0);
+    connect(a, &QAction::triggered, this,
+            [this]() { openConnectionLogWindow(m_topDetailConnIdx, /*daemon=*/false); });
+    a = menu->addAction(
+        onConn(trk(QStringLiteral("t_daemon_log_menu_001"), QStringLiteral("Log del daemon"),
+                   QStringLiteral("Daemon log"))));
+    a->setEnabled(m_topDetailConnIdx >= 0);
+    connect(a, &QAction::triggered, this,
+            [this]() { openConnectionLogWindow(m_topDetailConnIdx, /*daemon=*/true); });
+
     menu->addSeparator();
 
     a = menu->addAction(onConn(trk(QStringLiteral("t_new_pool_ctx_001"),
@@ -1796,6 +1809,9 @@ void MainWindow::onAsyncRefreshDone(int generation) {
     m_refreshInProgress = false;
     updateBusyCursor();
     updateStatus(QString());
+    // With the daemons' versions known: the status bar's schedules and outdated daemons.
+    refreshStatusBarSchedulesAsync();
+    refreshAllJobsAsync();
     updateConnectivityMatrixButtonState();
     if (m_busyOnImportRefresh) {
         m_busyOnImportRefresh = false;

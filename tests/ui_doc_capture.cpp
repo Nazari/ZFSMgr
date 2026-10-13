@@ -7,6 +7,7 @@
 #include <QPainter>
 #include <QPixmap>
 #include <QStyle>
+#include <QTabWidget>
 #include <QTextEdit>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
@@ -197,16 +198,6 @@ int main(int argc, char** argv) {
     app.processEvents();
     app.processEvents();
 
-    // «Listo» y no «Loading…»: la ventana de demostración nunca termina de cargar nada
-    // —no hay máquina al otro lado—, y esa palabra en una captura de la ayuda hace pensar
-    // que la aplicación se queda pillada.
-    if (auto* status = window.findChild<QTextEdit*>(QStringLiteral("statusText"))) {
-        status->setPlainText(QStringLiteral("Listo"));
-    }
-    if (auto* progress = window.findChild<QTextEdit*>(QStringLiteral("lastDetailText"))) {
-        progress->setPlainText(
-            QStringLiteral("[2026-08-24 12:00:00] [NORMAL] Refresco de Local finalizado"));
-    }
     app.processEvents();
 
     if (!savePixmap(window.grab(), outputPath(outDir, QStringLiteral("main-window.png")), &error)) {
@@ -224,6 +215,25 @@ int main(int argc, char** argv) {
         if (!savePixmap(detail->grab(), outputPath(outDir, QStringLiteral("detail-tabs.png")), &error)) {
             fprintf(stderr, "%s\n", error.toLocal8Bit().constData());
             return 1;
+        }
+    }
+
+    // And the same frame with the Schedules tab open: status on the left, `schedule` on the right.
+    if (QWidget* detail = window.findChild<QWidget*>(QStringLiteral("originDetailFrame"))) {
+        auto* sched = window.findChild<QWidget*>(QStringLiteral("originSchedulesTab"));
+        auto* tabs =
+            sched ? qobject_cast<QTabWidget*>(sched->parentWidget()->parentWidget()) : nullptr;
+        if (tabs) {
+            tabs->setCurrentWidget(sched);
+            app.processEvents();
+        }
+        if (!savePixmap(detail->grab(), outputPath(outDir, QStringLiteral("detail-schedules.png")),
+                        &error)) {
+            fprintf(stderr, "%s\n", error.toLocal8Bit().constData());
+            return 1;
+        }
+        if (tabs) {
+            tabs->setCurrentIndex(0);
         }
     }
 
@@ -301,6 +311,7 @@ int main(int argc, char** argv) {
     const QStringList esperadas = {
         QStringLiteral("main-window.png"),
         QStringLiteral("detail-tabs.png"),
+        QStringLiteral("detail-schedules.png"),
         QStringLiteral("connections-menu.png"),
         QStringLiteral("connection-refresh-menu.png"),
         QStringLiteral("pool-context-menu-imported.png"),

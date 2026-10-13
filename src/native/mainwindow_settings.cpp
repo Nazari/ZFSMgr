@@ -252,9 +252,11 @@ void MainWindow::applyLanguageLive() {
             connectionLogs.insert(it.key(), it.value()->toPlainText());
         }
     }
-    const QString statusText = m_statusText ? m_statusText->toPlainText() : QString();
-    const QString detailText = m_lastDetailText ? m_lastDetailText->toPlainText() : QString();
 
+    // The owners die with the old window: the log windows let go of their documents first.
+    for (const QString& connId : m_connectionLogViews.keys()) {
+        releaseLogWindowsOf(connId);
+    }
     m_connectionLogViews.clear();
     m_connectionGsaLogViews.clear();
     if (QWidget* old = takeCentralWidget()) {
@@ -284,12 +286,7 @@ void MainWindow::applyLanguageLive() {
         view->setPlainText(it.value());
         trimLogWidget(view);
     }
-    if (m_statusText) {
-        m_statusText->setPlainText(statusText);
-    }
-    if (m_lastDetailText) {
-        m_lastDetailText->setPlainText(detailText);
-    }
+    composeStatusBar();
 
     if (!selectedConnId.isEmpty()) {
         for (int i = 0; i < m_conns.profiles.size(); ++i) {

@@ -3947,6 +3947,21 @@ void caso49() {
         }
 
         {
+            // --- The agent's schedule properties grouped by dataset.
+            namespace G = zfsmgr::base::gsa;
+            const auto g = G::groupProperties(
+                "tank/a\torg.zfsmgr:schedule-daily\t7\tlocal\n"
+                "tank/a\torg.zfsmgr:schedule-enabled\ton\tlocal\n"
+                "tank/a/b\torg.zfsmgr:schedule-daily\t7\tinherited from tank/a\n"
+                "tank/c\torg.zfsmgr:schedule-target\t-\tlocal\n");
+            comprobar(g.size() == 1 && g.count("tank/a") == 1 && g.at("tank/a").size() == 2,
+                      "group properties: own values only, by dataset");
+            comprobar(g.count("tank/a/b") == 0,
+                      "group properties: an inherited one is the parent's");
+            comprobar(g.count("tank/c") == 0, "group properties: «-» is no value");
+        }
+
+        {
             // --- Reads the agent never serves from its cache.
             namespace RQ = zfsmgr::commands::requests;
             comprobar(RQ::mustBeReadFresh(RQ::datasetProperty("keystatus", "tank/cif")),

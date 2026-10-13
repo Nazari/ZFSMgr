@@ -89,10 +89,11 @@ void MainWindow::updateStatus(const QString& text) {
         }, Qt::QueuedConnection);
         return;
     }
-    if (m_statusText) {
-        const QString masked = maskSecrets(text.trimmed());
-        m_statusText->setPlainText(masked.isEmpty() ? defaultStatusTextForCurrentState() : masked);
-    }
+    // What is being done now. «Ready» is not shown: the bar says only what is not routine.
+    const QString masked = maskSecrets(text.trimmed());
+    const QString ahora = masked.isEmpty() ? defaultStatusTextForCurrentState() : masked;
+    m_statusActivity = (ahora == defaultIdleStatusText()) ? QString() : ahora;
+    composeStatusBar();
 }
 
 bool MainWindow::actionsLocked() const {
@@ -187,7 +188,8 @@ void MainWindow::endUiBusy() {
 }
 
 void MainWindow::beginTransientUiBusy(const QString& statusText) {
-    m_transientStatusStack.push_back(m_statusText ? m_statusText->toPlainText() : QString());
+    m_transientStatusStack.push_back(m_statusActivity);
+    m_statusLastError.clear();  // a new action: the previous error no longer applies
     beginUiBusy();
     if (!statusText.trimmed().isEmpty()) {
         updateStatus(statusText);
@@ -216,8 +218,11 @@ QString MainWindow::defaultStatusTextForCurrentState() const {
                    QStringLiteral("Working..."),
                    QStringLiteral("Working..."));
     }
-    return trk(QStringLiteral("t_status_ready_001"),
-               QStringLiteral("Ready"),
+    return defaultIdleStatusText();
+}
+
+QString MainWindow::defaultIdleStatusText() const {
+    return trk(QStringLiteral("t_status_ready_001"), QStringLiteral("Ready"),
                QStringLiteral("Ready"));
 }
 
@@ -228,17 +233,25 @@ void MainWindow::updateBusyCursor() {
             QApplication::setOverrideCursor(Qt::BusyCursor);
             m_waitCursorActive = true;
         }
-        if (m_statusText && m_statusText->toPlainText().trimmed().isEmpty()) {
-            m_statusText->setPlainText(defaultStatusTextForCurrentState());
+        if (m_statusActivity.isEmpty()) {
+            updateStatus(QString());
         }
     } else if (m_waitCursorActive) {
         QApplication::restoreOverrideCursor();
         m_waitCursorActive = false;
-        if (m_statusText && m_statusText->toPlainText().trimmed().isEmpty()) {
-            m_statusText->setPlainText(defaultStatusTextForCurrentState());
+        // An automatic text («Working…», «Refreshing…») ends with the work; one an action
+        // set stays until the next.
+        const QStringList automaticos = {
+            trk(QStringLiteral("t_status_loading_001"), QStringLiteral("Loading..."),
+                QStringLiteral("Loading...")),
+            trk(QStringLiteral("t_status_refreshing_001"),
+                QStringLiteral("Refreshing connections..."),
+                QStringLiteral("Refreshing connections...")),
+            trk(QStringLiteral("t_status_busy_001"), QStringLiteral("Working..."),
+                QStringLiteral("Working..."))};
+        if (m_statusActivity.isEmpty() || automaticos.contains(m_statusActivity)) {
+            updateStatus(QString());
         }
-    } else if (m_statusText && m_statusText->toPlainText().trimmed().isEmpty()) {
-        m_statusText->setPlainText(defaultStatusTextForCurrentState());
     }
 }
 

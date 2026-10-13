@@ -456,6 +456,10 @@ set(ZFSMGR_CORE_SOURCES
     ../src/native/mainwindow_advanced_dir.cpp
     ../src/native/mainwindow_refresh.cpp
     ../src/native/mainwindow_runtime_ui.cpp
+    ../src/native/mainwindow_statusbar.cpp
+    ../src/native/mainwindow_logwindows.cpp
+    ../src/native/mainwindow_jobs.cpp
+    ../src/native/mainwindow_schedules_tab.cpp
     ../src/native/mainwindow_remote.cpp
     ../src/native/mainwindow_table_utils.cpp
     ../src/native/mainwindow_settings.cpp

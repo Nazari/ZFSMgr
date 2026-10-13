@@ -412,9 +412,8 @@ void MainWindow::clearAppLog() {
             it.value()->clear();
         }
     }
-    if (m_lastDetailText) {
-        m_lastDetailText->clear();
-    }
+    m_statusLastError.clear();
+    composeStatusBar();
     if (!m_appLogPath.isEmpty()) {
         QFile f(m_appLogPath);
         if (f.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
@@ -495,8 +494,10 @@ void MainWindow::appLog(const QString& level, const QString& msg) {
     if (always || rank(lvl) <= rank(current)) {
         appendAppLogLineToView(line);
     }
-    if (m_lastDetailText) {
-        m_lastDetailText->setPlainText(line);
+    // The last error goes to the status bar, as in the shell's status area.
+    if (lvl == QStringLiteral("error")) {
+        m_statusLastError = safeMsg;
+        composeStatusBar();
     }
     appendLogToFile(line);
     appendLogToNative(level, line);
@@ -659,24 +660,9 @@ void MainWindow::syncConnectionLogTabs() {
             ++it;
             continue;
         }
-        // Los paneles enseñan el documento de este visor: hay que soltarlo ANTES de
-        // destruirlo, o se quedan apuntando a memoria liberada. No lo avisa nada.
-        //
-        // Se suelta con `nullptr`, que hace que el visor se cree uno vacío con el
-        // `QPlainTextDocumentLayout` que exige; con un `QTextDocument` construido a pelo
-        // Qt avisa por consola y NO cambia nada.
-        for (int paneIdx = 0; paneIdx < 2; ++paneIdx) {
-            DatasetPane& pane = m_datasetPanes[paneIdx];
-            if (pane.logTerminalView && it.value()
-                && pane.logTerminalView->document() == it.value()->document()) {
-                pane.logTerminalView->setDocument(nullptr);
-            }
-            QPlainTextEdit* gsaOwner = m_connectionGsaLogViews.value(it.key(), nullptr);
-            if (pane.logDaemonView && gsaOwner
-                && pane.logDaemonView->document() == gsaOwner->document()) {
-                pane.logDaemonView->setDocument(nullptr);
-            }
-        }
+        // The log windows show this owner's document: they let go of it BEFORE it is
+        // destroyed, or they would point at freed memory. Nothing warns about it.
+        releaseLogWindowsOf(it.key());
         if (QPlainTextEdit* gsaOwner = m_connectionGsaLogViews.value(it.key(), nullptr)) {
             gsaOwner->deleteLater();
         }
@@ -688,12 +674,6 @@ void MainWindow::syncConnectionLogTabs() {
         m_connGsaCompactState.remove(it.key());
         m_connectionDaemonLogOffset.remove(it.key());
         it = m_connectionLogViews.erase(it);
-    }
-
-    // Y que los dos paneles vuelvan a apuntar al documento que les toca: puede que el
-    // suyo se acabe de crear en este mismo recorrido.
-    for (int paneIdx = 0; paneIdx < 2; ++paneIdx) {
-        updatePaneLog(paneIdx);
     }
 }
 
@@ -751,8 +731,7 @@ void MainWindow::appendConnectionLog(const QString& connId, const QString& line)
     scrollLogViewToLatest(view);
 }
 
-void MainWindow::refreshConnectionDaemonLogAsync(int idx, bool fullReset)
-{
+void MainWindow::refreshConnectionDaemonLogAsync(int idx, bool fullReset, bool userAsked) {
     if (idx < 0 || idx >= m_conns.profiles.size()) {
         return;
     }
@@ -765,15 +744,10 @@ void MainWindow::refreshConnectionDaemonLogAsync(int idx, bool fullReset)
         return;
     }
     const ConnectionProfile profile = m_conns.profiles[idx];
-    // La conexión Local queda fuera del refresco AUTOMÁTICO del log, y no por ser
-    // local: la tarea en segundo plano captura la ventana y puede sobrevivirla, lo que
-    // es un uso después de liberar. Con conexiones remotas no se manifiesta porque el
-    // comando falla enseguida; en local llega a ejecutarse y da SIGSEGV al cerrar.
-    //
-    // El latido y la reinstalación del daemon SÍ funcionan en local: los lanza el
-    // usuario y no quedan en vuelo. Arreglar el tiempo de vida de estas tareas es un
-    // trabajo aparte que afecta también a las conexiones remotas.
-    if (isLocalConnection(profile)) {
+    // Local only when the user asks (opening the daemon log window). Refreshed on its own it
+    // runs local commands from a pool task while the window's thread may be resolving the
+    // local sudo credentials, and the two wait for each other.
+    if (isLocalConnection(profile) && !userAsked) {
         return;
     }
 

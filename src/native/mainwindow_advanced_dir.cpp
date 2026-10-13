@@ -1259,6 +1259,11 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
             job.displayLabel = QStringLiteral("Desde Dir %1 → %2").arg(ruta, dst);
             job.state = QStringLiteral("running");
             m_activeDaemonJobs.append(job);
+            // Shown and followed at once, as every other launched job.
+            updateJobsListWidget();
+            if (m_jobPollTimer && !m_jobPollTimer->isActive()) {
+                m_jobPollTimer->start();
+            }
             ++lanzados;
             appLog(QStringLiteral("NORMAL"),
                    QStringLiteral("[fromdir] árbol entre daemons: %1 -> %2 (trabajo %3)")

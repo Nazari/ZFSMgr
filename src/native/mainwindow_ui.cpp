@@ -956,7 +956,6 @@ void MainWindow::buildDatasetPane(int paneIdx) {
     holderLayout->addWidget(head, 0);
     holderLayout->addWidget(pane.treeWidget, 1);
     pane.detailBox = buildPaneDetail(paneIdx, nullptr);
-    pane.logBox = buildPaneLog(paneIdx, nullptr);
 
     if (ConnectionDatasetTreePane* treePane = pane.treeWidget->pane()) {
         connect(treePane, &ConnectionDatasetTreePane::selectionChanged, this,
@@ -973,181 +972,6 @@ void MainWindow::buildDatasetPane(int paneIdx) {
             [this, paneIdx](int) { onPaneConnectionChosen(paneIdx); });
     connect(pane.poolCombo, &QComboBox::currentIndexChanged, this,
             [this, paneIdx](int) { onPanePoolChosen(paneIdx); });
-}
-
-
-// El log de la conexión del panel, debajo de su detalle.
-//
-// Antes los logs de TODAS las conexiones estaban en pestañas al pie de la ventana, junto
-// al log combinado. Mirar el de una máquina era buscar su pestaña; y con dos paneles
-// abiertos sobre dos máquinas, ir y volver entre dos pestañas.
-//
-// Los dos visores NO son dueños de su texto: enseñan el documento del visor que sí lo es
-// —el que `syncConnectionLogTabs()` crea por conexión y al que escribe
-// `appendConnectionLog()`—. `QPlainTextEdit::setDocument()` permite que dos vistas
-// compartan documento, que es lo que hace falta para que la misma conexión pueda estar
-// elegida en los dos paneles a la vez sin duplicar el texto ni perder líneas.
-QWidget* MainWindow::buildPaneLog(int paneIdx, QWidget* parent) {
-    DatasetPane& pane = m_datasetPanes[paneIdx];
-    const bool isOrigin = (paneIdx == 0);
-    auto* box = new QWidget(parent);
-    auto* layout = new QVBoxLayout(box);
-    layout->setContentsMargins(0, 0, 0, 0);
-    layout->setSpacing(0);
-
-    pane.logTabs = new QTabWidget(box);
-    pane.logTabs->setDocumentMode(true);
-    if (pane.logTabs->tabBar()) {
-        pane.logTabs->tabBar()->setExpanding(false);
-    }
-
-    const auto makeView = [this](QWidget* owner) {
-        auto* view = new QPlainTextEdit(owner);
-        view->setReadOnly(true);
-        view->setLineWrapMode(QPlainTextEdit::NoWrap);
-        view->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-        view->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-        if (m_logView) {
-            view->setFont(m_logView->font());
-        }
-        // Pegado a la última línea.
-        //
-        // El texto lo añade un visor OCULTO que es el dueño del documento, así que estos no
-        // se enteran de que ha crecido y se quedaban donde estaban: había que bajar a mano
-        // cada vez para ver lo último, que es justo lo contrario de para qué sirve un log.
-        //
-        // Se sigue la cola SOLO mientras el usuario esté abajo, y se deja de seguir en
-        // cuanto sube. Sin esa condición, leer algo de hace un rato sería imposible: cada
-        // línea nueva te devolvería al final de un tirón.
-        //
-        // Se lleva el CURSOR al final y se pide verlo, en vez de mover la barra.
-        //
-        // La barra de estas vistas no sirve para esto: el documento es compartido con el
-        // visor oculto que lo escribe, y su recorrido lo gobierna ese otro —medido: 400 en
-        // el dueño y 0 en la vista, con el mismo documento de 401 líneas—. Mover una barra
-        // cuyo máximo es cero no hace nada.
-        //
-        // Y la bandera se mantiene aparte, mirando a dónde se mueve el USUARIO: cuando el
-        // texto ya cambió no hay forma de saber si estaba abajo antes. Se sigue la cola solo
-        // mientras esté abajo; si sube a leer, se le deja — si no, cada línea nueva lo
-        // devolvería al final de un tirón y leer historia sería imposible.
-        auto pegado = std::make_shared<bool>(true);
-        if (QScrollBar* sb = view->verticalScrollBar()) {
-            connect(sb, &QScrollBar::valueChanged, view, [sb, pegado](int v) {
-                // Dos píxeles de margen: la última línea a medio mostrar sigue siendo «abajo».
-                *pegado = (v >= sb->maximum() - 2);
-            });
-        }
-        // `textChanged` es de la VISTA, así que sigue valiendo cuando se le cambia el
-        // documento al elegir otra conexión: no hay que rehacer la conexión de señal.
-        connect(view, &QPlainTextEdit::textChanged, view, [view, pegado]() {
-            if (*pegado) {
-                view->moveCursor(QTextCursor::End);
-                view->ensureCursorVisible();
-                // Y de vuelta al principio de la línea.
-                //
-                // El cursor queda al FINAL del último renglón, así que `ensureCursorVisible`
-                // arrastra la vista a la derecha para enseñarlo — y como estos visores no
-                // parten las líneas, con una orden larga te deja mirando su cola y el
-                // principio, que es donde está la hora y qué máquina habla, fuera de pantalla.
-                // Solo se hace mientras se sigue la cola: si el usuario se ha movido a mano,
-                // no se le toca.
-                if (QScrollBar* h = view->horizontalScrollBar()) {
-                    h->setValue(h->minimum());
-                }
-            }
-        });
-        return view;
-    };
-
-    pane.logTerminalView = makeView(pane.logTabs);
-    pane.logTerminalView->setObjectName(isOrigin ? QStringLiteral("originConnLogView")
-                                                 : QStringLiteral("destinationConnLogView"));
-    // «Log», no «Terminal». Se llamaba así porque enseñaba lo que salía por el terminal
-    // de la sesión SSH; pero lo que uno busca ahí es el log de esa conexión, y con el
-    // nombre de la máquina al lado el rótulo lo dice entero.
-    pane.logTabs->addTab(pane.logTerminalView,
-                         trk(QStringLiteral("t_pane_log_tab_001"),
-                             QStringLiteral("Log"),
-                             QStringLiteral("Log")));
-
-    auto* daemonPage = new QWidget(pane.logTabs);
-    auto* daemonLayout = new QVBoxLayout(daemonPage);
-    daemonLayout->setContentsMargins(0, 0, 0, 0);
-    daemonLayout->setSpacing(2);
-    auto* btnRow = new QWidget(daemonPage);
-    auto* btnLayout = new QHBoxLayout(btnRow);
-    btnLayout->setContentsMargins(4, 2, 4, 2);
-    auto* heartbeatBtn = new QPushButton(QStringLiteral("Heartbeat"), btnRow);
-    connect(heartbeatBtn, &QPushButton::clicked, this, [this, paneIdx]() {
-        const DatasetPane& p = m_datasetPanes[paneIdx];
-        if (p.connIdx >= 0 && p.connIdx < m_conns.profiles.size()) {
-            runDaemonHeartbeat(m_conns.profiles.at(p.connIdx).id);
-        }
-    });
-    btnLayout->addWidget(heartbeatBtn, 0);
-    btnLayout->addStretch(1);
-    pane.logDaemonView = makeView(daemonPage);
-    daemonLayout->addWidget(btnRow, 0);
-    daemonLayout->addWidget(pane.logDaemonView, 1);
-    pane.logTabs->addTab(daemonPage, QStringLiteral("Daemon"));
-
-    layout->addWidget(pane.logTabs, 1);
-    return box;
-}
-
-void MainWindow::updatePaneLog(int paneIdx) {
-    DatasetPane& pane = m_datasetPanes[paneIdx];
-    if (!pane.logTerminalView || !pane.logDaemonView) {
-        return;
-    }
-    const QString connId = (pane.connIdx >= 0 && pane.connIdx < m_conns.profiles.size())
-                               ? m_conns.profiles.at(pane.connIdx).id
-                               : QString();
-    const auto attach = [](QPlainTextEdit* view, QPlainTextEdit* owner) {
-        if (!view) {
-            return;
-        }
-        // Sin dueño —conexión desconectada, o log aún sin crear— se suelta el documento
-        // pasando `nullptr`, que hace que el visor se cree uno vacío. Dejarle el anterior
-        // enseñaría el log de otra máquina bajo este panel, que es peor que no enseñar nada.
-        //
-        // `nullptr` y NO un `QTextDocument` recién hecho: `QPlainTextEdit` exige que el
-        // documento traiga un `QPlainTextDocumentLayout`, y uno construido a pelo no lo
-        // tiene. En ese caso Qt AVISA POR CONSOLA Y NO HACE NADA —el visor se queda con el
-        // documento anterior—, que es justo lo contrario de lo que se pretendía. Se vio en
-        // la salida de la aplicación, no leyendo el código.
-        QTextDocument* doc = owner ? owner->document() : nullptr;
-        if (doc && view->document() == doc) {
-            return;
-        }
-        view->setDocument(doc);
-        // Al cambiar de conexión se entra por el final, que es lo que se quiere ver: el
-        // documento nuevo trae el historial entero y aparecería por el principio.
-        view->moveCursor(QTextCursor::End);
-        view->ensureCursorVisible();
-        if (QScrollBar* h = view->horizontalScrollBar()) {
-            h->setValue(h->minimum());
-        }
-    };
-    attach(pane.logTerminalView, connId.isEmpty() ? nullptr
-                                                  : m_connectionLogViews.value(connId, nullptr));
-    attach(pane.logDaemonView, connId.isEmpty() ? nullptr
-                                                : m_connectionGsaLogViews.value(connId, nullptr));
-    if (pane.logTabs) {
-        const QString name = (pane.connIdx >= 0 && pane.connIdx < m_conns.profiles.size())
-                                 ? m_conns.profiles.at(pane.connIdx).name
-                                 : QString();
-        // Las DOS pestañas llevan el nombre de la máquina: con dos paneles abiertos sobre
-        // dos conexiones hay cuatro pestañas a la vista, y «Daemon» a secas no dice de cuál.
-        const auto withConn = [&name](const QString& label) {
-            return name.isEmpty() ? label : QStringLiteral("%1 · %2").arg(label, name);
-        };
-        pane.logTabs->setTabText(0, withConn(trk(QStringLiteral("t_pane_log_tab_001"),
-                                                 QStringLiteral("Log"),
-                                                 QStringLiteral("Log"))));
-        pane.logTabs->setTabText(1, withConn(QStringLiteral("Daemon")));
-    }
 }
 
 // Rellena los dos desplegables sin perder lo que hubiera elegido el usuario.
@@ -1258,10 +1082,6 @@ void MainWindow::onPaneConnectionChosen(int paneIdx) {
     }
     refillDatasetPaneCombos();
     rebuildDatasetPane(paneIdx);
-    // Y el log de abajo, que es de la conexión y no del pool: sin esta línea el panel
-    // cambiaba de máquina y seguía enseñando —y rotulando— el log de la anterior. Solo se
-    // corregía en el siguiente refresco completo, que es cuando se rehacen los dos paneles.
-    updatePaneLog(paneIdx);
 }
 
 bool MainWindow::isPoolImportableForConnection(int connIdx, const QString& poolName) const {
@@ -1325,7 +1145,6 @@ void MainWindow::rebuildDatasetPanes() {
     refillDatasetPaneCombos();
     for (int paneIdx = 0; paneIdx < 2; ++paneIdx) {
         rebuildDatasetPane(paneIdx);
-        updatePaneLog(paneIdx);
     }
 }
 
@@ -1913,15 +1732,28 @@ void MainWindow::buildUi() {
     // widget: la lista de pendientes se había quedado sin nada que enseñar y el hueco lo
     // ocuparon los trabajos. Vuelven a ser dos, porque vuelve a haber dos cosas que
     // enseñar: lo que está corriendo y lo que está editado sin aplicar.
-    m_jobsListWidget = new QListWidget(pendingChangesBox);
+    // The columns of the shell's `jobs`.
+    m_jobsListWidget = new QTreeWidget(pendingChangesBox);
+    m_jobsListWidget->setObjectName(QStringLiteral("jobsTable"));
+    m_jobsListWidget->setRootIsDecorated(false);
+    m_jobsListWidget->setUniformRowHeights(true);
     m_jobsListWidget->setSelectionMode(QAbstractItemView::SingleSelection);
-    m_jobsListWidget->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-    m_jobsListWidget->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    // The same catalog keys as the shell's `jobs` table, so both say the same.
+    m_jobsListWidget->setHeaderLabels(
+        {trk(QStringLiteral("t_cab_conexion"), QStringLiteral("CONEXIÓN"),
+             QStringLiteral("CONNECTION")),
+         trk(QStringLiteral("t_cab_id"), QStringLiteral("ID"), QStringLiteral("ID")),
+         trk(QStringLiteral("t_cab_estado"), QStringLiteral("ESTADO"), QStringLiteral("STATE")),
+         trk(QStringLiteral("t_cab_tipo"), QStringLiteral("TIPO"), QStringLiteral("TYPE")),
+         trk(QStringLiteral("t_cab_instantanea"), QStringLiteral("SNAPSHOT"),
+             QStringLiteral("SNAPSHOT")),
+         trk(QStringLiteral("t_cab_bytes"), QStringLiteral("BYTES"), QStringLiteral("BYTES")),
+         trk(QStringLiteral("t_cab_mib_s"), QStringLiteral("MiB/s"), QStringLiteral("MiB/s")),
+         trk(QStringLiteral("t_cab_segundos"), QStringLiteral("SEGUNDOS"),
+             QStringLiteral("SECONDS")),
+         trk(QStringLiteral("t_cab_error"), QStringLiteral("ERROR"), QStringLiteral("ERROR"))});
     m_jobsListWidget->setMinimumHeight(0);
     m_jobsListWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Ignored);
-    m_jobsListWidget->setIconSize(QSize(14, 14));
-    m_jobsListWidget->setSpacing(1);
-    m_jobsListWidget->setContextMenuPolicy(Qt::CustomContextMenu);
     pendingChangesBody->addWidget(m_jobsListWidget, 1);
     pendingChangesLayout->addLayout(pendingChangesBody, 1);
     pendingChangesBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
@@ -2070,10 +1902,8 @@ void MainWindow::buildUi() {
     m_paneRowsSplit->setHandleWidth(4);
     m_paneRowsSplit->addWidget(makeRow(m_datasetPanes[0].treeBox, m_datasetPanes[1].treeBox));
     m_paneRowsSplit->addWidget(makeRow(m_datasetPanes[0].detailBox, m_datasetPanes[1].detailBox));
-    m_paneRowsSplit->addWidget(makeRow(m_datasetPanes[0].logBox, m_datasetPanes[1].logBox));
     m_paneRowsSplit->setStretchFactor(0, 5);
     m_paneRowsSplit->setStretchFactor(1, 4);
-    m_paneRowsSplit->setStretchFactor(2, 2);
     // Los nombres de siempre siguen apuntando a los mismos dos árboles: origen es el
     // panel izquierdo y destino el derecho. El resto del código pide «el árbol de
     // origen» y «el de destino» por estos miembros, y así no tiene que enterarse de
@@ -2124,66 +1954,6 @@ void MainWindow::buildUi() {
 
     QFont combinedLogFont = baseUiFont;
 
-    auto* stateProgressRow = new QWidget(topArea);
-    auto* stateProgressLayout = new QHBoxLayout(stateProgressRow);
-    stateProgressLayout->setContentsMargins(0, 0, 0, 0);
-    stateProgressLayout->setSpacing(4);
-    auto* statusWrap = new QWidget(stateProgressRow);
-    auto* statusLayout = new QHBoxLayout(statusWrap);
-    statusLayout->setContentsMargins(0, 1, 0, 0);
-    statusLayout->setSpacing(6);
-    auto* statusLabel = new QLabel(trk(QStringLiteral("t_status_col_001"),
-                                       QStringLiteral("Estado"),
-                                       QStringLiteral("Status")),
-                                   statusWrap);
-    m_statusText = new QTextEdit(statusWrap);
-    m_statusText->setObjectName(QStringLiteral("statusText"));
-    m_statusText->setFont(combinedLogFont);
-    m_statusText->setReadOnly(true);
-    m_statusText->setAcceptRichText(false);
-    m_statusText->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    m_statusText->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-    m_statusText->setLineWrapMode(QTextEdit::NoWrap);
-    m_statusText->setStyleSheet(QStringLiteral("background:#f6f9fc; border:1px solid #c5d3e0;"));
-    m_statusText->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    m_statusText->setFixedHeight(22);
-    m_statusText->setPlainText(trk(QStringLiteral("t_status_loading_001"),
-                                   QStringLiteral("Loading..."),
-                                   QStringLiteral("Loading...")));
-    statusLayout->addWidget(statusLabel, 0);
-    statusLayout->addWidget(m_statusText, 1);
-
-    auto* detailWrap = new QWidget(stateProgressRow);
-    auto* detailLayout = new QHBoxLayout(detailWrap);
-    detailLayout->setContentsMargins(0, 1, 0, 0);
-    detailLayout->setSpacing(6);
-    auto* detailLabel = new QLabel(trk(QStringLiteral("t_detail_lbl001"),
-                                       QStringLiteral("Progreso"),
-                                       QStringLiteral("Progress")),
-                                   detailWrap);
-    m_lastDetailText = new QTextEdit(detailWrap);
-    m_lastDetailText->setObjectName(QStringLiteral("lastDetailText"));
-    m_lastDetailText->setFont(combinedLogFont);
-    m_lastDetailText->setReadOnly(true);
-    m_lastDetailText->setAcceptRichText(false);
-    m_lastDetailText->setLineWrapMode(QTextEdit::NoWrap);
-    m_lastDetailText->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    // Sin barra horizontal tampoco. El campo mide 22 px de alto y la barra se comía la
-    // mitad, dejando el texto cortado por abajo para poder desplazar una línea que ya
-    // está entera en el tooltip y en el log. Lo que no cabe, no cabe.
-    m_lastDetailText->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    m_lastDetailText->setStyleSheet(QStringLiteral("background:#f6f9fc; border:1px solid #c5d3e0;"));
-    m_lastDetailText->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    m_lastDetailText->setFixedHeight(22);
-    detailLayout->addWidget(detailLabel, 0);
-    detailLayout->addWidget(m_lastDetailText, 1);
-    // Sin el rótulo de «Origen»: decía qué había marcado como origen cuando origen y
-    // destino se elegían dentro del mismo árbol. Con un panel para cada papel, lo dice el
-    // propio panel —su desplegable arriba y su selección dentro— y el rótulo repetía a
-    // media línea lo que ya se ve entero.
-    stateProgressLayout->addWidget(statusWrap, 1);
-    stateProgressLayout->addWidget(detailWrap, 3);
-
     auto* appLogBox = new QGroupBox(trk(QStringLiteral("t_app_tab_001"),
                                         QStringLiteral("Aplicación"),
                                         QStringLiteral("Application")),
@@ -2199,7 +1969,6 @@ void MainWindow::buildUi() {
     m_logView->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     m_logView->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     appLogLayout->addWidget(m_logView, 1);
-    stateProgressRow->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     appLogBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     logLayout->addWidget(appLogBox, 1);
 
@@ -2214,22 +1983,17 @@ void MainWindow::buildUi() {
     // porque sigue siendo el padre de widgets que ya se reubicaron.
     leftPane->hide();
 
-    // Estado y Progreso, ENCIMA de los árboles.
-    //
-    // Estaban al pie, pegados a las pestañas de log. Ahí abajo cuentan lo que está
-    // pasando arriba, y quedaban a un palmo del sitio donde se mira: se pulsaba una
-    // acción en el árbol y la respuesta aparecía al otro extremo de la ventana. Van sin
-    // estirar, así que ocupan una línea y ni un píxel más.
-    topLayout->addWidget(stateProgressRow, 0);
+    // No Status/Progress row: what is happening goes to the status bar at the bottom, the
+    // same line as the shell's status area (buildStatusBar).
     topLayout->addWidget(m_rightStack, 1);
+    buildStatusBar();
     loadPersistedAppLogToView();
 
     m_pendingChangesTab = pendingChangesBox;
     // La pestaña ya no es «Cambios pendientes»: no hay nada pendiente. Enseña lo que está
     // corriendo ahora mismo, que es lo que uno quiere tener a la vista mientras trabaja.
-    m_transfersBox->setTitle(trk(QStringLiteral("t_jobs_tab_001"),
-                                 QStringLiteral("Transferencias"),
-                                 QStringLiteral("Transfers")));
+    m_transfersBox->setTitle(
+        trk(QStringLiteral("t_jobs_tab_002"), QStringLiteral("Trabajos"), QStringLiteral("Jobs")));
     auto* transfersLayout = new QVBoxLayout(m_transfersBox);
     transfersLayout->setContentsMargins(6, 2, 6, 4);
     transfersLayout->setSpacing(0);
@@ -2270,30 +2034,20 @@ void MainWindow::buildUi() {
             m_pendingButtonsCol->insertWidget(1, cancelBtn, 0, Qt::AlignLeft | Qt::AlignTop);
         }
 
-        connect(refreshBtn, &QPushButton::clicked, this, &MainWindow::pollDaemonJobs);
-        connect(cancelBtn, &QPushButton::clicked, this, [this]() {
-            if (!m_jobsListWidget) return;
-            auto* item = m_jobsListWidget->currentItem();
-            if (!item) return;
-            const QString jobId   = item->data(Qt::UserRole).toString();
-            const int srcConnIdx  = item->data(Qt::UserRole + 1).toInt();
-            if (jobId.isEmpty() || srcConnIdx < 0 || srcConnIdx >= m_conns.profiles.size()) return;
-            const ConnectionProfile sp = m_conns.profiles[srcConnIdx];
-            QStringList args;
-            args << mwhelpers::argvQt(
-                zfsmgr::commands::requests::cancelJob(jobId.toStdString()));
-            QString out, err;
-            int rc = -1;
-            runAgentOnConnection(sp, args, 5000, out, err, rc);
-            if (rc == 0) {
-                for (ActiveDaemonJob& j : m_activeDaemonJobs) {
-                    if (j.jobId == jobId) { j.state = QStringLiteral("cancelled"); break; }
-                }
-                updateJobsListWidget();
-                appLog(QStringLiteral("INFO"),
-                       QStringLiteral("Job %1 cancelado por el usuario").arg(jobId));
-            }
+        connect(refreshBtn, &QPushButton::clicked, this, [this]() {
+            pollDaemonJobs();
+            refreshAllJobsAsync();
         });
+        connect(cancelBtn, &QPushButton::clicked, this, &MainWindow::cancelSelectedJob);
+
+        // Every connection's jobs: every 2.5 s while any is running, every 30 s otherwise
+        // (refreshAllJobsAsync sets the interval).
+        if (!m_allJobsTimer) {
+            m_allJobsTimer = new QTimer(this);
+            m_allJobsTimer->setInterval(30000);
+            connect(m_allJobsTimer, &QTimer::timeout, this, &MainWindow::refreshAllJobsAsync);
+            m_allJobsTimer->start();
+        }
 
         m_jobPollTimer = new QTimer(this);
         m_jobPollTimer->setSingleShot(false);
