@@ -289,6 +289,11 @@ MainWindow::MainWindow(const QString& masterPassword, const QString& language, Q
         return QThread::currentThread() == this->thread();
     };
     m_transport.runWhereTunnelsAllowed = [this](const std::function<void()>& tarea) {
+        // While the window is being destroyed its thread is waiting for the pool tasks; a
+        // blocking call onto it would never be served.
+        if (m_destroying.load()) {
+            return;
+        }
         QMetaObject::invokeMethod(this, tarea, Qt::BlockingQueuedConnection);
     };
     m_transport.localSudoResolver = [this](zfsmgr::base::ConnectionProfile& perfil) {

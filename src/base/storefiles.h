@@ -135,6 +135,11 @@ bool deleteProfile(const std::string& configDir, const std::string& id, Warning&
 // password written into a shell alias.
 bool hasSomethingEncrypted(const std::string& configDir);
 
+// Opens every secret of the two files at once, one derivation per core, so the walks that
+// follow (checking the master, loading the connections) find them already open. Only saves
+// time: whatever cannot be opened is reported by those walks, as always.
+void openAllSecrets(const std::string& dirConfig, const std::string& maestra);
+
 // Does this master password open EVERYTHING that is encrypted? It returns the first field
 // that did not open.
 //

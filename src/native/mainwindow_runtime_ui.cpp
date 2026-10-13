@@ -2,6 +2,7 @@
 #include "base/processes.h"
 
 #include <QApplication>
+#include <QThreadPool>
 #include <QCoreApplication>
 #include <QGroupBox>
 #include <QCloseEvent>
@@ -19,7 +20,18 @@
 
 MainWindow::~MainWindow() {
     m_closing = true;
+    m_destroying = true;
+    // Dropping the posted events also releases any pool task blocked on a call onto this
+    // thread (a blocking queued call is freed with its event).
     QCoreApplication::removePostedEvents(this);
+    // The QtConcurrent tasks capture `this`. One still running when the members go away calls
+    // into freed memory: the intermittent SIGSEGV of zfsmgr_gui_mainwindow_test. They are
+    // waited for here, with a limit so a machine that does not answer cannot hold the exit.
+    // In short slices, dropping the posted events again each time: a task that checked
+    // m_destroying just before it was set may still queue a blocking call.
+    for (int i = 0; i < 150 && !QThreadPool::globalInstance()->waitForDone(100); ++i) {
+        QCoreApplication::removePostedEvents(this);
+    }
     stopAllDaemonEventWatchers();
     closeAllRemoteDaemonRpcTunnels();
 

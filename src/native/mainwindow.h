@@ -1306,6 +1306,9 @@ private:
     int m_uiBusyDepth{0};
     bool m_connectivityMatrixInProgress{false};
     bool m_closing{false};
+    // Set by the destructor only. Pool tasks read it from their threads, so it is atomic; once
+    // set, nothing more is sent to the window's thread (see runWhereTunnelsAllowed).
+    std::atomic<bool> m_destroying{false};
     QStringList m_transientStatusStack;
     // La última acción terminó porque el usuario la detuvo, no por un fallo. Sin esto,
     // el bucle que aplica los cambios pendientes no distingue una cosa de la otra y

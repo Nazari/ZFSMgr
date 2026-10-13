@@ -3947,6 +3947,45 @@ void caso49() {
         }
 
         {
+            // --- Reads the agent never serves from its cache.
+            namespace RQ = zfsmgr::commands::requests;
+            comprobar(RQ::mustBeReadFresh(RQ::datasetProperty("keystatus", "tank/cif")),
+                      "fresh: whether a key is loaded");
+            comprobar(RQ::mustBeReadFresh(RQ::datasetProperty("mounted", "tank/d")),
+                      "fresh: whether it is mounted");
+            comprobar(!RQ::mustBeReadFresh(RQ::datasetProperty("compression", "tank/d")),
+                      "fresh: an ordinary property may come from the cache");
+        }
+
+        {
+            // --- Opening secrets in parallel, and the memory of what was opened.
+            using zfsmgr::base::SecretCipher;
+            std::vector<std::string> cifrados;
+            std::string err;
+            for (int i = 0; i < 6; ++i) {
+                std::string c;
+                comprobar(
+                    SecretCipher::encryptEncv1("valor-" + std::to_string(i), "maestra-p", c, err),
+                    "parallel: encrypts");
+                cifrados.push_back(c);
+            }
+            cifrados.push_back(cifrados.front());  // a repeated one is opened once
+            cifrados.push_back("not-encrypted");   // and plain text is left alone
+            SecretCipher::openInParallel(cifrados, "maestra-p");
+            bool todos = true;
+            for (int i = 0; i < 6; ++i) {
+                std::string claro;
+                todos = todos && SecretCipher::decryptEncv1(cifrados[i], "maestra-p", claro, err)
+                        && claro == "valor-" + std::to_string(i);
+            }
+            comprobar(todos, "parallel: each value opens to its own plaintext");
+            std::string claro;
+            comprobar(!SecretCipher::decryptEncv1(cifrados[0], "otra-maestra", claro, err)
+                          && claro.empty(),
+                      "parallel: what is remembered never opens with another master");
+        }
+
+        {
             // --- What `destroy ds#content/<rel>` may delete.
             namespace AV = zfsmgr::commands::advanced;
             igual(AV::contentRemovalRefusal("fotos/a.jpg"), std::string(),

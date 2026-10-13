@@ -92,6 +92,11 @@ std::vector<std::string> datasetProperty(const std::string& propiedad,
     return {"--dump-zfs-get-prop", p, o};
 }
 
+bool mustBeReadFresh(const std::vector<std::string>& argv) {
+    return argv.size() >= 2 && argv[0] == "--dump-zfs-get-prop"
+           && (argv[1] == "keystatus" || argv[1] == "mounted");
+}
+
 std::vector<std::string> datasetExists(const std::string& objeto) {
     return withOne("--dump-zfs-exists", objeto);
 }

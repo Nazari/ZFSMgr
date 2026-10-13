@@ -1242,7 +1242,9 @@ ExecResult runThroughCache(ServerState& st, const AgentRuntimeConfig& cfg, const
             }
         }
     };
-    if (dumpCmd && cfg.cacheTtlFastMs > 0) {
+    std::vector<std::string> pedido{cmd};
+    pedido.insert(pedido.end(), rpcArgs.begin(), rpcArgs.end());
+    if (dumpCmd && cfg.cacheTtlFastMs > 0 && !zfsmgr::commands::requests::mustBeReadFresh(pedido)) {
         const std::string cacheKey = makeRpcCacheKey(cmd, rpcArgs);
         unsigned long long genAtMiss = 0;
         {

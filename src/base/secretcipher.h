@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 // Encryption of the configuration's sensitive fields, without Qt.
 //
@@ -15,10 +16,10 @@
 // machines; any change would require a migration.
 //
 // On the cost: 390,000 iterations are about 40 ms per derivation, and with a per-value salt
-// that is paid on EVERY encrypted field —up to five per connection— both on load and on
-// save. With a handful of connections it does not show; it is left this way on purpose,
-// because a single per-file salt would be faster but less conservative, and changing it
-// would force a migration.
+// that is paid on EVERY encrypted field —up to five per connection—. It is left this way on
+// purpose (a single per-file salt would be less conservative and force a migration); what
+// keeps start-up fast is opening each value once per process and all of them in parallel
+// (openInParallel).
 //
 // See docs/diseno_tecnico_capa_base_sin_qt.md.
 namespace zfsmgr::base {
@@ -41,6 +42,12 @@ public:
                              const std::string& masterPassword,
                              std::string& output,
                              std::string& error);
+
+    // Opens all of `inputs` at once, one derivation per core, and keeps them so the
+    // decryptEncv1() calls that follow find them done. Failures are left for those calls to
+    // report: this only saves time.
+    static void openInParallel(const std::vector<std::string>& inputs,
+                               const std::string& masterPassword);
 };
 
 }  // namespace zfsmgr::base

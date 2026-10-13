@@ -45,6 +45,11 @@ std::vector<std::string> labelClear(const std::string& device, bool force);
 
 // ── Dataset reads ────────────────────────────────────────────────────────────
 
+// Reads the agent must answer FRESH, never from its short-lived cache: state that changes
+// outside ZFSMgr (a key unloaded with `zfs`, a dataset unmounted) and that a decision is
+// taken on («is the key loaded?» → whether to ask for the passphrase).
+bool mustBeReadFresh(const std::vector<std::string>& argv);
+
 // The whole tree under an object, as ten-column TSV. See `listings::entries`.
 std::vector<std::string> datasetList(const std::string& object);
 // The names only, recursive.

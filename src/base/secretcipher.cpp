@@ -7,8 +7,13 @@
 #include <openssl/hmac.h>
 #include <openssl/rand.h>
 
+#include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <ctime>
+#include <map>
+#include <mutex>
+#include <thread>
 #include <vector>
 
 namespace zfsmgr::base {
@@ -177,10 +182,79 @@ bool SecretCipher::encryptEncv1(const std::string& plaintext,
     return true;
 }
 
+namespace {
+
+// What this process has already opened, by (master, value). A value opened once does not pay
+// its derivation again: the CLI used to open every secret twice on start (checking the master,
+// then loading the connections). The plaintexts are in memory anyway, in the profiles.
+std::mutex g_abiertosMutex;
+std::map<std::pair<std::string, std::string>, std::string> g_abiertos;
+
+bool abreSinMemoria(const std::string& input, const std::string& masterPassword,
+                    std::string& output, std::string& error);
+
+}  // namespace
+
 bool SecretCipher::decryptEncv1(const std::string& input,
                                 const std::string& masterPassword,
                                 std::string& output,
                                 std::string& error) {
+    output.clear();
+    error.clear();
+    const auto clave = std::make_pair(masterPassword, input);
+    {
+        std::lock_guard<std::mutex> lock(g_abiertosMutex);
+        const auto it = g_abiertos.find(clave);
+        if (it != g_abiertos.end()) {
+            output = it->second;
+            return true;
+        }
+    }
+    if (!abreSinMemoria(input, masterPassword, output, error)) {
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(g_abiertosMutex);
+    g_abiertos[clave] = output;
+    return true;
+}
+
+void SecretCipher::openInParallel(const std::vector<std::string>& inputs,
+                                  const std::string& masterPassword) {
+    if (masterPassword.empty() || inputs.empty()) {
+        return;
+    }
+    std::vector<std::string> pendientes;
+    {
+        std::lock_guard<std::mutex> lock(g_abiertosMutex);
+        for (const std::string& v : inputs) {
+            if (isEncrypted(v) && g_abiertos.count({masterPassword, v}) == 0
+                && std::find(pendientes.begin(), pendientes.end(), v) == pendientes.end()) {
+                pendientes.push_back(v);
+            }
+        }
+    }
+    const std::size_t hilos =
+        std::min<std::size_t>(pendientes.size(), std::max(1u, std::thread::hardware_concurrency()));
+    std::atomic<std::size_t> siguiente{0};
+    std::vector<std::thread> trabajadores;
+    for (std::size_t h = 0; h < hilos; ++h) {
+        trabajadores.emplace_back([&]() {
+            for (std::size_t i = siguiente++; i < pendientes.size(); i = siguiente++) {
+                std::string claro;
+                std::string err;
+                SecretCipher::decryptEncv1(pendientes[i], masterPassword, claro, err);
+            }
+        });
+    }
+    for (auto& t : trabajadores) {
+        t.join();
+    }
+}
+
+namespace {
+
+bool abreSinMemoria(const std::string& input, const std::string& masterPassword,
+                    std::string& output, std::string& error) {
     output.clear();
     error.clear();
 
@@ -260,5 +334,7 @@ bool SecretCipher::decryptEncv1(const std::string& input,
     output.assign(plano.s.data(), static_cast<std::size_t>(n1 + n2));
     return true;
 }
+
+}  // namespace
 
 }  // namespace zfsmgr::base

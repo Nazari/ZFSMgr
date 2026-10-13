@@ -104,6 +104,8 @@ Tabla tablaDeConexiones(const Conexiones& c) {
 
 Conexiones cargarConexiones(const std::string& dirConfig, const std::string& maestra) {
     Conexiones c;
+    // All the secrets at once, in parallel: one by one they cost ~40 ms each, on every start.
+    ST::openAllSecrets(dirConfig, maestra);
     ST::Warning aviso;
     const auto root = ST::readConfig(dirConfig, aviso);
     if (!aviso.empty()) {

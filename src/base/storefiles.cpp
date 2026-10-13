@@ -761,7 +761,24 @@ bool hasSomethingEncrypted(const std::string& dirConfig) {
     return alguno;
 }
 
+void openAllSecrets(const std::string& dirConfig, const std::string& maestra) {
+    if (maestra.empty()) {
+        return;
+    }
+    std::vector<std::string> valores;
+    Warning aviso;
+    recorreSecretos(
+        dirConfig,
+        [&valores](const json::Value&, const char*, const std::string& valor) {
+            valores.push_back(valor);
+            return true;
+        },
+        aviso);
+    SecretCipher::openInParallel(valores, maestra);
+}
+
 bool masterOpensEverything(const std::string& dirConfig, const std::string& maestra, Warning& aviso) {
+    openAllSecrets(dirConfig, maestra);
     aviso = Warning{};
     bool ok = true;
     Warning avisoLectura;
