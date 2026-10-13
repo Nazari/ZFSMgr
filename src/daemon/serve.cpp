@@ -499,9 +499,14 @@ void cierraZpoolEvents(FILE* fp, pid_t grupo) {
 }
 #endif
 
-// The daemon's runtime state, shared by the accept loop and the ZED watcher thread.
+// The daemon's runtime state, shared by the accept loop, the connection threads and the ZED
+// watcher thread.
 struct ServerState {
     int cacheMaxEntries{0};  // from the configuration, for `--health`
+    // Bumped (under runtimeMutex) whenever entries are dropped. A read that started before a
+    // mutation must not store its now stale answer after the mutation dropped the cache.
+    unsigned long long cacheGen{0};
+    std::atomic<int> activeConnections{0};
     struct CacheEntry {
         ExecResult result;
         std::chrono::steady_clock::time_point ts;
@@ -1167,6 +1172,7 @@ ExecResult runThroughCache(ServerState& st, const AgentRuntimeConfig& cfg, const
         const bool wipeAll = std::find(profile.hints.begin(), profile.hints.end(), std::string("*"))
                              != profile.hints.end();
         std::lock_guard<std::mutex> lock(st.runtimeMutex);
+        ++st.cacheGen;
         if (wipeAll) {
             if (!st.rpcCache.empty()) {
                 st.cacheInvalidations.fetch_add(1);
@@ -1208,8 +1214,10 @@ ExecResult runThroughCache(ServerState& st, const AgentRuntimeConfig& cfg, const
     };
     if (dumpCmd && cfg.cacheTtlFastMs > 0) {
         const std::string cacheKey = makeRpcCacheKey(cmd, rpcArgs);
+        unsigned long long genAtMiss = 0;
         {
             std::lock_guard<std::mutex> lock(st.runtimeMutex);
+            genAtMiss = st.cacheGen;
             const auto it = st.rpcCache.find(cacheKey);
             if (it != st.rpcCache.end()) {
                 const auto ageMs =
@@ -1224,8 +1232,8 @@ ExecResult runThroughCache(ServerState& st, const AgentRuntimeConfig& cfg, const
         }
         if (exec.out.empty() && exec.err.empty() && exec.rc == 1) {
             exec = executeAgentCommandCapture(cmd, rpcArgs, "zfsmgr-agent");
-            if (exec.rc == 0) {
-                std::lock_guard<std::mutex> lock(st.runtimeMutex);
+            std::lock_guard<std::mutex> lock(st.runtimeMutex);
+            if (exec.rc == 0 && st.cacheGen == genAtMiss) {
                 if (cfg.cacheMaxEntries > 0
                     && static_cast<int>(st.rpcCache.size()) >= cfg.cacheMaxEntries) {
                     auto victim = st.rpcCache.begin();
@@ -1292,9 +1300,28 @@ ExecResult handleRpcRequest(ServerState& st, const AgentRuntimeConfig& cfg,
     return runThroughCache(st, cfg, cmd, rpcArgs);
 }
 
+// Every read and write on a client socket gives up after this long. A connection that opens
+// and says nothing must cost one thread for a while, not the daemon forever.
+constexpr int kClientIoTimeoutMs = 15000;
+
+void setClientTimeouts(NativeSock fd, int ms) {
+#ifdef _WIN32
+    const DWORD v = static_cast<DWORD>(ms);
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&v), sizeof(v));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&v), sizeof(v));
+#else
+    struct timeval tv;
+    tv.tv_sec = ms / 1000;
+    tv.tv_usec = (ms % 1000) * 1000;
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+#endif
+}
+
 // One client connection: TLS handshake, the request line, the answer.
 void serveConnection(SSL_CTX* ctx, NativeSock clientFd, ServerState& st,
                      const AgentRuntimeConfig& cfg) {
+    setClientTimeouts(clientFd, kClientIoTimeoutMs);
     SSL* ssl = SSL_new(ctx);
     if (!ssl) {
         closeSock(clientFd);
@@ -1406,6 +1433,9 @@ NativeSock openListener(const std::string& bindHost, const std::string& bindPort
     return listenFd;
 }
 
+// How many clients are served at once; one more is refused until a thread finishes.
+constexpr int kMaxConnections = 32;
+
 int runServeLoop() {
 #ifdef _WIN32
     WSADATA wsaData;
@@ -1454,6 +1484,7 @@ int runServeLoop() {
         }
         if (st.zedInvalidateRequested.exchange(false)) {
             std::lock_guard<std::mutex> lock(st.runtimeMutex);
+            ++st.cacheGen;
             if (!st.rpcCache.empty()) {
                 st.cacheInvalidations.fetch_add(1);
             }
@@ -1475,8 +1506,25 @@ int runServeLoop() {
             continue;
         }
 
-        serveConnection(ctx, clientFd, st, cfg);
+        // Each connection on its own thread: one slow verb, or a `--wait-for-event`, must not
+        // keep every other client waiting. The cap bounds what a flood of connections costs.
+        if (st.activeConnections.load() >= kMaxConnections) {
+            daemonLog("WARN", "too many connections; one refused");
+            closeSock(clientFd);
+            continue;
+        }
+        st.activeConnections.fetch_add(1);
+        std::thread([ctx, clientFd, &st, &cfg]() {
+            serveConnection(ctx, clientFd, st, cfg);
+            st.activeConnections.fetch_sub(1);
+        }).detach();
     }
+    // The connection threads use `st`, `cfg` and `ctx`. They notice g_stop or time out; if
+    // one still runs after this wait, the context is left alone: the process is exiting.
+    for (int i = 0; i < 100 && st.activeConnections.load() > 0; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    const bool connectionsDone = st.activeConnections.load() == 0;
 #ifndef _WIN32
     // Sin esto el join no vuelve nunca: el hilo está en un fgets sobre `zpool events -f`.
     if (const pid_t g = g_zedGrupo.load(); g > 0) {
@@ -1490,7 +1538,9 @@ int runServeLoop() {
         gsaThread.join();
     }
     closeSock(listenFd);
-    SSL_CTX_free(ctx);
+    if (connectionsDone) {
+        SSL_CTX_free(ctx);
+    }
     EVP_cleanup();
 #ifdef _WIN32
     WSACleanup();

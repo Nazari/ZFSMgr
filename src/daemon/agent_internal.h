@@ -703,7 +703,6 @@ ExecResult ejecutaTuberiaZfsLocal(const std::vector<std::string>&, const std::ve
 #endif  // _WIN32
 int runMutateShellGeneric(const std::string& payloadB64);
 #ifdef HAVE_LIBZFS_CORE
-extern bool s_lzcReady;
 bool lzcEnsureInit();
 ExecResult lzcSnapshotOne(const std::string& snapName);
 ExecResult lzcDestroyOneSnap(const std::string& snapName);

@@ -3,6 +3,8 @@
 
 #include "agent_internal.h"
 
+#include <mutex>
+
 namespace zfsmgr::agent {
 
 int runMutateShellGeneric(const std::string& payloadB64) {
@@ -22,13 +24,12 @@ int runMutateShellGeneric(const std::string& payloadB64) {
 #ifdef HAVE_LIBZFS_CORE
 // ── libzfs_core native helpers (subprocess fallback used on any lzc error) ──
 
-bool s_lzcReady = false;
-
+// Called from the connection threads, the job threads and the GSA scheduler at once.
 bool lzcEnsureInit() {
-    if (!s_lzcReady) {
-        s_lzcReady = (libzfs_core_init() == 0);
-    }
-    return s_lzcReady;
+    static std::once_flag once;
+    static bool ready = false;
+    std::call_once(once, [] { ready = (libzfs_core_init() == 0); });
+    return ready;
 }
 
 ExecResult lzcSnapshotOne(const std::string& snapName) {
