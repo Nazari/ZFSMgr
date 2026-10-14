@@ -300,7 +300,8 @@ void avisaSondaImportables(const std::string& sonda, bool huboPools);
 bool listaPools(Estado& e, const ZfsmUrl& destino);
 // `recursivo` (`ls -r`): the whole tree under it, itself included, with full names.
 bool listaDataset(Estado& e, const ZfsmUrl& destino, bool recursivo = false);
-bool listaPropiedades(Estado& e, const ZfsmUrl& destino);
+// `delPool` (`ls <pool>#properties --pool`): the POOL's own properties, `zpool get all`.
+bool listaPropiedades(Estado& e, const ZfsmUrl& destino, bool delPool = false);
 bool listaPermisos(Estado& e, const ZfsmUrl& destino);
 bool cmdPermisos(Estado& e, const LineaAnalizada& linea, bool conceder);
 std::string montajeLecturaDe(const Estado& e, const std::string& conexion,

@@ -431,7 +431,7 @@ bool listaDataset(Estado& e, const ZfsmUrl& destino, bool recursivo) {
 }
 
 // Las propiedades: `#properties`, y `#properties/<nombre>` para una sola.
-bool listaPropiedades(Estado& e, const ZfsmUrl& destino) {
+bool listaPropiedades(Estado& e, const ZfsmUrl& destino, bool delPool) {
     const std::string objetivo = destino.zfsName();
     std::string out;
     // `get tank compr*`: la propiedad es un patrón. Se piden TODAS —una sola llamada— y se
@@ -461,7 +461,13 @@ bool listaPropiedades(Estado& e, const ZfsmUrl& destino) {
         std::fprintf(stdout, "%s\n", B::trim(out).c_str());
         return true;
     }
-    if (!agente(e, destino, PET::datasetProperties(objetivo), out)) {
+    if (delPool && destino.pool.empty()) {
+        std::fputs(TC("t_props_pool_sin_pool", "«--pool» es para un pool\n"), stderr);
+        return false;
+    }
+    if (!agente(e, destino,
+                delPool ? PET::poolProperties(destino.pool) : PET::datasetProperties(objetivo),
+                out)) {
         return false;
     }
     B::json::Value raiz;
@@ -477,7 +483,7 @@ bool listaPropiedades(Estado& e, const ZfsmUrl& destino) {
                         T("t_cab_origen", "ORIGEN")};
     t.campos = {"property", "value", "source"};
     t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Cadena};
-    for (const auto& ds : raiz["datasets"].toObject()) {
+    for (const auto& ds : raiz[delPool ? "pools" : "datasets"].toObject()) {
         for (const auto& pr : ds.second["properties"].toObject()) {
             t.filas.push_back({pr.first, pr.second["value"].toString(),
                                B::toLowerAscii(pr.second["source"]["type"].toString())});
@@ -1343,7 +1349,7 @@ bool cmdLs(Estado& e, const LineaAnalizada& linea) {
         return listaFicheros(e, destino);
     }
     if (sec == B::zfsmSection::kProperties) {
-        return listaPropiedades(e, destino);
+        return listaPropiedades(e, destino, pet.tiene("--pool"));
     }
     if (sec == B::zfsmSection::kPermissions) {
         return listaPermisos(e, destino);

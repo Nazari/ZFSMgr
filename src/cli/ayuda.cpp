@@ -252,6 +252,8 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
        {"t_ej_ls_7", "los permisos delegados"}},
       {"ls --on zfsm://unibody/sback",
        {"t_ej_ls_8", "el listado de otra máquina"}},
+      {"ls zfsm://casa/tank#properties --pool",
+       {"t_ej_ls_pool", "las propiedades del pool: ashift, autotrim, health…"}},
       {"ls -r --format json",
        {"t_ej_ls_r", "el árbol entero de una vez, para un programa"}},
      }},
@@ -902,6 +904,7 @@ const std::vector<Orden> kOrdenes = {
        {"t_path_ruta_q", "En una máquina: cualquier ruta suya, dentro o fuera de ZFS."}},
       {{"t_properties_5ce56d", "#properties[/prop]"}, {"t_las_propie_137429", "Las propiedades."}},
       {{"t_permission_226be2", "#permissions"}, {"t_los_permis_7d7f8b", "Los permisos delegados."}},
+      {{"t_ls_pool", "--pool"}, {"t_ls_pool_q", "Con #properties en un pool: las propiedades del POOL (las de `zpool get`), no las de su dataset raíz."}},
       {{"t_r_90cdb7", "-r"}, {"t_ls_r_q", "En un dataset: TODO lo que cuelga de él, él incluido, con el nombre completo; en json también el guid, la creación y el cifrado."}}},
      {{"t_ls_ram_ddt", "RAM DDT es la memoria que ZFS dedica AHORA MISMO a la tabla de "
       "deduplicación de ese pool, y se lee junto a DEDUP: un pool con DEDUP «1.00» y una RAM "

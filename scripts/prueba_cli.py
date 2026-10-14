@@ -283,6 +283,9 @@ def casos_lectura(ctx):
                  r'"type": "snapshot"'])
     caso(ctx, "ls: los pools llevan su guid en json",
          ["cd Local", "format json", "ls"], espera=[rf'"guid": "\d+"'])
+    caso(ctx, "ls #properties --pool: las del pool, no las de su dataset raíz",
+         [f"cd Local/{P}", "ls #properties --pool"], espera=[r"^ashift\s", r"^health\s"],
+         no_espera=[r"^compression\s"])
     caso(ctx, "ls: #properties enseña las propiedades",
          [f"cd Local/{P}/datos", "ls #properties"], espera=[r"mountpoint", r"compression"])
     caso(ctx, "ls: #content enseña los ficheros",

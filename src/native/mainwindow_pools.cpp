@@ -232,22 +232,8 @@ void MainWindow::refreshPoolStatusNow(int connIdx, const QString& poolName) {
 
     const ConnectionProfile profile = m_conns.profiles[connIdx];
     QString out;
-    QString err;
-    int rc = -1;
-    const bool daemonReadApiOk =
-        connIdx >= 0
-        && connIdx < m_conns.states.size()
-        && m_conns.states[connIdx].daemonInstalled
-        && m_conns.states[connIdx].daemonActive
-        && m_conns.states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
-    if (!daemonReadApiOk
-        && !requireDaemonForRead(connIdx, QStringLiteral("leer el estado de un pool"))) {
-        return;
-    }
-    (void)runAgentCommand(profile, mwhelpers::argvQt(zfsmgr::commands::requests::poolStatus(trimmedPool.toStdString())),
-                          20000, out, err, rc);
-    if (rc != 0) {
-        const QString errText = err.trimmed().isEmpty() ? oneLine(out).trimmed() : err.trimmed();
+    QString errText;
+    if (!readPoolStatus(connIdx, trimmedPool, out, &errText)) {
         appLog(QStringLiteral("WARN"),
                QStringLiteral("No se pudo refrescar estado de pool %1 en %2: %3")
                    .arg(trimmedPool, profile.name, errText));

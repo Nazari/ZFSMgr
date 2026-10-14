@@ -93,16 +93,6 @@ QStringList datasetSizePropertyNames() {
     };
 }
 
-QStringList poolSizePropertyNames() {
-    return {
-        QStringLiteral("size"),
-        QStringLiteral("alloc"),
-        QStringLiteral("free"),
-        QStringLiteral("cap"),
-        QStringLiteral("fragmentation"),
-    };
-}
-
 bool containsAnyToken(const QString& haystackLower, const QStringList& needles) {
     for (const QString& token : needles) {
         if (haystackLower.contains(token)) {
@@ -421,25 +411,10 @@ bool MainWindow::refreshDatasetAndPoolSizeProperties(int connIdx,
         refreshedSomething = true;
     }
 
-    const ConnectionProfile profile = m_conns.profiles.at(connIdx);
-    QString out;
+    // The pool's own properties, from the shell; merged into what was cached.
+    QVector<QStringList> leidas;
     QString err;
-    int rc = -1;
-    const QStringList poolProps = poolSizePropertyNames();
-    const QString propsCsv = poolProps.join(QLatin1Char(','));
-    const bool poolWin = isWindowsConnection(connIdx);
-    const bool daemonReadApiOk =
-        !poolWin
-        && connIdx >= 0
-        && connIdx < m_conns.states.size()
-        && m_conns.states[connIdx].daemonInstalled
-        && m_conns.states[connIdx].daemonActive
-        && m_conns.states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
-    // Por argv cuando hay daemon: la orden no pasa por ninguna cadena de shell.
-    const QStringList poolCmdDaemonArgv = mwhelpers::argvQt(zfsmgr::commands::requests::poolProperties(trimmedPool.toStdString()));
-    bool poolPropsOk = daemonReadApiOk
-          && runAgentCommand(profile, poolCmdDaemonArgv, 15000, out, err, rc)
-          && rc == 0;
+    const bool poolPropsOk = readPoolProperties(connIdx, trimmedPool, leidas, &err);
     if (poolPropsOk) {
         const QString cacheKey = poolDetailsCacheKey(connIdx, trimmedPool);
         PoolDetailsCacheEntry entry = m_conns.poolDetailsCache.value(cacheKey);
@@ -449,33 +424,9 @@ bool MainWindow::refreshDatasetAndPoolSizeProperties(int connIdx,
                 rowsByProp.insert(row.value(0).trimmed().toLower(), row);
             }
         }
-
-        if (poolWin) {
-            const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
-            for (const QString& line : lines) {
-                const QStringList parts = line.split('\t');
-                if (parts.size() < 3) {
-                    continue;
-                }
-                const QString prop = parts.value(0).trimmed();
-                if (prop.isEmpty()) {
-                    continue;
-                }
-                rowsByProp.insert(prop.toLower(),
-                                  QStringList{prop, parts.value(1).trimmed(), parts.value(2).trimmed()});
-            }
-        } else {
-            const QJsonDocument doc = QJsonDocument::fromJson(mwhelpers::stripToJson(out).toUtf8());
-            const QJsonObject poolObj = doc.object().value(QStringLiteral("pools")).toObject().value(trimmedPool).toObject();
-            const QJsonObject properties = poolObj.value(QStringLiteral("properties")).toObject();
-            for (auto it = properties.constBegin(); it != properties.constEnd(); ++it) {
-                const QJsonObject propObj = it.value().toObject();
-                const QString value = propObj.value(QStringLiteral("value")).toString().trimmed();
-                const QString source = propObj.value(QStringLiteral("source")).toObject().value(QStringLiteral("type")).toString().trimmed();
-                rowsByProp.insert(it.key().trimmed().toLower(), QStringList{it.key(), value, source});
-            }
+        for (const QStringList& row : std::as_const(leidas)) {
+            rowsByProp.insert(row.value(0).trimmed().toLower(), row);
         }
-
         QVector<QStringList> mergedRows;
         mergedRows.reserve(rowsByProp.size());
         for (auto it = rowsByProp.cbegin(); it != rowsByProp.cend(); ++it) {
@@ -508,7 +459,7 @@ bool MainWindow::refreshDatasetAndPoolSizeProperties(int connIdx,
     } else {
         appLog(QStringLiteral("INFO"),
                QStringLiteral("No se pudieron refrescar propiedades de tamaño del pool %1::%2: %3")
-                   .arg(m_conns.profiles.at(connIdx).name, trimmedPool, oneLine(err.isEmpty() ? out : err)));
+                   .arg(m_conns.profiles.at(connIdx).name, trimmedPool, oneLine(err)));
     }
 
     return refreshedSomething;

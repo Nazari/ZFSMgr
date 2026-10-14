@@ -683,6 +683,9 @@ private:
     bool ensureDatasetPermissionsLoadedBatch(int connIdx, const QString& poolName, const QStringList& datasetNames);
     bool ensurePoolDetailsLoaded(int connIdx, const QString& poolName);
     const PoolDetailsCacheEntry* poolDetailsEntry(int connIdx, const QString& poolName) const;
+    bool readPoolProperties(int connIdx, const QString& pool, QVector<QStringList>& rows,
+                            QString* error = nullptr);
+    bool readPoolStatus(int connIdx, const QString& pool, QString& text, QString* error = nullptr);
     void schedulePoolDetailsLoad(int connIdx, const QString& poolName);
     void applyPoolDetailsLoadResult(int connIdx,
                                     const QString& poolName,

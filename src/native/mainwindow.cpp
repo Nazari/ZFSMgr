@@ -1295,6 +1295,39 @@ bool MainWindow::ensurePoolDetailsLoaded(int connIdx, const QString& poolName) {
     return false;
 }
 
+// A pool's own properties —property, value, source— as the shell's `ls #properties --pool`
+// lists them.
+bool MainWindow::readPoolProperties(int connIdx, const QString& pool, QVector<QStringList>& rows,
+                                    QString* error) {
+    rows.clear();
+    QJsonObject r;
+    if (!cliReadJson(
+            connIdx,
+            QStringLiteral("ls %1#properties --pool").arg(zfsmUrl(connIdx, pool.trimmed())), r,
+            error, 30000)) {
+        return false;
+    }
+    for (const QJsonValue& v : r.value(QStringLiteral("properties")).toArray()) {
+        const QJsonObject o = v.toObject();
+        rows.push_back(QStringList{o.value(QStringLiteral("property")).toString(),
+                                   o.value(QStringLiteral("value")).toString().trimmed(),
+                                   o.value(QStringLiteral("source")).toString().trimmed()});
+    }
+    return true;
+}
+
+// A pool's `zpool status`, as the shell's `status` prints it.
+bool MainWindow::readPoolStatus(int connIdx, const QString& pool, QString& text, QString* error) {
+    const CliService::Result r = m_cliReader->read(
+        cliConnName(connIdx),
+        QStringLiteral("status --on %1").arg(zfsmUrl(connIdx, pool.trimmed())), 30000);
+    text = r.rc == 0 ? r.out.trimmed() : QString();
+    if (error) {
+        *error = r.rc == 0 ? QString() : r.err.trimmed();
+    }
+    return r.rc == 0;
+}
+
 void MainWindow::schedulePoolDetailsLoad(int connIdx, const QString& poolName) {
     const QString trimmedPool = poolName.trimmed();
     if (connIdx < 0 || connIdx >= m_conns.profiles.size() || trimmedPool.isEmpty()) {
@@ -1305,78 +1338,16 @@ void MainWindow::schedulePoolDetailsLoad(int connIdx, const QString& poolName) {
         return;
     }
     m_poolDetailsLoadsInFlight.insert(key);
-    const ConnectionProfile profile = m_conns.profiles[connIdx];
-    const bool daemonReadApiOk =
-        connIdx >= 0
-        && connIdx < m_conns.states.size()
-        && m_conns.states[connIdx].daemonInstalled
-        && m_conns.states[connIdx].daemonActive
-        && m_conns.states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
-    (void)QtConcurrent::run([this, profile, connIdx, trimmedPool, daemonReadApiOk]() {
+    (void)QtConcurrent::run([this, connIdx, trimmedPool]() {
         PoolDetailsCacheEntry fresh;
         QString errorText;
-        {
-            QString out;
-            QString err;
-            int rc = -1;
-            // Solo por argv al agente, igual que en las propiedades de dataset.
-            // Por argv cuando hay daemon: la orden no pasa por ninguna cadena de shell.
-            const QStringList propsCmdDaemonArgv = mwhelpers::argvQt(zfsmgr::commands::requests::poolProperties(trimmedPool.toStdString()));
-            bool propsOk = daemonReadApiOk
-                  && runAgentCommand(profile, propsCmdDaemonArgv, 20000, out, err, rc)
-                  && rc == 0;
-            if (propsOk) {
-                // JSON siempre, igual que en las propiedades de dataset: el agente
-                // responde a --dump-zpool-get-all con `zpool get -j all` en todas las
-                // plataformas, y la rama TSV para Windows era resto del respaldo por
-                // shell ya retirado. Dejaba los pools de Windows sin propiedades.
-                {
-                    const QJsonDocument doc = QJsonDocument::fromJson(mwhelpers::stripToJson(out).toUtf8());
-                    const QJsonObject pools = doc.object().value(QStringLiteral("pools")).toObject();
-                    const QJsonObject poolObj = pools.value(trimmedPool).toObject();
-                    const QJsonObject properties = poolObj.value(QStringLiteral("properties")).toObject();
-                    for (auto it = properties.constBegin(); it != properties.constEnd(); ++it) {
-                        const QJsonObject propObj = it.value().toObject();
-                        const QString value = propObj.value(QStringLiteral("value")).toString().trimmed();
-                        const QJsonObject sourceObj = propObj.value(QStringLiteral("source")).toObject();
-                        const QString source = sourceObj.value(QStringLiteral("type")).toString().trimmed();
-                        fresh.propsRows.push_back(QStringList{it.key(), value, source});
-                    }
-                }
-            } else {
-                errorText = err.trimmed();
-            }
-
-            out.clear();
-            err.clear();
-            rc = -1;
-            // Por argv cuando hay daemon: la orden no pasa por ninguna cadena de shell.
-            const QStringList stCmdDaemonArgv = mwhelpers::argvQt(zfsmgr::commands::requests::poolStatus(trimmedPool.toStdString()));
-            bool statusOk = daemonReadApiOk
-                  && runAgentCommand(profile, stCmdDaemonArgv, 20000, out, err, rc)
-                  && rc == 0;
-            if (statusOk) {
-                fresh.statusText = out.trimmed();
-            } else {
-                const QString statusErr = err.trimmed();
-                fresh.statusText = statusErr;
-                if (errorText.isEmpty()) {
-                    errorText = statusErr;
-                }
-            }
-
-            out.clear();
-            err.clear();
-            rc = -1;
-            // Por argv cuando hay daemon: la orden no pasa por ninguna cadena de shell.
-            const QStringList stPCmdDaemonArgv = mwhelpers::argvQt(zfsmgr::commands::requests::poolStatusRaw(trimmedPool.toStdString()));
-            bool statusPOk = daemonReadApiOk
-                  && runAgentCommand(profile, stPCmdDaemonArgv, 20000, out, err, rc)
-                  && rc == 0;
-            if (statusPOk) {
-                fresh.statusPText = out.trimmed();
-            } else {
-                fresh.statusPText.clear();
+        // The shell's `ls <pool>#properties --pool` and `status --on <pool>`.
+        readPoolProperties(connIdx, trimmedPool, fresh.propsRows, &errorText);
+        QString errorStatus;
+        if (!readPoolStatus(connIdx, trimmedPool, fresh.statusText, &errorStatus)) {
+            fresh.statusText = errorStatus;
+            if (errorText.isEmpty()) {
+                errorText = errorStatus;
             }
         }
         fresh.loaded = true;
