@@ -60,9 +60,10 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
     {
         QJsonObject r;
         QString err;
-        if (!cliReadJson(ctx.connIdx,
-                         QStringLiteral("breakdown --list --on %1").arg(zfsmUrl(ctx.connIdx, ds)),
-                         r, &err, 240000)) {
+        if (!cliReadJson(
+                ctx.connIdx,
+                QStringLiteral("breakdown --list -r --on %1").arg(zfsmUrl(ctx.connIdx, ds)), r,
+                &err, 240000)) {
             stopBusy();
             QMessageBox::warning(
                 this, QStringLiteral("ZFSMgr"),

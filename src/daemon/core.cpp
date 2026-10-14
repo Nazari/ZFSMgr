@@ -594,7 +594,7 @@ ExecResult runCopyTreeCapture(const std::string& srcDir, const std::string& dstD
 }
 
 ExecResult runDumpAdvancedBreakdownListCapture(const std::string& dataset,
-                                               const std::string& rootGiven) {
+                                               const std::string& rootGiven, int depth) {
     // `rootGiven`: where the content is actually visible —a temporary read-only mount of an
     // unmounted dataset—. Without it, the dataset's mountpoint.
     std::string mountpoint = trim(rootGiven);
@@ -617,49 +617,86 @@ ExecResult runDumpAdvancedBreakdownListCapture(const std::string& dataset,
     if (!fs::exists(root, ec) || !fs::is_directory(root, ec)) {
         return r;
     }
+#ifndef _WIN32
+    // The walk stays on the dataset's own filesystem: a child dataset mounted inside is
+    // neither listed nor added to the sizes (it already is a dataset).
+    struct stat rootSt{};
+    if (::lstat(mountpoint.c_str(), &rootSt) != 0) {
+        return r;
+    }
+#endif
 
-    std::vector<std::string> dirs;
+    // Each directory with what hangs from it: bytes and files, all the way down, while only
+    // those up to `depth` levels are listed (0: every level).
+    struct Total {
+        unsigned long long bytes = 0;
+        unsigned long long files = 0;
+    };
+    std::map<std::string, Total> dirs;
+    const auto ancestors = [depth](const std::string& rel, bool selfIsDir) {
+        std::vector<std::string> out;
+        std::size_t from = 0;
+        int level = 0;
+        while (true) {
+            const std::size_t slash = rel.find('/', from);
+            if (slash == std::string::npos) {
+                break;
+            }
+            ++level;
+            if (depth > 0 && level > depth) {
+                return out;
+            }
+            out.push_back(rel.substr(0, slash));
+            from = slash + 1;
+        }
+        if (selfIsDir && (depth <= 0 || level + 1 <= depth)) {
+            out.push_back(rel);
+        }
+        return out;
+    };
     fs::recursive_directory_iterator it(root, fs::directory_options::skip_permission_denied, ec);
     const fs::recursive_directory_iterator end;
     while (!ec && it != end) {
         const fs::directory_entry& e = *it;
         std::error_code sec;
         const fs::file_status st = e.symlink_status(sec);
-        if (!sec && fs::is_symlink(st)) {
-            it.disable_recursion_pending();
+        std::error_code rec;
+        const std::string rel = fs::relative(e.path(), root, rec).generic_string();
+        if (sec || rec || rel.empty() || rel == ".") {
             ++it;
             continue;
         }
-        if (!sec && fs::is_directory(st)) {
-            std::error_code rec;
-            fs::path rel = fs::relative(e.path(), root, rec);
-            if (!rec && !rel.empty()) {
-                bool skip = false;
-                for (const auto& c : rel) {
-                    if (c == ".zfs") {
-                        skip = true;
-                        break;
-                    }
+        if (fs::is_directory(st)) {
+            const std::string name = e.path().filename().string();
+            bool skip = name == ".zfs";
+#ifndef _WIN32
+            struct stat dst{};
+            skip = skip || ::lstat(e.path().c_str(), &dst) != 0 || dst.st_dev != rootSt.st_dev;
+#endif
+            if (skip) {
+                it.disable_recursion_pending();
+            } else {
+                for (const std::string& a : ancestors(rel, true)) {
+                    dirs[a];
                 }
-                if (skip) {
-                    it.disable_recursion_pending();
-                } else {
-                    const std::string relPath = rel.generic_string();
-                    if (!relPath.empty() && relPath != ".") {
-                        dirs.push_back(relPath);
-                    }
-                }
+            }
+        } else if (!fs::is_symlink(st)) {
+            std::error_code zec;
+            const auto size = fs::is_regular_file(st) ? fs::file_size(e.path(), zec) : 0;
+            for (const std::string& a : ancestors(rel, false)) {
+                Total& t = dirs[a];
+                t.bytes += zec ? 0 : static_cast<unsigned long long>(size);
+                ++t.files;
             }
         }
         ++it;
     }
 
-    std::sort(dirs.begin(), dirs.end());
-    dirs.erase(std::unique(dirs.begin(), dirs.end()), dirs.end());
+    // One line per directory: bytes, files and the path, separated by tabs (the path last:
+    // it may hold anything but a newline).
     r.out = "__MP__=" + mountpoint + "\n";
-    for (const std::string& d : dirs) {
-        r.out += d;
-        r.out.push_back('\n');
+    for (const auto& [d, t] : dirs) {
+        r.out += std::to_string(t.bytes) + "\t" + std::to_string(t.files) + "\t" + d + "\n";
     }
     return r;
 }

@@ -244,12 +244,27 @@ std::string preparaMontajeTemporal(Estado& e, const ZfsmUrl& d, bool creaHijos, 
     return texto;
 }
 
-// `breakdown --list`: the directories of a dataset that can become datasets —every one under
-// it, except those that already are a child dataset or lie inside one—. Unmounted, it is
-// read from a temporary read-only mount, as `ls #content` does.
-static bool listaParaDesglosar(Estado& e, const ZfsmUrl& destino) {
+// `breakdown --list`: the directories of a dataset that can become datasets —except those
+// that already are a child dataset or lie inside one—, with the bytes and files under each.
+// The first level only unless `--depth <n>` or `-r` (all). Unmounted, it is read from a
+// temporary read-only mount, as `ls #content` does.
+static bool listaParaDesglosar(Estado& e, const Peticion& pet, const ZfsmUrl& destino) {
     if (!exigeDataset(destino)) {
         return false;
+    }
+    int profundidad = 1;
+    if (pet.tiene("-r")) {
+        profundidad = 0;
+    } else if (const std::string d = pet.valor("depth"); !d.empty()) {
+        char* fin = nullptr;
+        const long n = std::strtol(d.c_str(), &fin, 10);
+        if (fin == d.c_str() || *fin != '\0' || n < 1 || n > 1000) {
+            std::fprintf(stderr, TC("t_bd_depth_mal", "--depth: «%s» no es un número de niveles\n"),
+                         d.c_str());
+            e.ultimoRc = 2;
+            return false;
+        }
+        profundidad = static_cast<int>(n);
     }
     ZfsmUrl contenido = destino;
     contenido.snapshot.clear();
@@ -260,7 +275,7 @@ static bool listaParaDesglosar(Estado& e, const ZfsmUrl& destino) {
         return false;
     }
     std::string out;
-    if (!agente(e, destino, PET::breakdownList(destino.dataset, raiz), out, 180000)) {
+    if (!agente(e, destino, PET::breakdownList(destino.dataset, raiz, profundidad), out, 180000)) {
         return false;
     }
     std::string hijos;
@@ -276,20 +291,27 @@ static bool listaParaDesglosar(Estado& e, const ZfsmUrl& destino) {
     }
     Tabla t;
     t.nombreJson = "directories";
-    t.cabecerasTexto = {T("t_cab_directorio", "DIRECTORIO")};
-    t.campos = {"dir"};
-    t.tipos = {Tipo::Cadena};
+    t.cabecerasTexto = {T("t_cab_directorio", "DIRECTORIO"), T("t_cab_tamano", "TAMAÑO"),
+                        T("t_cab_ficheros", "FICHEROS")};
+    t.campos = {"dir", "bytes", "files"};
+    t.tipos = {Tipo::Cadena, Tipo::Bytes, Tipo::Entero};
     for (const std::string& l : B::split(out, "\n", true)) {
-        const std::string dir = B::trim(l);
-        if (dir.empty() || B::startsWith(dir, "__MP__=")) {
+        if (l.empty() || B::startsWith(l, "__MP__=")) {
             continue;
         }
+        // «<bytes>\t<files>\t<path>»: the path last, as it is, spaces and all.
+        const std::size_t a = l.find('\t');
+        const std::size_t b = a == std::string::npos ? a : l.find('\t', a + 1);
+        if (b == std::string::npos) {
+            continue;
+        }
+        const std::string dir = l.substr(b + 1);
         bool deUnHijo = false;
         for (const std::string& h : deHijos) {
             deUnHijo = deUnHijo || dir == h || B::startsWith(dir, h + "/");
         }
         if (!deUnHijo) {
-            t.filas.push_back({dir});
+            t.filas.push_back({dir, l.substr(0, a), l.substr(a + 1, b - a - 1)});
         }
     }
     if (!aplicaFiltro(e, t)) {
@@ -306,7 +328,7 @@ bool cmdBreakdown(Estado& e, const LineaAnalizada& linea) {
     }
     const ZfsmUrl& destino = pet.objetivo;
     if (pet.tiene("--list")) {
-        return listaParaDesglosar(e, destino);
+        return listaParaDesglosar(e, pet, destino);
     }
     if (pet.lista("texto").size() < 2 || pet.lista("texto").size() % 2 != 0) {
         std::fputs(TC("t_uso_breakd_14be27",

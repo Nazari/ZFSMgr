@@ -432,7 +432,7 @@ ExecResult runCopyTreeCapture(const std::string& srcDir, const std::string& dstD
                               const std::vector<std::string>& excludes = {},
                               bool oneFileSystem = false);
 ExecResult runDumpAdvancedBreakdownListCapture(const std::string& dataset,
-                                               const std::string& rootGiven = {});
+                                               const std::string& rootGiven = {}, int depth = 0);
 int countPendingCopyTransfers(const std::string& srcDir, const std::string& dstDir,
                               const std::vector<std::string>& excludes = {},
                               bool oneFileSystem = false);

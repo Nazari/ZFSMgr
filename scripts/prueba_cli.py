@@ -2293,16 +2293,29 @@ def casos_acciones(ctx):
     prepara(ctx)   # terreno limpio: ningún grupo hereda lo que dejó otro
     sh(ctx, f"bash -c 'mkdir -p /mnt/{P}/datos/subdir && echo x > /mnt/{P}/datos/subdir/f.txt'",
        root=True)
-    sh(ctx, f"bash -c 'mkdir -p /mnt/{P}/datos/subdir/dentro && zfs create {P}/datos/hijads'",
-       root=True)
-    caso(ctx, "breakdown --list: los directorios, también los de dentro, y no los de un hijo",
-         [f"cd Local/{P}/datos", "breakdown --list"],
-         espera=[r"^subdir$", r"^subdir/dentro$"], no_espera=[r"^hijads"])
+    # subdir: f.txt (2 bytes) and dentro/g.txt (3 bytes); a child dataset mounted INSIDE it,
+    # with a file of its own, that is neither listed nor added to the sizes.
+    sh(ctx, f"bash -c 'mkdir -p /mnt/{P}/datos/subdir/dentro && echo yy > /mnt/{P}/datos/subdir/dentro/g.txt "
+            f"&& zfs create -o mountpoint=/mnt/{P}/datos/subdir/montado {P}/datos/hijads "
+            f"&& head -c 1000 /dev/zero > /mnt/{P}/datos/subdir/montado/z'", root=True)
+    caso(ctx, "breakdown --list: el primer nivel, con lo que suma debajo y sin un hijo montado",
+         [f"cd Local/{P}/datos", "format tsv", "breakdown --list"], rc=0,
+         espera=[r"^subdir\t5\t2$"], no_espera=[r"^subdir/", r"montado", r"hijads"])
+    caso(ctx, "breakdown --list -r: todos los niveles, y el hijo montado sigue fuera",
+         [f"cd Local/{P}/datos", "format tsv", "breakdown --list -r"], rc=0,
+         espera=[r"^subdir\t5\t2$", r"^subdir/dentro\t3\t1$"], no_espera=[r"montado"])
+    caso(ctx, "breakdown --list --depth 2 llega al segundo nivel; en json, bytes y files",
+         [f"cd Local/{P}/datos", "format json", "breakdown --list --depth 2"], rc=0,
+         espera=[r'"dir": "subdir/dentro"', r'"bytes": 3\b', r'"files": 1\b'])
+    caso(ctx, "breakdown --list --depth con algo que no es un número lo dice",
+         [f"cd Local/{P}/datos", "breakdown --list --depth x"], idioma="es",
+         espera=[r"no es un número de niveles"])
     sh(ctx, f"zfs unmount {P}/datos/hijads", root=True)
     sh(ctx, f"zfs unmount {P}/datos", root=True)
     caso(ctx, "breakdown --list: sin montar, desde un montaje temporal de solo lectura",
-         [f"cd Local/{P}/datos", "breakdown --list"], espera=[r"^subdir$"])
-    sh(ctx, f"bash -c 'zfs mount {P}/datos; zfs destroy {P}/datos/hijads'", root=True)
+         [f"cd Local/{P}/datos", "format tsv", "breakdown --list"], espera=[r"^subdir\t5\t2$"])
+    sh(ctx, f"bash -c 'zfs mount {P}/datos; zfs destroy {P}/datos/hijads; "
+            f"rmdir /mnt/{P}/datos/subdir/montado 2>/dev/null; true'", root=True)
     caso(ctx, "breakdown: un subdirectorio se convierte en dataset hijo",
          [f"cd Local/{P}/datos", "breakdown subdir hijosub --wait"],
          estado=[("el dataset hijo existe", f"zfs list -H -o name {P}/datos/hijosub",

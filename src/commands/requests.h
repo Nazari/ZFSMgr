@@ -55,11 +55,13 @@ std::vector<std::string> datasetList(const std::string& object);
 // The names only, recursive.
 std::vector<std::string> descendantNames(const std::string& object);
 // The directories Breakdown can turn into datasets. It answers «__MP__=<mountpoint>» and
-// then one relative path per line. It works on both platforms: it resolves the mountpoint
-// from the REAL mounts, which on Windows is a drive letter.
+// then «<bytes>\t<files>\t<relative path>» per directory: what hangs from it, all the way
+// down, never counting a child dataset mounted inside. It works on both platforms: it
+// resolves the mountpoint from the REAL mounts, which on Windows is a drive letter.
 // `root`: where to list from, when the dataset is not at its mountpoint (a read-only temporary
-// mount). Empty: its mountpoint.
-std::vector<std::string> breakdownList(const std::string& dataset, const std::string& root = {});
+// mount). Empty: its mountpoint. `depth`: the levels listed (0: all).
+std::vector<std::string> breakdownList(const std::string& dataset, const std::string& root = {},
+                                       int depth = 0);
 std::vector<std::string> datasetProperties(const std::string& object);
 std::vector<std::string> datasetProperty(const std::string& property,
                                             const std::string& object);

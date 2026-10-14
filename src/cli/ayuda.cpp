@@ -689,6 +689,10 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
        {"t_ej_breakdown_4", "espera aquí en vez de devolver el trabajo"}},
       {"breakdown --list",
        {"t_ej_breakdown_list", "qué directorios podrían pasar a ser datasets"}},
+      {"breakdown --list --depth 2",
+       {"t_ej_breakdown_list2", "también los de dentro, un nivel más"}},
+      {"breakdown --list -r",
+       {"t_ej_breakdown_list3", "todos los niveles, como el diálogo de la interfaz gráfica"}},
      }},
     {"assemble",
      {
@@ -1355,7 +1359,9 @@ const std::vector<Orden> kOrdenes = {
       {{"t_bd_nuevo", "<dataset-nuevo>"},
        {"t_bd_nuevo_q", "El dataset hijo que va a sustituirlo, relativo al dataset actual."}},
       {{"t_wait_flag", "--wait"}, {"t_wait_flag_q", "Espera aquí a que termine, en vez de devolver el trabajo."}},
-      {{"t_bd_list", "--list"}, {"t_bd_list_q", "Enseña los directorios que se pueden desglosar, sin cambiar nada."}}},
+      {{"t_bd_list", "--list"}, {"t_bd_list_q2", "Enseña los directorios que se pueden desglosar, con lo que ocupan y cuántos ficheros tienen debajo, sin cambiar nada. Solo el primer nivel; los datasets hijos no se cuentan."}},
+      {{"t_bd_depth", "--depth <n>"}, {"t_bd_depth_q", "Con --list: hasta n niveles de directorios."}},
+      {{"t_r_90cdb7", "-r"}, {"t_bd_r_q", "Con --list: todos los niveles."}}},
      {{"t_bd_det1", "Los argumentos van en PARES: cada subdirectorio con el nombre del dataset que "
        "lo sustituye. El contenido no se mueve de sitio para quien mira desde fuera: donde "
        "había un directorio queda un dataset con lo mismo dentro, y ya con sus propiedades, "
