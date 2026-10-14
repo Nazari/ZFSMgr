@@ -1,5 +1,8 @@
 #include "mainwindow.h"
 
+#include <QJsonArray>
+#include <QJsonObject>
+
 #include "agentmsg.h"
 
 #include "transport.h"
@@ -980,6 +983,23 @@ QString MainWindow::datasetCacheKey(int connIdx, const QString& poolName) const 
     return QStringLiteral("%1::%2").arg(connToken(connIdx), poolName);
 }
 
+// The guid of every imported pool of the connection, from the shell's pool listing.
+void MainWindow::readPoolGuids(int connIdx) {
+    QJsonObject pools;
+    if (!cliReadJson(connIdx, QStringLiteral("ls %1").arg(zfsmUrl(connIdx)), pools, nullptr, 60000)
+        || connIdx < 0 || connIdx >= m_conns.states.size()) {
+        return;
+    }
+    for (const QJsonValue& v : pools.value(QStringLiteral("pools")).toArray()) {
+        const QJsonObject o = v.toObject();
+        const QString guid = o.value(QStringLiteral("guid")).toString().trimmed();
+        if (o.value(QStringLiteral("imported")).toBool() && !guid.isEmpty()) {
+            m_conns.states[connIdx].poolGuidByName.insert(
+                o.value(QStringLiteral("name")).toString(), guid);
+        }
+    }
+}
+
 bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool allowRemoteLoadIfMissing) {
     if (connIdx < 0 || connIdx >= m_conns.profiles.size()) {
         return false;
@@ -1003,134 +1023,70 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
         return false;
     }
     // Copy, not a reference: loadConnections() reassigns m_conns.profiles wholesale and can
-    // be dispatched from the event loop while runSsh() pumps it.
+    // be dispatched from the event loop while a read pumps it.
     const ConnectionProfile p = m_conns.profiles[connIdx];
-    const bool daemonReadApiOk =
-        connIdx >= 0
-        && connIdx < m_conns.states.size()
-        && m_conns.states[connIdx].daemonInstalled
-        && m_conns.states[connIdx].daemonActive
-        && m_conns.states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
-    if (connIdx >= 0 && connIdx < m_conns.states.size()) {
-        const QString trimmedPool = poolName.trimmed();
-        if (!trimmedPool.isEmpty()
-            && m_conns.states[connIdx].poolGuidByName.value(trimmedPool).trimmed().isEmpty()) {
-            QString gOut;
-            QString gErr;
-            int gRc = -1;
-            const bool guidOk =
-                daemonReadApiOk
-                && runAgentCommand(p, mwhelpers::argvQt(zfsmgr::commands::requests::poolGuid(trimmedPool.toStdString())),
-                                   12000, gOut, gErr, gRc)
-                && gRc == 0;
-            if (guidOk) {
-                const QString guid = gOut.section('\n', 0, 0).trimmed();
-                if (!guid.isEmpty() && guid != QStringLiteral("-")) {
-                    m_conns.states[connIdx].poolGuidByName.insert(trimmedPool, guid);
-                    m_transport.log(TransportSession::Level::Debug,
-                           QStringLiteral("Loaded missing pool GUID %1::%2 -> %3")
-                               .arg(p.name, trimmedPool, guid));
-                } else {
-                    m_transport.log(TransportSession::Level::Warn,
-                           QStringLiteral("Pool GUID missing after query %1::%2")
-                               .arg(p.name, trimmedPool));
-                }
-            } else {
-                m_transport.log(TransportSession::Level::Warn,
-                       QStringLiteral("Could not query pool GUID %1::%2 -> %3")
-                           .arg(p.name,
-                                trimmedPool,
-                                oneLine(gErr.isEmpty() ? QStringLiteral("exit %1").arg(gRc) : gErr)));
-            }
-        }
+    if (connIdx < m_conns.states.size()
+        && m_conns.states[connIdx].poolGuidByName.value(poolName.trimmed()).trimmed().isEmpty()) {
+        readPoolGuids(connIdx);
     }
-    // Built locally and published into m_conns.poolDatasetCache only once it is complete.
-    // Holding a reference into the map across the runSsh() calls below is what made
-    // this function corrupt the heap and crash on refresh.
+    // The datasets and snapshots of the pool, all at once: the shell's `ls -r`.
+    // Built locally and published into m_conns.poolDatasetCache only once it is complete:
+    // holding a reference into the map across a read is what corrupted the heap on refresh.
     PoolDatasetCache cache;
-    QString out;
-    QString err;
-    int rc = -1;
     struct SnapshotMetaRow {
         QString creation;
         QString snapName;
         QString guid;
     };
     QMap<QString, QVector<SnapshotMetaRow>> snapshotMetaByDataset;
-    bool loadedFromDaemon = false;
-    m_transport.log(TransportSession::Level::Info, QStringLiteral("Loading datasets %1::%2").arg(p.name, poolName));
-
-    // **Windows también pasa por aquí.** Antes esto estaba envuelto en `if (!isWin)`, así que
-    // en Windows ni se intentaba el daemon: se iba directo al respaldo por SSH. Su agente
-    // nativo sirve `--dump-zfs-list-all` igual que los demás —comprobado contra una máquina
-    // real—, y el formato es el mismo TSV.
-
-    if (!daemonReadApiOk) {
-        requireDaemonForRead(connIdx, QStringLiteral("listar los datasets de un pool"));
-    }
-    if (daemonReadApiOk
-        && runAgentCommand(p, mwhelpers::argvQt(zfsmgr::commands::requests::datasetList(poolName.toStdString())), 35000, out, err, rc)
-        && rc == 0) {
-        // Aquí se comprobaba si la respuesta era JSON, y si no, se TIRABA.
-        //
-        // `--dump-zfs-list-all` es `zfs list -H -p`: TSV de diez columnas, y nunca ha
-        // sido JSON. Así que la comprobación no se cumplía jamás, esta llamada al daemon
-        // se descartaba entera y el listado se volvía a pedir por SSH con sudo unas
-        // líneas más abajo. Dos viajes por pool y por refresco, y el árbol de datasets
-        // era el único camino de lectura que no pasaba por el daemon.
-        //
-        // El reparto de columnas lo hace `commands::listings`: una línea con menos de diez
-        // columnas se salta en vez de
-        // rellenar con vacíos, porque un punto de montaje con un tabulador dentro
-        // correría los campos y enseñaría un montaje donde va el nombre.
-        const std::vector<zfsmgr::base::listings::Entry> entradas =
-            zfsmgr::base::listings::entries(out.toStdString());
-        for (const zfsmgr::base::listings::Entry& e : entradas) {
-            const QString name = QString::fromStdString(e.name).trimmed();
-            if (name.isEmpty()) {
-                continue;
-            }
-            DatasetRecord rec{name,
-                              QString::fromStdString(e.guid),
-                              QString::fromStdString(e.used),
-                              QString::fromStdString(e.compression),
-                              QString::fromStdString(e.encryption),
-                              QString::fromStdString(e.creation),
-                              QString::fromStdString(e.referenced),
-                              QString::fromStdString(e.mounted),
-                              QString::fromStdString(e.mountpoint),
-                              QString::fromStdString(e.canmount)};
-            if (!rec.guid.trimmed().isEmpty() && rec.guid.trimmed() != QStringLiteral("-")) {
-                cache.objectGuidByName.insert(name, rec.guid.trimmed());
-            }
-            if (e.isSnapshot()) {
-                const QString ds = name.section('@', 0, 0);
-                const QString snap = name.section('@', 1);
-                if (!ds.isEmpty() && !snap.isEmpty()) {
-                    snapshotMetaByDataset[ds].push_back(SnapshotMetaRow{rec.creation, snap, rec.guid});
-                }
-            } else {
-                cache.datasets.push_back(rec);
-                cache.recordByName[name] = rec;
-            }
+    m_transport.log(TransportSession::Level::Info,
+                    QStringLiteral("Loading datasets %1::%2").arg(p.name, poolName));
+    QJsonObject listado;
+    QString errorListado;
+    const bool leido =
+        cliReadJson(connIdx, QStringLiteral("ls -r %1").arg(zfsmUrl(connIdx, poolName.trimmed())),
+                    listado, &errorListado, 120000);
+    const QJsonArray entradas = listado.value(QStringLiteral("entries")).toArray();
+    const auto texto = [](const QJsonObject& o, const char* k) {
+        const QJsonValue v = o.value(QLatin1String(k));
+        return v.isDouble() ? QString::number(static_cast<qint64>(v.toDouble())) : v.toString();
+    };
+    for (const QJsonValue& v : entradas) {
+        const QJsonObject o = v.toObject();
+        const QString name = texto(o, "name").trimmed();
+        if (name.isEmpty()) {
+            continue;
         }
-        // Una respuesta vacía NO se da por buena: todo pool tiene al menos su dataset
-        // raíz, así que cero entradas significa que algo se torció y conviene el
-        // respaldo, no un árbol vacío.
-        loadedFromDaemon = !entradas.empty();
+        DatasetRecord rec{name,
+                          texto(o, "guid"),
+                          texto(o, "used"),
+                          texto(o, "compressratio"),
+                          texto(o, "encryption"),
+                          texto(o, "creation"),
+                          texto(o, "referenced"),
+                          texto(o, "mounted"),
+                          texto(o, "mountpoint"),
+                          texto(o, "canmount")};
+        if (!rec.guid.trimmed().isEmpty() && rec.guid.trimmed() != QStringLiteral("-")) {
+            cache.objectGuidByName.insert(name, rec.guid.trimmed());
+        }
+        if (name.contains(QLatin1Char('@'))) {
+            const QString ds = name.section('@', 0, 0);
+            const QString snap = name.section('@', 1);
+            if (!ds.isEmpty() && !snap.isEmpty()) {
+                snapshotMetaByDataset[ds].push_back(SnapshotMetaRow{rec.creation, snap, rec.guid});
+            }
+        } else {
+            cache.datasets.push_back(rec);
+            cache.recordByName[name] = rec;
+        }
     }
-    // **Sin daemon no se lista.** Aquí había un respaldo que ejecutaba `zfs list` por SSH con
-    // sudo. Se ha quitado a propósito: ningún cliente opera sobre una máquina sin agente.
-    //
-    // No es una pérdida de función, es dejar de fingir una: mientras existió, el respaldo
-    // ATENDÍA EL 100 % de los listings —la rama del daemon comprobaba si la respuesta era
-    // JSON y ese verbo devuelve TSV—, así que la aplicación llevaba meses leyendo el árbol
-    // por shell sin que nadie lo supiera.
-    if (!loadedFromDaemon) {
-        m_transport.log(TransportSession::Level::Warn,
-                        QStringLiteral("Failed datasets %1::%2 -> sin agente utilizable")
-                            .arg(p.name, poolName));
-        // Anotar el fallo para no reintentarlo en cada reconstrucción del árbol.
+    // An empty answer is not good: every pool has at least its root dataset.
+    if (!leido || entradas.isEmpty()) {
+        m_transport.log(
+            TransportSession::Level::Warn,
+            QStringLiteral("Failed datasets %1::%2 -> %3").arg(p.name, poolName, errorListado));
+        // Noted, so that every rebuild of the tree does not try again.
         m_conns.poolDatasetCache[key].loadFailed = true;
         return false;
     }
@@ -1143,72 +1099,19 @@ bool MainWindow::ensureDatasetsLoaded(int connIdx, const QString& poolName, bool
             const qlonglong av = a.creation.toLongLong(&aOk);
             const qlonglong bv = b.creation.toLongLong(&bOk);
             if (aOk && bOk && av != bv) {
-                return av > bv; // más nuevo primero
+                return av > bv;  // newest first
             }
             if (a.creation != b.creation) {
-                return a.creation > b.creation; // fallback textual desc
+                return a.creation > b.creation;
             }
-            return a.snapName > b.snapName; // fallback por nombre desc
+            return a.snapName > b.snapName;
         });
         QStringList sortedSnaps;
         sortedSnaps.reserve(rows.size());
         for (const auto& row : rows) {
             sortedSnaps.push_back(row.snapName);
-            const QString fullSnapshotName = QStringLiteral("%1@%2").arg(it.key(), row.snapName);
-            if (!row.guid.trimmed().isEmpty() && row.guid.trimmed() != QStringLiteral("-")) {
-                cache.objectGuidByName.insert(fullSnapshotName, row.guid.trimmed());
-            }
         }
         cache.snapshotsByDataset.insert(it.key(), sortedSnaps);
-    }
-    cache.driveletterByDataset.clear();
-    if (isWindowsConnection(connIdx)) {
-        QString dOut;
-        QString dErr;
-        int dRc = -1;
-        // Por verbo tipado. Aquí se armaba `zfs get -H -o name,value,source -r driveletter`
-        // y se ejecutaba con sudo por SSH: era el último camino de shell que le quedaba al
-        // refresco. El `source` sigue siendo imprescindible —distingue la letra PUESTA en un
-        // dataset de la HEREDADA del pool— y ahora eso está escrito donde vive el verbo.
-        if (runAgentCommand(p,
-                            mwhelpers::argvQt(
-                                zfsmgr::commands::requests::driveLetters(poolName.toStdString())),
-                            20000, dOut, dErr, dRc)
-            && dRc == 0) {
-            QMap<QString, QStringList> byDrive;
-            const QStringList dLines = dOut.split('\n', Qt::SkipEmptyParts);
-            for (const QString& ln : dLines) {
-                const QStringList f = ln.split('\t');
-                if (f.size() < 2) {
-                    continue;
-                }
-                const QString ds = f[0].trimmed();
-                const QString drive = normalizeDriveLetterValue(f[1]);
-                // La letra REAL de cada dataset se guarda siempre, heredada o no: es lo
-                // que dice dónde está montado.
-                cache.driveletterByDataset[ds] = drive;
-                // Pero para el aviso de duplicados solo cuentan las PUESTAS en el propio
-                // dataset. En Windows los descendientes heredan la del pool y se montan
-                // planos bajo esa unidad, así que dos datasets con la misma letra
-                // heredada es el funcionamiento normal, no un conflicto. Avisar de eso
-                // llenaba el registro en cada refresco y tapaba los avisos de verdad.
-                const QString origen = (f.size() >= 3) ? f[2].trimmed().toLower() : QString();
-                const bool puestaAqui = origen.isEmpty() || origen == QStringLiteral("local");
-                if (!drive.isEmpty() && puestaAqui) {
-                    byDrive[drive].push_back(ds);
-                }
-            }
-            for (auto it = byDrive.constBegin(); it != byDrive.constEnd(); ++it) {
-                if (it.value().size() > 1) {
-                    m_transport.log(TransportSession::Level::Warn,
-                           QStringLiteral("%1::%2 driveletter duplicado %3 en datasets: %4")
-                               .arg(p.name, poolName, it.key(), it.value().join(QStringLiteral(", "))));
-                }
-            }
-        } else if (!dErr.trimmed().isEmpty()) {
-            m_transport.log(TransportSession::Level::Info,
-                   QStringLiteral("%1: no se pudieron cargar driveletters -> %2").arg(p.name, oneLine(dErr)));
-        }
     }
     cache.loaded = true;
     // Publish before rebuildConnInfoFor() so the entry is visible to it, exactly as

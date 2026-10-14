@@ -1076,6 +1076,8 @@
     "t_peers_listen": "--listen <0.0.0.0|::|127.0.0.1>",
     "t_peers_listen_q": "Which address its daemon answers on. Restarts the daemon.",
     "t_peers_puestos": "handed %zu credentials to %s\n",
+    "t_ls_r_q": "On a dataset: EVERYTHING under it, itself included, with full names; in json also the guid, the creation and the encryption.",
+    "t_ej_ls_r": "the whole tree at once, for a program",
     "t_uso_clone2": "usage: clone <new-dataset> [prop=value...] [-p] [-u] [--from <@snapshot>]\n",
     "t_clone_uso2": "<new> [prop=value...] [-p] [-u] [--from <@snapshot>]",
     "t_clone_props_q": "Properties of the clone.",

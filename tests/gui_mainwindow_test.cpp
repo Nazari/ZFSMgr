@@ -507,6 +507,47 @@ private Q_SLOTS:
         QCOMPARE(f2.result().rc, 127);
     }
 
+    // The tree of a pool is the shell's `ls -r`: datasets, snapshots newest first, guids.
+    void poolTreeComesFromTheShellsLs() {
+        MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
+        ConnectionProfile profile;
+        profile.id = QStringLiteral("local");
+        profile.name = QStringLiteral("Local");
+        profile.connType = QStringLiteral("Local");
+        window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank1")}, {});
+        window.setCliReadFakeForTest([](const QString& line) {
+            CliService::Result r;
+            r.rc = 0;
+            if (line == QStringLiteral("ls zfsm://local")) {
+                r.out = QStringLiteral(
+                    "{\"pools\":[{\"name\":\"tank9\",\"imported\":true,"
+                    "\"guid\":\"999\"}]}");
+            } else if (line == QStringLiteral("ls -r zfsm://local/tank9")) {
+                r.out = QStringLiteral(
+                    "{\"entries\":["
+                    "{\"name\":\"tank9\",\"type\":\"dataset\",\"guid\":\"1\",\"used\":10,"
+                    "\"creation\":\"100\",\"mounted\":\"yes\",\"mountpoint\":\"/tank9\"},"
+                    "{\"name\":\"tank9/a\",\"type\":\"dataset\",\"guid\":\"2\",\"used\":5,"
+                    "\"creation\":\"110\",\"mounted\":\"no\",\"mountpoint\":\"/tank9/a\"},"
+                    "{\"name\":\"tank9/a@old\",\"type\":\"snapshot\",\"guid\":\"3\","
+                    "\"creation\":\"200\"},"
+                    "{\"name\":\"tank9/a@new\",\"type\":\"snapshot\",\"guid\":\"4\","
+                    "\"creation\":\"300\"}]}");
+            } else {
+                r.rc = 1;
+            }
+            return r;
+        });
+        QVERIFY(window.loadPoolDatasetsForTest(0, QStringLiteral("tank9")));
+        QCOMPARE(
+            window.cachedSnapshotsForTest(0, QStringLiteral("tank9"), QStringLiteral("tank9/a")),
+            (QStringList{QStringLiteral("new"), QStringLiteral("old")}));
+        QCOMPARE(
+            window.cachedGuidForTest(0, QStringLiteral("tank9"), QStringLiteral("tank9/a@old")),
+            QStringLiteral("3"));
+        QVERIFY(window.cliReadLinesForTest().contains(QStringLiteral("ls -r zfsm://local/tank9")));
+    }
+
     // The window's actions send the shell's command lines, not strings of their own.
     void actionsRunTheShellsCommandLines() {
         MainWindow window(QStringLiteral("test"), QStringLiteral("en"));

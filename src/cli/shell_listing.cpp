@@ -201,6 +201,10 @@ bool listaPools(Estado& e, const ZfsmUrl& destino) {
     t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena,   Tipo::Cadena,
                Tipo::Cadena, Tipo::Bytes,  Tipo::Cadena, Tipo::Booleano, Tipo::Cadena,
                Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena};
+    // json only: the pool's guid (also of one not imported, to import it by guid) and why
+    // an importable one cannot be imported.
+    t.campos.insert(t.campos.end(), {"guid", "reason"});
+    t.tipos.insert(t.tipos.end(), {Tipo::Cadena, Tipo::Cadena});
 
     // Los campos de dataset del pool raíz, uno por pool.
     //
@@ -276,9 +280,13 @@ bool listaPools(Estado& e, const ZfsmUrl& destino) {
                 ramDdt = std::to_string(ddt.bytesEnMemoria);
             }
         }
+        std::string guid = p["pool_guid"].toString();
+        if (guid.empty()) {
+            guid = prop(p, "guid");
+        }
         t.filas.push_back({nombre, p["state"].toString(), prop(p, "size"), prop(p, "free"),
                            prop(p, "capacity"), dedup, ramDdt, prop(p, "health"), "true", ds[0],
-                           ds[1], ds[2], ds[3], ds[4]});
+                           ds[1], ds[2], ds[3], ds[4], guid, ""});
     }
 
     // Los que están AHÍ pero sin importar. `zpool list` no los ve —solo enumera los
@@ -304,8 +312,8 @@ bool listaPools(Estado& e, const ZfsmUrl& destino) {
             // diría que el pool está vacío.
             // Un pool sin importar no tiene campos de dataset que enseñar: sus datasets no
             // están montados ni se pueden consultar hasta importarlo.
-            t.filas.push_back(
-                {imp.pool, imp.state, "", "", "", "", "", imp.state, "false", "", "", "", "", ""});
+            t.filas.push_back({imp.pool, imp.state, "", "", "", "", "", imp.state, "false", "", "",
+                               "", "", "", imp.guid, imp.reason});
         }
     }
     if (!aplicaFiltro(e, t)) {
@@ -318,7 +326,7 @@ bool listaPools(Estado& e, const ZfsmUrl& destino) {
 // Los hijos y las instantáneas de un dataset. Sale de `--dump-zfs-list-all`, que es TSV con
 // las columnas name,guid,used,compressratio,encryption,creation,referenced,montados,
 // mountpoint,canmount.
-bool listaDataset(Estado& e, const ZfsmUrl& destino) {
+bool listaDataset(Estado& e, const ZfsmUrl& destino, bool recursivo) {
     std::string out;
     if (!agente(e, destino, PET::datasetList(destino.dataset), out)) {
         return false;
@@ -335,6 +343,13 @@ bool listaDataset(Estado& e, const ZfsmUrl& destino) {
     // contesta otra cosa. Fallar a la cara vale más que mentir con el mismo nombre.
     t.campos = {"name", "type", "used", "compressratio", "status", "mountpoint"};
     t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Bytes, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena};
+    if (recursivo) {
+        // What a program needs to rebuild the tree in one call: json only.
+        t.campos.insert(t.campos.end(),
+                        {"guid", "encryption", "creation", "referenced", "mounted", "canmount"});
+        t.tipos.insert(t.tipos.end(), {Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Bytes,
+                                       Tipo::Cadena, Tipo::Cadena});
+    }
     // Aquí se añadía la fila del PROPIO pool cuando lo listado era un pool, para que sus
     // campos de dataset se vieran en alguna parte. Confundía: al entrar en un pool aparecía
     // él mismo junto a sus hijos, y no había forma de saber si esa fila era el pool o un
@@ -350,14 +365,21 @@ bool listaDataset(Estado& e, const ZfsmUrl& destino) {
             continue;
         }
         const std::string& nombre = c[0];
-        if (nombre == destino.dataset) {
-            continue;  // uno no es hijo de sí mismo
-        }
         const std::size_t arroba = nombre.find('@');
         const bool esSnap = arroba != std::string::npos;
+        if (recursivo) {
+            const std::string base = esSnap ? nombre.substr(0, arroba) : nombre;
+            if (base != destino.dataset && !B::startsWith(base, prefijo)) {
+                continue;
+            }
+        } else if (nombre == destino.dataset) {
+            continue;  // uno no es hijo de sí mismo
+        }
         // Solo los hijos DIRECTOS y las instantáneas propias: `list-all` es recursivo, y
         // volcar el árbol entero convierte un `ls` en un listado de miles de líneas.
-        if (esSnap) {
+        if (recursivo) {
+            // every one of them
+        } else if (esSnap) {
             if (nombre.substr(0, arroba) != destino.dataset) {
                 continue;
             }
@@ -392,6 +414,11 @@ bool listaDataset(Estado& e, const ZfsmUrl& destino) {
             estado = dispositivo.empty() || dispositivo == "-" ? "?" : dispositivo;
         } else {
             estado = B::toLowerAscii(B::trim(c[7])) == "yes" ? "mounted" : "unmounted";
+        }
+        if (recursivo) {
+            t.filas.push_back({nombre, esSnap ? std::string("snapshot") : tipo, c[2], c[3], estado,
+                               c[8], c[1], c[4], c[5], c[6], c[7], c[9]});
+            continue;
         }
         t.filas.push_back({esSnap ? "@" + nombre.substr(arroba + 1) : nombre.substr(prefijo.size()),
                            tipo, c[2], c[3], estado, c[8]});
@@ -1332,7 +1359,7 @@ bool cmdLs(Estado& e, const LineaAnalizada& linea) {
         case Nodo::Conexion:
             return listaPools(e, destino);
         case Nodo::Dataset:
-            return listaDataset(e, destino);
+            return listaDataset(e, destino, pet.tiene("-r"));
         case Nodo::Snapshot:
             // Una instantánea no tiene hijos; lo interesante es lo que hay dentro.
             std::fputs(TC("t_una_instan_e727ff",

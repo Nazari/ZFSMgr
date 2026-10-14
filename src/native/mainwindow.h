@@ -183,6 +183,18 @@ public:
         m_cliReader->setFakeForTest(std::move(fake));
     }
     QStringList cliReadLinesForTest() const { return m_cliReader->linesForTest(); }
+    bool loadPoolDatasetsForTest(int connIdx, const QString& pool) {
+        m_conns.poolDatasetCache.remove(datasetCacheKey(connIdx, pool));
+        return ensureDatasetsLoaded(connIdx, pool, true);
+    }
+    QStringList cachedSnapshotsForTest(int connIdx, const QString& pool, const QString& ds) const {
+        return m_conns.poolDatasetCache.value(datasetCacheKey(connIdx, pool))
+            .snapshotsByDataset.value(ds);
+    }
+    QString cachedGuidForTest(int connIdx, const QString& pool, const QString& obj) const {
+        return m_conns.poolDatasetCache.value(datasetCacheKey(connIdx, pool))
+            .objectGuidByName.value(obj);
+    }
     QStringList cliLinesForTest() const { return m_cli->linesForTest(); }
     bool mountDatasetForTest(int connIdx, const QString& ds);
     bool cliPoolForTest(int connIdx, const QString& pool, const QString& verb,
@@ -666,6 +678,7 @@ private:
                                     const QString& rootDataset, const QString& displayRoot);
     void installConnContentTreeHeaderContextMenu(QTreeWidget* tree);
     QString poolDetailsCacheKey(int connIdx, const QString& poolName) const;
+    void readPoolGuids(int connIdx);
     bool ensureDatasetsLoaded(int connIdx, const QString& poolName, bool allowRemoteLoadIfMissing = true);
     bool ensureDatasetPermissionsLoaded(int connIdx, const QString& poolName, const QString& datasetName);
     bool ensureDatasetPermissionsLoadedBatch(int connIdx, const QString& poolName, const QStringList& datasetNames);

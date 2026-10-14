@@ -1,5 +1,8 @@
 #include "mainwindow.h"
 
+#include <QJsonArray>
+#include <QJsonObject>
+
 #include "zfsprops.h"
 #include "commands/gsa.h"
 #include "mainwindow_helpers.h"
@@ -2827,83 +2830,48 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
         if (trimmedPool.isEmpty() || connIdx < 0 || connIdx >= m_conns.profiles.size()) {
             return false;
         }
-        ConnectionProfile p = m_conns.profiles[connIdx];
-        const bool daemonReadApiOk =
-            connIdx >= 0
-            && connIdx < m_conns.states.size()
-            && m_conns.states[connIdx].daemonInstalled
-            && m_conns.states[connIdx].daemonActive
-            && m_conns.states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
         bool changed = false;
         if (poolInfo->key.poolGuid.trimmed().isEmpty()) {
-            QString out;
-            QString err;
-            int rc = -1;
-            // Por argv cuando hay daemon: la orden no pasa por ninguna cadena de shell.
-            const QStringList cmdDaemonArgv = mwhelpers::argvQt(zfsmgr::commands::requests::poolGuid(trimmedPool.toStdString()));
-            if (daemonReadApiOk) {
-                (void)runAgentCommand(p, cmdDaemonArgv, 12000, out, err, rc);
-            }
-            // Unconditional re-look up: runSsh() pumped the event loop, so
-            // rebuildConnInfoFor() may have replaced the ConnInfo that owns poolInfo.
-            // This used to happen only on the success path, leaving the pointer stale
-            // whenever the command failed.
+            readPoolGuids(connIdx);
+            // Looked up again: the read pumped the event loop, and rebuildConnInfoFor() may
+            // have replaced the ConnInfo that owns poolInfo.
             poolInfo = findPoolInfo(connIdx, poolName);
-            if (rc == 0) {
-                const QString guid = out.section('\n', 0, 0).trimmed();
-                if (!guid.isEmpty() && guid != QStringLiteral("-")) {
-                    if (connIdx >= 0 && connIdx < m_conns.states.size()) {
-                        m_conns.states[connIdx].poolGuidByName.insert(trimmedPool, guid);
-                    }
-                    if (poolInfo && poolInfo->key.poolGuid.trimmed().isEmpty()) {
-                        poolInfo->key.poolGuid = guid;
-                    }
-                    changed = true;
-                }
+            const QString guid = connIdx < m_conns.states.size()
+                                     ? m_conns.states[connIdx].poolGuidByName.value(trimmedPool)
+                                     : QString();
+            if (poolInfo && !guid.isEmpty() && poolInfo->key.poolGuid.trimmed().isEmpty()) {
+                poolInfo->key.poolGuid = guid;
+                changed = true;
             }
         }
         if (!poolInfo) {
             return false;
         }
-        QSet<QString> missingNames;
-        for (auto it = poolInfo->objectsByFullName.cbegin(); it != poolInfo->objectsByFullName.cend(); ++it) {
-            if (it->kind == DSKind::Unknown) {
-                continue;
-            }
+        bool faltaAlguno = false;
+        for (auto it = poolInfo->objectsByFullName.cbegin();
+             it != poolInfo->objectsByFullName.cend(); ++it) {
             const QString guid = it->runtime.properties.value(QStringLiteral("guid")).trimmed();
-            if (guid.isEmpty() || guid == QStringLiteral("-")) {
-                missingNames.insert(it.key());
+            if (it->kind != DSKind::Unknown && (guid.isEmpty() || guid == QStringLiteral("-"))) {
+                faltaAlguno = true;
+                break;
             }
         }
-        if (!missingNames.isEmpty()) {
-            QString out;
-            QString err;
-            int rc = -1;
-            // Por argv cuando hay daemon: la orden no pasa por ninguna cadena de shell.
-            const QStringList cmdDaemonArgv = mwhelpers::argvQt(zfsmgr::commands::requests::guidMap(trimmedPool.toStdString()));
-            if (daemonReadApiOk) {
-                (void)runAgentCommand(p, cmdDaemonArgv, 25000, out, err, rc);
-            }
-            if (rc == 0) {
+        if (faltaAlguno) {
+            // The guids of everything in the pool: the shell's `ls -r`.
+            QJsonObject listado;
+            if (cliReadJson(connIdx, QStringLiteral("ls -r %1").arg(zfsmUrl(connIdx, trimmedPool)),
+                            listado, nullptr, 120000)) {
                 const QString cacheKey = datasetCacheKey(connIdx, trimmedPool);
-                PoolDatasetCache* cache = nullptr;
                 auto cacheIt = m_conns.poolDatasetCache.find(cacheKey);
-                if (cacheIt != m_conns.poolDatasetCache.end()) {
-                    cache = &cacheIt.value();
-                }
-                const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
-                for (const QString& line : lines) {
-                    const QStringList cols = line.split('\t');
-                    if (cols.size() < 2) {
-                        continue;
-                    }
-                    const QString name = cols[0].trimmed();
-                    const QString guid = cols[1].trimmed();
+                for (const QJsonValue& v : listado.value(QStringLiteral("entries")).toArray()) {
+                    const QJsonObject o = v.toObject();
+                    const QString name = o.value(QStringLiteral("name")).toString().trimmed();
+                    const QString guid = o.value(QStringLiteral("guid")).toString().trimmed();
                     if (name.isEmpty() || guid.isEmpty() || guid == QStringLiteral("-")) {
                         continue;
                     }
-                    if (cache) {
-                        cache->objectGuidByName.insert(name, guid);
+                    if (cacheIt != m_conns.poolDatasetCache.end()) {
+                        cacheIt->objectGuidByName.insert(name, guid);
                     }
                     if (DSInfo* ds = findDsInfo(connIdx, trimmedPool, name)) {
                         ds->runtime.properties.insert(QStringLiteral("guid"), guid);

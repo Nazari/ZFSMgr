@@ -277,6 +277,12 @@ def casos_lectura(ctx):
          [f"cd Local/{P}", "ls"], espera=[r"^datos\s"])
     caso(ctx, "ls: en el dataset salen sus instantáneas",
          [f"cd Local/{P}/datos", "ls"], espera=[r"^@s1\s"])
+    caso(ctx, "ls -r: el árbol entero, con el propio pool y los snapshots de los hijos",
+         [f"cd Local/{P}", "format json", "ls -r"],
+         espera=[rf'"name": "{P}"', rf'"name": "{P}/datos@', r'"guid": "\d+"',
+                 r'"type": "snapshot"'])
+    caso(ctx, "ls: los pools llevan su guid en json",
+         ["cd Local", "format json", "ls"], espera=[rf'"guid": "\d+"'])
     caso(ctx, "ls: #properties enseña las propiedades",
          [f"cd Local/{P}/datos", "ls #properties"], espera=[r"mountpoint", r"compression"])
     caso(ctx, "ls: #content enseña los ficheros",

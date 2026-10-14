@@ -298,7 +298,8 @@ void olvidaEstadoDeConexion(Estado& e, const B::ConnectionProfile& p);
 bool listaConexiones(Estado& e, const Peticion& pet);
 void avisaSondaImportables(const std::string& sonda, bool huboPools);
 bool listaPools(Estado& e, const ZfsmUrl& destino);
-bool listaDataset(Estado& e, const ZfsmUrl& destino);
+// `recursivo` (`ls -r`): the whole tree under it, itself included, with full names.
+bool listaDataset(Estado& e, const ZfsmUrl& destino, bool recursivo = false);
 bool listaPropiedades(Estado& e, const ZfsmUrl& destino);
 bool listaPermisos(Estado& e, const ZfsmUrl& destino);
 bool cmdPermisos(Estado& e, const LineaAnalizada& linea, bool conceder);
