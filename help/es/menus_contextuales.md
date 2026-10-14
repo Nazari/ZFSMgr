@@ -8,7 +8,7 @@ en el **menú contextual** del árbol y de las pestañas del detalle.
 ![Menú Conexiones](qrc:/help/img/auto/connections-menu.png)
 
 Actúa sobre la conexión del panel que se haya tocado el último. Como esa elección no se ve,
-el nombre va **dentro** del rótulo: `Editar «unibody»`, no `Editar`.
+el nombre va **dentro** del rótulo: `Editar «nas»`, no `Editar`.
 
 - `Nueva Conexión`
 - `Editar` · `Borrar`

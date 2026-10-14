@@ -8,7 +8,7 @@ Managing connections lives in the **menu bar**. What acts ON something selected 
 ![Connections menu](qrc:/help/img/auto/connections-menu.png)
 
 It acts on the connection of whichever pane you touched last. Since that choice is not
-visible, the name goes **inside** the label: `Edit "unibody"`, not `Edit`.
+visible, the name goes **inside** the label: `Edit "nas"`, not `Edit`.
 
 - `New Connection`
 - `Edit` · `Delete`

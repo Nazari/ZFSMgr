@@ -278,7 +278,7 @@ bool ejecutaConPatrones(Estado& e, const std::string& orden, const LineaAnalizad
     const Politica politica = regla->second.politica;
 
     // Una lista `{…}` va DENTRO de un tramo: no puede contener `/`. Se dice con todas las
-    // letras, porque lo que sale si no —«patrón mal formado: «{unib»»— no explica nada.
+    // letras, porque lo que sale si no —«patrón mal formado: «{server»»— no explica nada.
     {
         int nivel = 0;
         for (const char c : texto) {
@@ -290,7 +290,7 @@ bool ejecutaConPatrones(Estado& e, const std::string& orden, const LineaAnalizad
                 std::fprintf(stderr,
                              TC("t_patron_llave_barra",
                                 "una lista {…} no puede contener «/»: cada tramo lleva la suya, "
-                                "como en zfsm://{unib,freebsd}/* (%s)\n"),
+                                "como en zfsm://{server,freebsd}/* (%s)\n"),
                              texto.c_str());
                 e.ultimoRc = 1;
                 return false;

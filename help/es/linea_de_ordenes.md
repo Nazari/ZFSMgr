@@ -23,10 +23,10 @@ zfsmgr-cli --format json connections list | jq '.connections[] | select(.tls == 
 —una URL `zfsm://`— y todo lo que se teclea actúa sobre ella.
 
 ```text
-zfsm://local> cd oldlau/winpool
-zfsm://oldlau/winpool> ls
-zfsm://oldlau/winpool> cd sa@ayer
-zfsm://oldlau/winpool/sa@ayer> ls #content
+zfsm://local> cd winbox/winpool
+zfsm://winbox/winpool> ls
+zfsm://winbox/winpool> cd sa@ayer
+zfsm://winbox/winpool/sa@ayer> ls #content
 ```
 
 `help` enumera las órdenes y `help <orden>` explica una, con un **ejemplo por cada
@@ -47,7 +47,7 @@ cosa.
 Dos reglas quitan la ambigüedad a una ruta relativa:
 
 - Si el primer tramo nombra una **conexión**, la ruta es absoluta. Es lo que se escribe
-  al saltar de una máquina a otra: `cd unibody` desde `zfsm://local`.
+  al saltar de una máquina a otra: `cd nas` desde `zfsm://local`.
 - Si el primer tramo es el **pool en el que ya está**, se toma como el nombre ZFS
   completo y no como un hijo. Estando en `tank/origen`, `destroy tank/clon` apunta a
   `tank/clon`, no a `tank/origen/tank/clon`.

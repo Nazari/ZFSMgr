@@ -23,10 +23,10 @@ zfsmgr-cli --format json connections list | jq '.connections[] | select(.tls == 
 `zfsm://` URL — and everything you type acts on it.
 
 ```text
-zfsm://local> cd oldlau/winpool
-zfsm://oldlau/winpool> ls
-zfsm://oldlau/winpool> cd sa@yesterday
-zfsm://oldlau/winpool/sa@yesterday> ls #content
+zfsm://local> cd winbox/winpool
+zfsm://winbox/winpool> ls
+zfsm://winbox/winpool> cd sa@yesterday
+zfsm://winbox/winpool/sa@yesterday> ls #content
 ```
 
 `help` lists the commands and `help <command>` explains one, with **one example per
@@ -47,7 +47,7 @@ otherwise.
 Two rules disambiguate a relative path:
 
 - If the first segment names a **connection**, the path is absolute. That is what you
-  type when hopping between machines: `cd unibody` from `zfsm://local`.
+  type when hopping between machines: `cd nas` from `zfsm://local`.
 - If the first segment is the **pool you are already in**, it is taken as the full ZFS
   name and not as a child. Standing in `tank/source`, `destroy tank/clone` points at
   `tank/clone`, not at `tank/source/tank/clone`.
