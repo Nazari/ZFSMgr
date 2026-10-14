@@ -101,27 +101,12 @@ int main(int argc, char** argv) {
     profile.connType = QStringLiteral("Local");
     profile.useSudo = true;
 
-    // Un transporte de mentira que responde «no» en el acto.
-    //
-    // El estado de demostración marca el daemon como utilizable —sin eso no se pueden
-    // listar los datasets—, y con la puerta abierta el árbol intenta hablar con el agente
-    // de verdad: SSH a una máquina que no existe, con sus tiempos de espera. La captura se
-    // quedaba colgada. Los datos ya están sembrados en la caché, así que lo único que hace
-    // falta es que las llamadas que sobren vuelvan enseguida.
-    window.setAgentTransportForTest(
-        [](const std::vector<std::string>&, std::string& out, std::string& err, int& rc) {
-            out.clear();
-            err = "capture: sin transporte";
-            rc = 1;
-            return true;
-        });
-
+    // In test mode the window has no shell: every read answers «no» at once, and the data
+    // comes from the cache seeded below.
     window.configureSingleConnectionUiTestState(profile,
                                                 {QStringLiteral("tank1")},
                                                 {QStringLiteral("tank2")});
-    // Después de sembrar el estado, que lo reemplaza entero, y con el transporte de
-    // mentira ya puesto: leer los datasets de un pool pasa por `requireDaemonForRead()`,
-    // que sin esto responde «la conexión aún no se ha refrescado» y deja el árbol vacío.
+    // After seeding the state, which replaces it whole.
     window.setConnectionDaemonStateForTest(0, true, true);
     window.setConnectionGsaStateForTest(0, true, true, QStringLiteral("0.10.0rc1.5"));
     window.configurePoolDatasetsForTest(

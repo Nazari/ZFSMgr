@@ -30,49 +30,6 @@ private Q_SLOTS:
         qputenv("ZFSMGR_TEST_MODE", QByteArrayLiteral("1"));
     }
 
-    // El corte por separador decía "no entrecomillado" pero no lo comprobaba: cortaba
-    // en el primer ';', '&' o '|' aunque estuviera dentro de un argumento protegido.
-    // Con --mutate-advanced-todir ese argumento es un directorio que elige el usuario.
-    void agentArgExtractionRespectsQuotedSeparators() {
-        const QString cmd =
-            QStringLiteral("PATH=\"$PATH:/sbin\"; export PATH; /usr/local/libexec/zfsmgr-agent "
-                           "--mutate-advanced-todir 'tank/x' '/home/x/Copias & Backups' '1'");
-        const QStringList args = MainWindow::extractAgentArgsForTest(cmd);
-        QCOMPARE(args.size(), 4);
-        QCOMPARE(args.at(0), QStringLiteral("--mutate-advanced-todir"));
-        QCOMPARE(args.at(2), QStringLiteral("/home/x/Copias & Backups"));
-        QCOMPARE(args.at(3), QStringLiteral("1"));
-
-        // Un separador de verdad, fuera de comillas, sí debe cortar.
-        const QStringList cut = MainWindow::extractAgentArgsForTest(
-            QStringLiteral("/usr/local/libexec/zfsmgr-agent --dump-zfs-mount ; rm -rf /"));
-        QCOMPARE(cut.size(), 1);
-        QCOMPARE(cut.at(0), QStringLiteral("--dump-zfs-mount"));
-    }
-
-    // El extractor decide si una orden se DESVÍA al RPC. Los verbos que el daemon no
-    // sirve por ahí no deben desviarse nunca: hacerlo garantiza un "unknown command".
-    // Delete un dataset falló exactamente así —«unknown command: --mutate-shell-generic»—
-    // porque runAgentCommand sí lo comprobaba y este camino heredado no.
-    void agentArgExtractionSkipsCliOnlyVerbs() {
-        const QStringList cliOnly = {
-            QStringLiteral("--mutate-shell-generic"),
-            QStringLiteral("--mutate-advanced-fromdir"),
-            QStringLiteral("--mutate-sync-temp-tar-source"),
-            QStringLiteral("--mutate-sync-temp-tar-dest"),
-        };
-        for (const QString& verb : cliOnly) {
-            const QStringList args = MainWindow::extractAgentArgsForTest(
-                QStringLiteral("/usr/local/libexec/zfsmgr-agent %1 'cGF5bG9hZA=='").arg(verb));
-            QVERIFY2(args.isEmpty(),
-                     qPrintable(QStringLiteral("%1 no debe desviarse al RPC").arg(verb)));
-        }
-        // Y uno que sí se sirve por RPC tiene que seguir desviándose.
-        const QStringList ok = MainWindow::extractAgentArgsForTest(
-            QStringLiteral("/usr/local/libexec/zfsmgr-agent --mutate-zfs-destroy 'tank/x' '0' ''"));
-        QCOMPARE(ok.value(0), QStringLiteral("--mutate-zfs-destroy"));
-    }
-
     // Estos tres ejercitan la capa de transporte de mentira. Comprueban QUÉ se le pide
     // al agente, que es lo que ningún test podía ver hasta ahora: los cuatro binarios
     // no ejecutan nada fuera de este equipo.
@@ -90,11 +47,6 @@ private Q_SLOTS:
         profile.name = QStringLiteral("Local");
         profile.connType = QStringLiteral("Local");
         window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank")}, {});
-        window.setAgentTransportForTest(
-            [](const std::vector<std::string>&, std::string&, std::string&, int& rc) {
-                rc = 0;
-                return true;
-            });
         window.setCliReadFakeForTest([](const QString&) {
             CliService::Result r;
             r.rc = 0;
@@ -107,7 +59,6 @@ private Q_SLOTS:
         QCOMPARE(value, QStringLiteral("filesystem"));
         QVERIFY(window.cliReadLinesForTest().contains(
             QStringLiteral("ls zfsm://local/tank/ds#properties/type")));
-        QVERIFY(window.agentCallsForTest().isEmpty());
     }
 
     // When the shell's read fails, the read fails: nothing else is tried.
@@ -118,11 +69,6 @@ private Q_SLOTS:
         profile.name = QStringLiteral("Local");
         profile.connType = QStringLiteral("Local");
         window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank")}, {});
-        window.setAgentTransportForTest(
-            [](const std::vector<std::string>&, std::string&, std::string&, int& rc) {
-                rc = 0;
-                return true;
-            });
         window.setCliReadFakeForTest([](const QString&) {
             CliService::Result r;
             r.rc = 1;
@@ -133,7 +79,6 @@ private Q_SLOTS:
         QVERIFY(!window.getDatasetPropertyForTest(0, QStringLiteral("tank/ds"),
                                                   QStringLiteral("type"), value));
         QCOMPARE(window.cliReadLinesForTest().filter(QStringLiteral("#properties/type")).size(), 1);
-        QVERIFY(window.agentCallsForTest().isEmpty());
     }
 
     // A name with '&', ';' and spaces travels percent-encoded inside the URL: one token for
@@ -481,11 +426,6 @@ private Q_SLOTS:
         profile.name = QStringLiteral("Local");
         profile.connType = QStringLiteral("Local");
         window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank")}, {});
-        window.setAgentTransportForTest(
-            [](const std::vector<std::string>&, std::string&, std::string&, int& rc) {
-                rc = 0;
-                return true;
-            });
         window.setCliReadFakeForTest([](const QString& line) {
             CliService::Result r;
             r.rc = 0;
@@ -525,7 +465,6 @@ private Q_SLOTS:
         QCOMPARE(st.importablePools[0].guid, QStringLiteral("22"));
         QVERIFY(
             st.poolStatusByName.value(QStringLiteral("tank")).contains(QStringLiteral("ONLINE")));
-        QVERIFY2(window.agentCallsForTest().isEmpty(), "the refresh asks the shell, nothing else");
     }
 
     // The tree of a pool is the shell's `ls -r`: datasets, snapshots newest first, guids.
@@ -918,45 +857,6 @@ private Q_SLOTS:
         window.requestConnectionsUiRebuildForTest();
         const auto afterUngrouped = window.uiRebuildCountsForTest();
         QCOMPARE(afterUngrouped.table - beforeUngrouped.table, 2);
-    }
-
-    // Qué se considera mutante decide si una orden se REENVÍA tras una respuesta
-    // ambigua del daemon. Cerrar el túnel no aborta el trabajo remoto —comprobado—,
-    // así que clasificar mal una destructiva la ejecuta dos veces solapadas, y estas
-    // hacen `zfs destroy -r` y borran directorios origen.
-    void destructiveAgentCommandsAreNeverRetried() {
-        const QStringList mustBeMutating = {
-            QStringLiteral("--mutate-advanced-todir"),
-            QStringLiteral("--mutate-advanced-breakdown"),
-            QStringLiteral("--mutate-advanced-assemble"),
-            QStringLiteral("--mutate-copy-local"),
-            QStringLiteral("--mutate-zfs-destroy"),
-            QStringLiteral("--zfs-pipe-local"),
-            QStringLiteral("--zfs-send-to-peer"),
-            QStringLiteral("--zfs-recv-listen"),
-            QStringLiteral("--repair-alt-mountpoints"),
-            // Reenviar este lanza la MISMA transfer por segunda vez.
-            QStringLiteral("--job-submit"),
-            QStringLiteral("--job-cancel"),
-        };
-        for (const QString& c : mustBeMutating) {
-            QVERIFY2(MainWindow::isMutatingAgentCommandForTest({c}),
-                     qPrintable(QStringLiteral("debe considerarse mutante: %1").arg(c)));
-        }
-        // Y las lecturas no, o se perdería el respaldo para algo que no hace daño
-        // repetir.
-        const QStringList mustBeReads = {
-            QStringLiteral("--dump-zpool-list"),
-            QStringLiteral("--dump-zfs-list-all"),
-            QStringLiteral("--dump-refresh-basics"),
-            QStringLiteral("--dump-daemon-log"),
-            QStringLiteral("--health"),
-        };
-        for (const QString& c : mustBeReads) {
-            QVERIFY2(!MainWindow::isMutatingAgentCommandForTest({c}),
-                     qPrintable(QStringLiteral("no debe considerarse mutante: %1").arg(c)));
-        }
-        QVERIFY(!MainWindow::isMutatingAgentCommandForTest({}));
     }
 
     // El punto de unión por el que se piden credenciales sin depender de que haya una

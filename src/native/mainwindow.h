@@ -101,12 +101,8 @@ public:
     void configureSingleConnectionUiTestState(const ConnectionProfile& profile,
                                               const QStringList& importedPools,
                                               const QStringList& importablePools);
-    void configurePoolDatasetsForTest(int connIdx,
-                                      const QString& poolName,
+    void configurePoolDatasetsForTest(int connIdx, const QString& poolName,
                                       const QVector<UiTestDatasetSeed>& datasets);
-    // Expuesta para fijar el corte por separador: es donde un directorio con '&' en el
-    // nombre truncaba la orden.
-    static QStringList extractAgentArgsForTest(const QString& remoteCmd);
 
     // Transporte de mentira, para poder comprobar QUÉ se le pide al agente sin
     // necesitar una máquina remota.
@@ -126,16 +122,10 @@ public:
     // Deja la conexión con un daemon sano, que es la precondición de casi todo desde
     // que no hay respaldo por shell.
     void setConnectionDaemonStateForTest(int connIdx, bool installed, bool active);
-    void setAgentTransportForTest(AgentTransportForTest fn);
     // getDatasetProperty es privada; esto la expone para poder ejercitar la lectura
     // más usada de la aplicación contra el transporte de mentira.
     bool getDatasetPropertyForTest(int connIdx, const QString& dataset, const QString& prop,
                                    QString& valueOut);
-    // Clasificación de órdenes mutantes. Es la que decide si, tras una respuesta
-    // ambigua del daemon, se REENVÍA la orden. Clasificar mal una destructiva la
-    // ejecuta dos veces solapadas, así que conviene fijarla con tests.
-    static bool isMutatingAgentCommandForTest(const QStringList& agentArgs);
-    QVector<AgentCallForTest> agentCallsForTest() const;
     // Cuántas veces se ha ejecutado DE VERDAD cada reconstrucción de la interfaz.
     // Existe para poder afirmar que un lote de operaciones sobre varias conexiones
     // repinta el árbol una sola vez, que es lo que se rompió: la actualización
@@ -423,9 +413,6 @@ private:
     // que no se puede editar. Valida la contraseña antes de guardarla.
     void changeLocalSudoCredentials();
     bool m_localSudoFixOffered{false};
-    // Invalida el material TLS local cacheado: se leyó elevando con la contraseña de
-    // sudo anterior, así que al cambiarla hay que volver a pedirlo.
-    void clearLocalDaemonTlsCache();
     // Agrupa reconstrucciones de la interfaz. Mientras haya un guardián vivo, las
     // llamadas a rebuildConnectionsTable/populateAllPoolsTables/
     // refreshConnectionNodeDetails se anotan en vez de ejecutarse, y al soltarlo se
@@ -524,54 +511,13 @@ private:
 
     ConnectionRuntimeState refreshConnection(const ConnectionProfile& p);
 
-    bool ensureLocalDaemonTlsMaterial(QByteArray& serverCertPem,
-                                      QByteArray& clientCertPem,
-                                      QByteArray& clientKeyPem,
-                                      quint16& daemonPort);
-
-    bool tryAgentRpcOverSsh(const ConnectionProfile& p, const QStringList& agentArgs, int timeoutMs,
-                            QString& out, QString& err, int& rc,
-                            const std::function<void(const QString&)>& onStdoutLine = {},
-                            const std::function<void(const QString&)>& onStderrLine = {},
-                            // Mismo motivo que en runSsh: el volcado del log del
-                            // daemon llega por aquí, y eran ~27.000 líneas de latidos
-                            // eco al registro de la aplicación.
-                            bool echoOutputToLog = true);
-    // commandMayHaveRunOut, when non-null, is set to true as soon as the request has
-    // been written to the daemon. From that point a failure is ambiguous: the daemon
-    // may be executing the command right now, so retrying or falling back to SSH would
-    // run it a second time. Closing the tunnel does NOT abort the remote work.
-    bool tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
-                                       const QStringList& agentArgs,
-                                       int timeoutMs,
-                                       QString& out,
-                                       QString& err,
-                                       int& rc,
-                                       QString* failureReason = nullptr,
-                                       bool* commandMayHaveRunOut = nullptr);
-    bool persistDaemonTlsMaterialForConnection(const ConnectionProfile& p,
-                                               const QByteArray& serverCertPem,
-                                               const QByteArray& clientCertPem,
-                                               const QByteArray& clientKeyPem, quint16 daemonPort,
-                                               QString* errorOut = nullptr);
     void closeAllRemoteDaemonRpcTunnels();
-    QString daemonRpcBackoffTextForConnection(const ConnectionProfile& p) const;
-    QString daemonRpcBackoffTextForConnection(int connIdx) const;
-    // El texto de un motivo de fallo del transporte. La capa base lo devuelve TIPIFICADO
-    // para poder decidir con él —reintentar, castigar, revivir el daemon— sin que esas
-    // decisiones dependan de una frase que se puede reescribir o traducir; aquí, que es
-    // donde hay idioma, se le pone texto. El CLI hace lo mismo por su cuenta.
-    QString transportFailureText(const zfsmgr::base::transport::FailureReason& m) const;
-    // Y el de un aviso del transporte, por lo mismo.
-    QString transportNoticeText(const zfsmgr::base::transport::WarningNote& a) const;
     void closeAllSshControlMasters();
-    QString withSudo(const ConnectionProfile& p, const QString& cmd) const;
     bool isLocalConnection(const ConnectionProfile& p) const;
     bool isLocalConnection(int connIdx) const;
     bool isWindowsConnection(const ConnectionProfile& p) const;
     bool isWindowsConnection(int connIdx) const;
     bool supportsAlternateDatasetMount(int connIdx) const;
-    QString wrapRemoteCommand(const ConnectionProfile& p, const QString& remoteCmd) const;
     bool getDatasetProperty(int connIdx, const QString& dataset, const QString& prop,
                             QString& valueOut);
     QString effectiveMountPath(int connIdx, const QString& poolName, const QString& datasetName, const QString& mountpointHint, const QString& mountedValue);

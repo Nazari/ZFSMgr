@@ -62,39 +62,6 @@ struct LocalAgentConfig {
 
 QMutex s_remoteDaemonTlsPersistMutex;
 
-// Whether an agent invocation changes remote state. Re-sending a `--dump-*` costs
-// nothing, but re-sending a mutation that may already be running is how a single
-// destructive operation ends up executed twice.
-bool isMutatingAgentCommand(const QStringList& agentArgs) {
-    std::vector<std::string> a;
-    a.reserve(static_cast<std::size_t>(agentArgs.size()));
-    for (const QString& x : agentArgs) {
-        a.push_back(x.toStdString());
-    }
-    return BT::isMutatingAgentCommand(a);
-}
-
-// Camino HEREDADO: recupera los argumentos parseando una cadena de shell.
-//
-// Existe solo para los sitios que todavía construyen la orden como cadena. Los que ya
-// pasan por runAgentCommand no lo tocan, y cuando migren los últimos esta función y las
-// dos interceptaciones de runSsh se borran de un tajo.
-//
-// No añadir sitios nuevos por aquí: el corte por separador, la lista blanca por prefijo
-// y el deshacer del doble entrecomillado son suposiciones sobre cómo se construyó la
-// cadena, y cada una ha fallado al menos una vez.
-bool extractLocalAgentArgs(const QString& remoteCmd, QStringList& argsOut) {
-    argsOut.clear();
-    std::vector<std::string> a;
-    if (!BT::extractLocalAgentArgs(remoteCmd.toStdString(), a)) {
-        return false;
-    }
-    for (const std::string& x : a) {
-        argsOut << QString::fromStdString(x);
-    }
-    return true;
-}
-
 // Verificación del daemon por FIJACIÓN del certificado, no por confianza PKI.
 //
 // El certificado del daemon es autofirmado y lo hemos traído nosotros por SSH, así
@@ -174,79 +141,6 @@ bool transport::tryRunRemoteAgentRpcViaTunnel(TransportSession& ses,
     return ok;
 }
 
-bool MainWindow::persistDaemonTlsMaterialForConnection(const ConnectionProfile& p,
-                                                       const QByteArray& serverCertPem,
-                                                       const QByteArray& clientCertPem,
-                                                       const QByteArray& clientKeyPem,
-                                                       quint16 daemonPort,
-                                                       QString* errorOut) {
-    if (errorOut) {
-        errorOut->clear();
-    }
-    const QString connId = p.id.trimmed();
-    if (connId.isEmpty()) {
-        if (errorOut) {
-            *errorOut = QStringLiteral("id de conexión vacío");
-        }
-        return false;
-    }
-    ConnectionProfile updated;
-    bool found = false;
-    for (const ConnectionProfile& cp : std::as_const(m_conns.profiles)) {
-        if (cp.id.trimmed().compare(connId, Qt::CaseInsensitive) == 0) {
-            updated = cp;
-            found = true;
-            break;
-        }
-    }
-    if (!found) {
-        updated = p;
-    }
-    updated.daemonTlsServerCertPem = QString::fromUtf8(serverCertPem);
-    updated.daemonTlsClientCertPem = QString::fromUtf8(clientCertPem);
-    updated.daemonTlsClientKeyPem = QString::fromUtf8(clientKeyPem);
-    updated.daemonTlsPort = (daemonPort > 0) ? static_cast<int>(daemonPort) : 47653;
-
-    // Actualizar el estado en memoria antes de intentar el persist a disco:
-    // así la sesión actual usa siempre el material TLS recién obtenido del
-    // daemon remoto, aunque el upsertConnection falle por cualquier motivo.
-    for (int i = 0; i < m_conns.profiles.size(); ++i) {
-        if (m_conns.profiles[i].id.trimmed().compare(connId, Qt::CaseInsensitive) == 0) {
-            m_conns.profiles[i].daemonTlsServerCertPem = updated.daemonTlsServerCertPem;
-            m_conns.profiles[i].daemonTlsClientCertPem = updated.daemonTlsClientCertPem;
-            m_conns.profiles[i].daemonTlsClientKeyPem = updated.daemonTlsClientKeyPem;
-            m_conns.profiles[i].daemonTlsPort = updated.daemonTlsPort;
-            break;
-        }
-    }
-
-    QString storeErr;
-    {
-        QMutexLocker lock(&s_remoteDaemonTlsPersistMutex);
-        if (!m_conns.store.upsertConnection(updated, storeErr)) {
-            if (errorOut) {
-                *errorOut = storeErr;
-            }
-            return false;
-        }
-    }
-    return true;
-}
-
-// Intenta servir una invocación del agente por el túnel RPC y decide qué hacer si no
-// puede. Devuelve true si la ha atendido (con éxito, o abortando a propósito para no
-// duplicar una mutación); false significa "ejecútala por SSH".
-//
-// Vive aquí, y no dentro de runSsh, porque hay dos entradas: la histórica, que recupera
-// los argumentos parseando una cadena de shell, y runAgentCommand, que ya los tiene. La
-// política de reintento, backoff y la regla de no reintentar mutaciones tiene que ser
-// exactamente la misma para las dos.
-QStringList MainWindow::extractAgentArgsForTest(const QString& remoteCmd) {
-    QStringList args;
-    extractLocalAgentArgs(remoteCmd, args);
-    return args;
-}
-
 namespace {
 // Caché del material TLS local. Sin ella habría que pedir la contraseña de sudo en
 // cada orden, que es lo que hace inusable pedirla siquiera una vez.
@@ -260,10 +154,6 @@ struct LocalDaemonTlsCacheEntry {
 QMutex s_localDaemonTlsCacheMutex;
 LocalDaemonTlsCacheEntry s_localDaemonTlsCache;
 } // namespace
-
-void MainWindow::clearLocalDaemonTlsCache() {
-    BT::clearLocalDaemonTlsCache();
-}
 
 bool transport::ensureLocalDaemonTlsMaterial(TransportSession& ses,
                                              QByteArray& serverCertPem,
@@ -282,10 +172,6 @@ bool transport::ensureLocalDaemonTlsMaterial(TransportSession& ses,
     clientKeyPem = QByteArray::fromStdString(key);
     daemonPort = port;
     return true;
-}
-
-bool MainWindow::isMutatingAgentCommandForTest(const QStringList& agentArgs) {
-    return isMutatingAgentCommand(agentArgs);
 }
 
 bool transport::tryAgentRpcOverSsh(TransportSession& ses,
@@ -330,20 +216,6 @@ bool transport::tryAgentRpcOverSsh(TransportSession& ses,
 bool MainWindow::getDatasetPropertyForTest(int connIdx, const QString& dataset,
                                            const QString& prop, QString& valueOut) {
     return getDatasetProperty(connIdx, dataset, prop, valueOut);
-}
-
-void MainWindow::setAgentTransportForTest(AgentTransportForTest fn) {
-    m_transport.transportForTest = std::move(fn);
-    m_transport.callsForTest.clear();
-}
-
-QVector<MainWindow::AgentCallForTest> MainWindow::agentCallsForTest() const {
-    QVector<AgentCallForTest> v;
-    v.reserve(static_cast<int>(m_transport.callsForTest.size()));
-    for (const auto& c : m_transport.callsForTest) {
-        v.push_back(c);
-    }
-    return v;
 }
 
 bool transport::runSsh(TransportSession& ses,
@@ -425,250 +297,6 @@ void MainWindow::closeAllRemoteDaemonRpcTunnels() {
     BT::closeAllTunnels(m_transport);
 }
 
-QString MainWindow::transportNoticeText(const BT::WarningNote& a) const {
-    using A = BT::Warning;
-    const QString ruta = QString::fromStdString(a.path);
-    const QString detalle = QString::fromStdString(a.detail);
-    switch (a.warning) {
-        case A::None_:
-            return QString();
-        case A::LocalTlsUnreadable:
-            return trk(QStringLiteral("t_notice_tls_unreadable"),
-                       QStringLiteral("No se pudo leer el material TLS del daemon local en %1. "
-                                      "Reinstale el daemon desde el menú de la conexión."),
-                       QStringLiteral("Could not read the local daemon's TLS material at %1. "
-                                      "Reinstall the daemon from the connection menu."))
-                .arg(ruta);
-        case A::LocalTlsNeedsSudo:
-            return trk(QStringLiteral("t_notice_tls_nosudo"),
-                       QStringLiteral("No se pudo leer el material TLS del daemon local: faltan "
-                                      "credenciales de sudo."),
-                       QStringLiteral("Could not read the local daemon's TLS material: sudo "
-                                      "credentials are missing."));
-        case A::LocalTlsCannotBeRead:
-            return trk(QStringLiteral("t_notice_tls_readfail"),
-                       QStringLiteral("No se pudo leer el material TLS del daemon local: %1"),
-                       QStringLiteral("Could not read the local daemon's TLS material: %1"))
-                .arg(detalle);
-        case A::LocalTlsIncomplete:
-            return trk(QStringLiteral("t_notice_tls_partial"),
-                       QStringLiteral("El material TLS del daemon local llegó incompleto."),
-                       QStringLiteral("The local daemon's TLS material arrived incomplete."));
-        case A::SshHostUnverified:
-            return trk(QStringLiteral("t_notice_hostkey"),
-                       QStringLiteral("Falló la verificación del host SSH."),
-                       QStringLiteral("SSH host verification failed."));
-        case A::NoSshpass:
-            return trk(QStringLiteral("t_notice_nosshpass"),
-                       QStringLiteral("Hay contraseña guardada, pero no está sshpass: se usará "
-                                      "SSH no interactivo."),
-                       QStringLiteral("A password is stored, but sshpass is missing: "
-                                      "non-interactive SSH will be used."));
-        case A::MultiplexingFailed:
-            return trk(QStringLiteral("t_notice_muxfail"),
-                       QStringLiteral("El SSH multiplexado falló; se reintenta sin ControlMaster."),
-                       QStringLiteral("Multiplexed SSH failed; retrying without ControlMaster."));
-        case A::MultiplexingDisabled:
-            return trk(QStringLiteral("t_notice_muxoff"),
-                       QStringLiteral("El SSH multiplexado queda desactivado para esta conexión "
-                                      "en esta sesión."),
-                       QStringLiteral("Multiplexed SSH is disabled for this connection in this "
-                                      "session."));
-        case A::TunnelNotAcceptingSshDied:
-            return trk(QStringLiteral("t_notice_tunnel_died"),
-                       QStringLiteral("El túnel SSH no aceptó conexiones: el ssh terminó (%1 ms)."),
-                       QStringLiteral("The SSH tunnel accepted no connections: ssh exited (%1 ms)."))
-                .arg(detalle);
-        case A::TunnelNotAcceptingTimedOut:
-            return trk(QStringLiteral("t_notice_tunnel_timeout"),
-                       QStringLiteral("El túnel SSH no aceptó conexiones: se agotó la espera "
-                                      "(%1 ms)."),
-                       QStringLiteral("The SSH tunnel accepted no connections: the wait timed out "
-                                      "(%1 ms)."))
-                .arg(detalle);
-    }
-    return QString();
-}
-
-QString MainWindow::transportFailureText(const BT::FailureReason& m) const {
-    using F = BT::Failure;
-    const QString detalle = QString::fromStdString(m.detail).trimmed();
-    // El detalle —el error de OpenSSL, lo que dijo la otra máquina— NO se traduce: viene
-    // del sistema, ya en su idioma, y reescribirlo perdería justo lo que sirve para
-    // diagnosticar.
-    const auto con = [&detalle](const QString& texto) {
-        return detalle.isEmpty() ? texto : QStringLiteral("%1: %2").arg(texto, detalle);
-    };
-    switch (m.failure) {
-        case F::None_:
-            return QString();
-        case F::TunnelBusy:
-            return trk(QStringLiteral("t_rpcfail_busy"),
-                       QStringLiteral("el túnel se está montando para esta conexión"),
-                       QStringLiteral("the tunnel is being set up for this connection"));
-        case F::OffTheTunnelThread:
-            return trk(QStringLiteral("t_rpcfail_thread"),
-                       QStringLiteral("RPC pedido fuera del hilo de los túneles"),
-                       QStringLiteral("RPC requested outside the tunnel thread"));
-        case F::EmptyArguments:
-            return trk(QStringLiteral("t_rpcfail_noargs"),
-                       QStringLiteral("no se dijo qué ejecutar"),
-                       QStringLiteral("nothing to run was given"));
-        case F::ConnectionNotSsh:
-            return trk(QStringLiteral("t_rpcfail_nossh"),
-                       QStringLiteral("la conexión no es SSH"),
-                       QStringLiteral("the connection is not SSH"));
-        case F::Cooling:
-            return trk(QStringLiteral("t_rpcfail_backoff"),
-                       QStringLiteral("en espera tras un fallo reciente (%1 s)"),
-                       QStringLiteral("waiting after a recent failure (%1 s)"))
-                .arg(detalle);
-        case F::MaterialCannotBeRead:
-            return con(trk(QStringLiteral("t_rpcfail_tlsread"),
-                           QStringLiteral("no se pudo leer el material TLS del daemon"),
-                           QStringLiteral("could not read the daemon's TLS material")));
-        case F::HostKeyChanged: {
-            // Qué máquina, dónde está la clave vieja y cómo se resuelve. Ver el mismo caso en
-            // src/cli/session.cpp.
-            const QString donde = m.where.empty() ? QStringLiteral("~/.ssh/known_hosts")
-                                                  : QString::fromStdString(m.where);
-            return trk(QStringLiteral("t_rpcfail_hostkey"),
-                       QStringLiteral("la clave SSH de %1 ha cambiado y ya no coincide con la "
-                                      "guardada en %2. Si es lo esperado —se reinstaló la "
-                                      "máquina, o esa dirección es ahora de otra—, bórrela con "
-                                      "«ssh-keygen -R %1» y vuelva a intentarlo. Si no lo "
-                                      "esperaba, no siga: alguien podría estar haciéndose pasar "
-                                      "por ella"),
-                       QStringLiteral("the SSH host key of %1 has changed and no longer matches "
-                                      "the one stored in %2. If that is expected —the machine "
-                                      "was reinstalled, or that address now belongs to another "
-                                      "one—, remove it with «ssh-keygen -R %1» and try again. "
-                                      "If you did not expect it, stop: someone could be "
-                                      "impersonating it"))
-                .arg(detalle, donde);
-        }
-        case F::MaterialIncomplete:
-            return trk(QStringLiteral("t_rpcfail_tlspartial"),
-                       QStringLiteral("el material TLS del daemon llegó incompleto"),
-                       QStringLiteral("the daemon's TLS material arrived incomplete"));
-        case F::ClientKeyUnavailable:
-            return trk(QStringLiteral("t_rpcfail_nokey"),
-                       QStringLiteral("no hay clave TLS de cliente, ni guardada ni en la otra máquina"),
-                       QStringLiteral("no client TLS key, neither stored nor on the other machine"));
-        case F::InvalidCertificates:
-            return trk(QStringLiteral("t_rpcfail_badcerts"),
-                       QStringLiteral("los certificados TLS del daemon no son válidos"),
-                       QStringLiteral("the daemon's TLS certificates are not valid"));
-        case F::InvalidClientKey:
-            return trk(QStringLiteral("t_rpcfail_badkey"),
-                       QStringLiteral("la clave TLS de cliente no es válida"),
-                       QStringLiteral("the client TLS key is not valid"));
-        case F::TunnelCannotBeBuilt:
-            return trk(QStringLiteral("t_rpcfail_notunnel"),
-                       QStringLiteral("no se pudo montar el túnel SSH hasta el daemon"),
-                       QStringLiteral("could not set up the SSH tunnel to the daemon"));
-        case F::ConnectionRefused:
-            return con(trk(QStringLiteral("t_rpcfail_refused"),
-                           QStringLiteral("el daemon no aceptó la conexión"),
-                           QStringLiteral("the daemon did not accept the connection")));
-        case F::CertificateMismatch:
-            return trk(QStringLiteral("t_rpcfail_pinning"),
-                       QStringLiteral("el certificado que presenta el daemon no es el fijado"),
-                       QStringLiteral("the certificate the daemon presents is not the pinned one"));
-        case F::SendFailed:
-            return trk(QStringLiteral("t_rpcfail_send"),
-                       QStringLiteral("no se pudo enviar la petición"),
-                       QStringLiteral("the request could not be sent"));
-        case F::TunnelCutWhileWaiting:
-            return trk(QStringLiteral("t_rpcfail_cut"),
-                       QStringLiteral("el túnel se cortó mientras se esperaba respuesta"),
-                       QStringLiteral("the tunnel dropped while waiting for an answer"));
-        case F::HandshakeFailed:
-            return con(trk(QStringLiteral("t_rpcfail_handshake"),
-                           QStringLiteral("falló el saludo TLS con el daemon"),
-                           QStringLiteral("the TLS handshake with the daemon failed")));
-        case F::InvalidAnswer:
-            return con(trk(QStringLiteral("t_rpcfail_badresp"),
-                           QStringLiteral("el daemon no devolvió una respuesta válida"),
-                           QStringLiteral("the daemon did not return a valid answer")));
-        case F::Unspecified:
-            return trk(QStringLiteral("t_rpcfail_unknown"),
-                       QStringLiteral("falló sin decir por qué"),
-                       QStringLiteral("failed without saying why"));
-    }
-    return QString();
-}
-
-QString MainWindow::daemonRpcBackoffTextForConnection(const ConnectionProfile& p) const {
-    const std::string key = BT::remoteDaemonTlsCacheKey(toBaseProfile(p));
-    std::lock_guard<std::mutex> lock(m_transport.mutex);
-    const auto retryIt = m_transport.retryAfterByConnKey.find(key);
-    if (retryIt == m_transport.retryAfterByConnKey.end()) {
-        return QString();
-    }
-    const qint64 seconds = std::chrono::duration_cast<std::chrono::seconds>(
-                               retryIt->second - std::chrono::steady_clock::now())
-                               .count();
-    if (seconds <= 0) {
-        return QString();
-    }
-    const auto reasonIt = m_transport.retryReasonByConnKey.find(key);
-    const BT::FailureReason motivo =
-        reasonIt == m_transport.retryReasonByConnKey.end() ? BT::FailureReason{} : reasonIt->second;
-    // Antes esto se decidía buscando «TLS», «cert», «clave» y «handshake» DENTRO de la
-    // frase del motivo. Además de romperse al traducirla, colaba por error cualquier
-    // mensaje que mencionara una clave: el detalle de un fallo de red que dijera «clave»
-    // se anunciaba al usuario como problema de TLS.
-    if (!BT::looksLikeTls(motivo.failure)) {
-        return QString();
-    }
-    const QString reason = transportFailureText(motivo).trimmed();
-    if (reason.isEmpty()) {
-        return QStringLiteral("daemon-rpc TLS en backoff (%1s)").arg(seconds);
-    }
-    return QStringLiteral("daemon-rpc TLS en backoff (%1s): %2").arg(seconds).arg(reason);
-}
-
-QString MainWindow::daemonRpcBackoffTextForConnection(int connIdx) const {
-    if (connIdx < 0 || connIdx >= m_conns.profiles.size()) {
-        return QString();
-    }
-    return daemonRpcBackoffTextForConnection(m_conns.profiles[connIdx]);
-}
-
-QString MainWindow::withSudo(const ConnectionProfile& p, const QString& cmd) const {
-    return mwhelpers::withSudoCommand(p, cmd);
-}
-
-bool MainWindow::tryAgentRpcOverSsh(const ConnectionProfile& p, const QStringList& agentArgs,
-                                    int timeoutMs, QString& out, QString& err, int& rc,
-                                    const std::function<void(const QString&)>& onStdoutLine,
-                                    const std::function<void(const QString&)>& onStderrLine,
-                                    bool echoOutputToLog) {
-    return transport::tryAgentRpcOverSsh(m_transport, p, agentArgs, timeoutMs, out, err, rc,
-                                         onStdoutLine, onStderrLine, echoOutputToLog);
-}
-
-bool MainWindow::tryRunRemoteAgentRpcViaTunnel(const ConnectionProfile& p,
-                                               const QStringList& agentArgs, int timeoutMs,
-                                               QString& out, QString& err, int& rc,
-                                               QString* failureReason,
-                                               bool* commandMayHaveRunOut) {
-    BT::FailureReason motivo;
-    const bool ok = transport::tryRunRemoteAgentRpcViaTunnel(
-        m_transport, p, agentArgs, timeoutMs, out, err, rc, &motivo, commandMayHaveRunOut);
-    if (failureReason) {
-        *failureReason = transportFailureText(motivo);
-    }
-    return ok;
-}
-
-bool MainWindow::ensureLocalDaemonTlsMaterial(QByteArray& serverCertPem, QByteArray& clientCertPem,
-                                              QByteArray& clientKeyPem, quint16& daemonPort) {
-    return transport::ensureLocalDaemonTlsMaterial(m_transport, serverCertPem, clientCertPem,
-                                                   clientKeyPem, daemonPort);
-}
-
 // --- Envoltorios: la lógica vive en `transport::`, que no depende de la ventana. Estos
 // existen para no tocar los puntos de llamada en el mismo cambio, y desaparecen cuando
 // migren.
@@ -678,10 +306,6 @@ bool MainWindow::isLocalConnection(const ConnectionProfile& p) const {
 
 bool MainWindow::isWindowsConnection(const ConnectionProfile& p) const {
     return transport::isWindowsConnection(p);
-}
-
-QString MainWindow::wrapRemoteCommand(const ConnectionProfile& p, const QString& remoteCmd) const {
-    return transport::wrapRemoteCommand(p, remoteCmd);
 }
 
 bool transport::isLocalConnection(const ConnectionProfile& p) {

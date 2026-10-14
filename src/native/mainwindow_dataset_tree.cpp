@@ -2579,10 +2579,6 @@ void MainWindow::appendDatasetTreeForPool(QTreeWidget* tree,
         if (connIdx >= 0 && connIdx < m_conns.states.size() && m_conns.states[connIdx].daemonNeedsAttention) {
             connName += QStringLiteral(" (*)");
         }
-        const QString daemonBackoff = daemonRpcBackoffTextForConnection(connIdx);
-        if (!daemonBackoff.isEmpty()) {
-            connName += QStringLiteral(" [%1]").arg(daemonBackoff);
-        }
         const QString connPrefix =
             trk(QStringLiteral("t_tree_connection_prefix_001"),
                 QStringLiteral("Conexión"),

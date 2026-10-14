@@ -135,10 +135,6 @@ MainWindow::MainWindow(const QString& masterPassword, const QString& language, Q
     // escribir. En un CLI este destino iría a la salida de error.
     // Los avisos —los que son PROSA— llegan tipificados y se redactan aquí, que es donde
     // se sabe el idioma. El transporte solo dice cuál es; ver transportNoticeText.
-    m_transport.warningSink = [this](TransportSession::Level n, const std::string& connId,
-                                   const zfsmgr::base::transport::WarningNote& a) {
-        m_transport.logConn(n, connId, transportNoticeText(a).toStdString());
-    };
     m_transport.sink = [this](TransportSession::Level n, const std::string& connId,
                               const std::string& msg) {
         static const QMap<TransportSession::Level, QString> kNiveles = {
@@ -157,100 +153,6 @@ MainWindow::MainWindow(const QString& masterPassword, const QString& language, Q
     };
     // Cómo se piden credenciales cuando no las hay. En la interfaz, un diálogo; un CLI
     // pondría aquí uno que lee del descriptor o pregunta por terminal.
-    m_transport.credentialProvider =
-        [this](const std::string& motivo, std::string& usuario, std::string& clave) -> bool {
-        QDialog dlg(this);
-        dlg.setWindowTitle(QString::fromStdString(motivo));
-        dlg.setModal(true);
-        auto* form = new QFormLayout(&dlg);
-        auto* userEdit = new QLineEdit(&dlg);
-        auto* passEdit = new QLineEdit(&dlg);
-        passEdit->setEchoMode(QLineEdit::Password);
-        const QString envUser = qEnvironmentVariable("USER").trimmed();
-        const QString envUserWin = qEnvironmentVariable("USERNAME").trimmed();
-        userEdit->setText(!envUser.isEmpty() ? envUser : envUserWin);
-        form->addRow(trk(QStringLiteral("t_usuario_d31f58"),
-                         QStringLiteral("Usuario"), QStringLiteral("User")),
-                     userEdit);
-        form->addRow(trk(QStringLiteral("t_password_8be3c9"),
-                         QStringLiteral("Password"), QStringLiteral("Password")),
-                     passEdit);
-        auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
-        form->addWidget(buttons);
-        connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
-        connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
-        if (dlg.exec() != QDialog::Accepted) {
-            return false;
-        }
-        usuario = userEdit->text().toStdString();
-        clave = passEdit->text().toStdString();
-        return true;
-    };
-    // Las dos decisiones que el transporte necesita del registro. Se le dan como
-    // políticas y no como acceso al registro entero: lo que necesita son estas dos cosas,
-    // no las contraseñas de todas las máquinas.
-    // Dejar respirar a la ventana mientras el transporte espera. Sustituye al
-    // processEvents que el transporte hacía por su cuenta, y con él se va la última razón
-    // por la que la sesión necesitaba un puntero a la ventana.
-    //
-    // ExcludeUserInputEvents a propósito: deja pasar los repintados pero NO las acciones
-    // del usuario, así que no puede colarse por aquí nada que recargue las conexiones y
-    // deje colgando las referencias que sostiene quien llamó.
-    //
-    // Y SOLO en el hilo de la ventana: bombear el bucle de eventos desde un hilo de
-    // refresco no refresca nada y toca lo que no debe.
-    m_transport.pump = [this](bool permitirEntradaDeUsuario) -> bool {
-        // Solo en el hilo de la ventana: bombear desde un hilo de refresco no refresca nada
-        // y toca lo que no debe.
-        if (QThread::currentThread() != this->thread()) {
-            return true;
-        }
-        // Los dos contextos que la versión anterior ya distinguía. Ver
-        // TransportSession::pump: unificarlos rompe una cosa u otra.
-        QCoreApplication::processEvents(
-            permitirEntradaDeUsuario ? QEventLoop::AllEvents : QEventLoop::ExcludeUserInputEvents,
-            permitirEntradaDeUsuario ? 20 : 40);
-        return true;
-    };
-    // Dónde se pueden montar túneles, y cómo llegar hasta ahí. Los dos enganches
-    // sustituyen a lo que antes era `TransportSession::owner`.
-    //
-    // **Se conservan aunque su motivo original haya desaparecido.** Estaban porque los
-    // túneles eran QProcess colgados de la ventana y crearlos desde un hilo de refresco
-    // daba un aviso de afinidad o una caída; ahora son ChildProcess y no cuelgan de nadie.
-    // Quitarlos permitiría montar túneles desde los hilos de refresco, que es un cambio de
-    // concurrencia real —y es exactamente el arranque serializado que hay anotado aparte—,
-    // así que no se hace en el mismo paso en que se cambia de motor.
-    m_transport.tunnelsAllowedHere = [this]() {
-        return QThread::currentThread() == this->thread();
-    };
-    m_transport.runWhereTunnelsAllowed = [this](const std::function<void()>& tarea) {
-        // While the window is being destroyed its thread is waiting for the pool tasks; a
-        // blocking call onto it would never be served.
-        if (m_destroying.load()) {
-            return;
-        }
-        QMetaObject::invokeMethod(this, tarea, Qt::BlockingQueuedConnection);
-    };
-    m_transport.localSudoResolver = [this](zfsmgr::base::ConnectionProfile& perfil) {
-        ConnectionProfile q = fromBaseProfile(perfil);
-        const bool ok = ensureLocalSudoCredentials(q);
-        perfil = toBaseProfile(q);
-        return ok;
-    };
-    m_transport.tlsPersister = [this](const zfsmgr::base::ConnectionProfile& p,
-                                      const std::string& srv, const std::string& cli,
-                                      const std::string& key, std::uint16_t puerto,
-                                      std::string* errorOut) {
-        QString e;
-        const bool ok = persistDaemonTlsMaterialForConnection(
-            fromBaseProfile(p), QByteArray::fromStdString(srv), QByteArray::fromStdString(cli),
-            QByteArray::fromStdString(key), puerto, &e);
-        if (errorOut) {
-            *errorOut = e.toStdString();
-        }
-        return ok;
-    };
     m_conns.store.setLanguage(m_language);
     m_conns.store.setMasterPassword(masterPassword);
     initCliService();
