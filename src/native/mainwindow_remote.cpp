@@ -115,51 +115,6 @@ bool extractLocalAgentArgs(const QString& remoteCmd, QStringList& argsOut) {
 // como usuario normal— nunca podía abrirlo y el RPC local no llegaba a intentarse.
 // No se notaba porque el camino clásico leía los pools sin privilegios; al retirarlo,
 // la conexión Local se quedó sin datos.
-// Categoría propia, APAGADA por omisión. Estas trazas salían por la salida de error
-// estándar en cada llamada RPC local, así que arrancar la aplicación desde un terminal
-// lo llenaba de ruido —y en un binario publicado no pinta nada—. Siguen disponibles
-// para diagnosticar con:
-//   QT_LOGGING_RULES="zfsmgr.rpc.debug=true" ./zfsmgr-gui
-Q_LOGGING_CATEGORY(lcAgentRpc, "zfsmgr.rpc", QtWarningMsg)
-
-bool tryRunLocalAgentRpc(const QStringList& agentArgs,
-                         const QByteArray& serverCertPem,
-                         const QByteArray& clientCertPem,
-                         const QByteArray& clientKeyPem,
-                         quint16 daemonPort,
-                         int timeoutMs,
-                         QString& out,
-                         QString& err,
-                         int& rc) {
-    std::vector<std::string> args;
-    args.reserve(static_cast<std::size_t>(agentArgs.size()));
-    for (const QString& a : agentArgs) {
-        args.push_back(a.toStdString());
-    }
-    std::string o;
-    std::string e;
-    BT::LocalRpcDiag diag;
-    const bool ok = BT::runLocalAgentRpc(args, serverCertPem.toStdString(),
-                                         clientCertPem.toStdString(), clientKeyPem.toStdString(),
-                                         daemonPort, timeoutMs, o, e, rc, &diag);
-    out = QString::fromStdString(o);
-    err = QString::fromStdString(e);
-    // El registro se queda en este lado: la capa base no sabe dónde está, así que devuelve
-    // lo que costó y por qué falló, y aquí se escribe como siempre.
-    const QString cmd = agentArgs.isEmpty() ? QString() : agentArgs.first();
-    if (ok) {
-        qCDebug(lcAgentRpc, "[agent-rpc] cmd=%s OK en %lld ms", qPrintable(cmd), diag.elapsedMs);
-    } else {
-        // Al registro va la ETIQUETA estable del fallo, no una frase: este log se lee con
-        // grep y puede venir de una máquina configurada en otro idioma.
-        const std::string porQue = std::string(BT::labelOf(diag.failure.failure))
-                                   + (diag.failure.detail.empty() ? std::string()
-                                                                   : ": " + diag.failure.detail);
-        qCDebug(lcAgentRpc, "[agent-rpc] cmd=%s FALLÓ en %lld ms: %s", qPrintable(cmd),
-                diag.elapsedMs, porQue.c_str());
-    }
-    return ok;
-}
 
 } // end anonymous namespace — runSshRawNoLog must be externally linkable for background watcher threads.
 
@@ -389,68 +344,6 @@ QVector<MainWindow::AgentCallForTest> MainWindow::agentCallsForTest() const {
         v.push_back(c);
     }
     return v;
-}
-
-bool MainWindow::runAgentCommand(const ConnectionProfile& p,
-                                 const QStringList& agentArgs,
-                                 int timeoutMs,
-                                 QString& out,
-                                 QString& err,
-                                 int& rc,
-                                 const QByteArray& stdinPayload) {
-    out.clear();
-    err.clear();
-    rc = -1;
-    if (agentArgs.isEmpty()) {
-        return false;
-    }
-    if (m_transport.transportForTest) {
-        std::vector<std::string> argv;
-        argv.reserve(static_cast<std::size_t>(agentArgs.size()));
-        for (const QString& a : agentArgs) {
-            argv.push_back(a.toStdString());
-        }
-        m_transport.callsForTest.push_back(
-            TransportSession::AgentCallForTest{argv, std::string(),
-                                              stdinPayload.toStdString()});
-        std::string o;
-        std::string e;
-        const bool ok = m_transport.transportForTest(argv, o, e, rc);
-        out = QString::fromStdString(o);
-        err = QString::fromStdString(e);
-        return ok;
-    }
-    const QString verb = agentArgs.first().trimmed();
-    // stdin no vacío descarta el RPC: el canal no lo transporta. Antes esto no se
-    // comprobaba y la passphrase de un dataset cifrado se perdía sin aviso.
-    const bool rpcEligible =
-        stdinPayload.isEmpty() && !mwhelpers::isCliOnlyAgentCommand(verb);
-    if (rpcEligible) {
-        if (isLocalConnection(p)) {
-            QByteArray srvPem;
-            QByteArray cliPem;
-            QByteArray keyPem;
-            quint16 localPort = 47653;
-            if (ensureLocalDaemonTlsMaterial(srvPem, cliPem, keyPem, localPort)
-                && tryRunLocalAgentRpc(agentArgs, srvPem, cliPem, keyPem, localPort,
-                                       timeoutMs, out, err, rc)) {
-                return true;
-            }
-        } else if (tryAgentRpcOverSsh(p, agentArgs, timeoutMs, out, err, rc)) {
-            return true;
-        }
-    }
-    // El último recurso ejecuta **el agente** por SSH, no `zfs`. La diferencia importa y por
-    // eso este camino se queda: SSH aquí es TRANSPORTE, no intérprete. Lo que se ha retirado
-    // del resto de la aplicación son los respaldos que ejecutaban órdenes de ZFS en crudo
-    // cuando no había agente; esto es otra cosa —hay agente y no se le pudo hablar por el
-    // túnel—, y hace falta además para los verbos que leen la entrada estándar, que el canal
-    // RPC no transporta.
-    const QString shellCmd = stdinPayload.isEmpty()
-                                 ? mwhelpers::agentShellCommand(p, agentArgs)
-                                 : mwhelpers::agentShellCommandStreamInput(p, agentArgs);
-    return runSsh(p, shellCmd, timeoutMs, out, err, rc, {}, {}, {}, stdinPayload,
-                  /*allowAgentRpc=*/false);
 }
 
 bool transport::runSsh(TransportSession& ses,
@@ -745,17 +638,6 @@ QString MainWindow::daemonRpcBackoffTextForConnection(int connIdx) const {
 
 QString MainWindow::withSudo(const ConnectionProfile& p, const QString& cmd) const {
     return mwhelpers::withSudoCommand(p, cmd);
-}
-
-bool MainWindow::runSsh(const ConnectionProfile& p, const QString& remoteCmd, int timeoutMs,
-                        QString& out, QString& err, int& rc,
-                        const std::function<void(const QString&)>& onStdoutLine,
-                        const std::function<void(const QString&)>& onStderrLine,
-                        const std::function<void(int)>& onIdleTimeoutRemaining,
-                        const QByteArray& stdinPayload, bool allowAgentRpc, bool echoOutputToLog) {
-    return transport::runSsh(m_transport, p, remoteCmd, timeoutMs, out, err, rc, onStdoutLine,
-                             onStderrLine, onIdleTimeoutRemaining, stdinPayload, allowAgentRpc,
-                             echoOutputToLog);
 }
 
 bool MainWindow::tryAgentRpcOverSsh(const ConnectionProfile& p, const QStringList& agentArgs,
