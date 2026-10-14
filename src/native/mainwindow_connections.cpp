@@ -1067,18 +1067,9 @@ void MainWindow::onAsyncRefreshResult(int generation, int idx, const QString& co
     cachePoolStatusTextsForConnection(targetIdx, state);
     rebuildConnInfoFor(targetIdx);
     preloadPoolAutoSnapshotInfoForConnection(targetIdx);
-    // Trabajos que siguen en marcha en el daemon y de los que esta ventana no sabe nada:
-    // se buscan cuando la conexión ACABA de ponerse en marcha, que es cuando puede haberlos
-    // —al arrancar la interfaz con una transferencia ya lanzada, por ejemplo—.
-    //
-    // El «antes» se toma arriba, ANTES de sobrescribir el estado. Leído aquí era el mismo
-    // valor que `state.daemonActive`, así que la condición decía `X && !X`: nunca se cumplió
-    // y los trabajos huérfanos no se recuperaron jamás. Se vio al reiniciar la interfaz con
-    // un `zfs send` corriendo: el proceso estaba vivo y el panel, vacío.
-    if (state.daemonActive && state.daemonJobsSupported && !daemonEstabaActivo) {
-        QTimer::singleShot(0, this, [this, targetIdx]() {
-            scanOrphanedJobsForConnection(targetIdx);
-        });
+    // A daemon that just came up may have jobs this window has not seen: the Jobs box asks.
+    if (state.daemonActive && !daemonEstabaActivo) {
+        refreshAllJobsAsync();
     }
     const bool bulkRefresh = (m_refreshTotal > 1);
     if (!bulkRefresh) {

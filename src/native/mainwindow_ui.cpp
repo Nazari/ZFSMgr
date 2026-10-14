@@ -2019,10 +2019,7 @@ void MainWindow::buildUi() {
             m_pendingButtonsCol->insertWidget(1, cancelBtn, 0, Qt::AlignLeft | Qt::AlignTop);
         }
 
-        connect(refreshBtn, &QPushButton::clicked, this, [this]() {
-            pollDaemonJobs();
-            refreshAllJobsAsync();
-        });
+        connect(refreshBtn, &QPushButton::clicked, this, [this]() { refreshAllJobsAsync(); });
         connect(cancelBtn, &QPushButton::clicked, this, &MainWindow::cancelSelectedJob);
 
         // Every connection's jobs: every 2.5 s while any is running, every 30 s otherwise
@@ -2033,11 +2030,6 @@ void MainWindow::buildUi() {
             connect(m_allJobsTimer, &QTimer::timeout, this, &MainWindow::refreshAllJobsAsync);
             m_allJobsTimer->start();
         }
-
-        m_jobPollTimer = new QTimer(this);
-        m_jobPollTimer->setSingleShot(false);
-        m_jobPollTimer->setInterval(2500);
-        connect(m_jobPollTimer, &QTimer::timeout, this, &MainWindow::pollDaemonJobs);
     }
 
     // Abajo, dos cajas al 50%: lo EDITADO sin aplicar y lo que está CORRIENDO.

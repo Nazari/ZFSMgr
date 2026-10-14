@@ -64,7 +64,25 @@ void MainWindow::refreshAllJobsAsync() {
             }
         }
         QMetaObject::invokeMethod(this, [this, filas, alguna]() {
+            // A job that was running and is not any more changed something: its machine
+            // is read again, as the window did when it followed its own jobs.
+            QSet<int> terminadas;
+            QHash<QString, QString> estadoNuevo;
+            for (const DaemonJobRow& f : filas) {
+                estadoNuevo.insert(f.id, f.state);
+            }
+            for (const DaemonJobRow& antes : std::as_const(m_allJobs)) {
+                if (estaActivo(antes.state) && !estaActivo(estadoNuevo.value(antes.id))
+                    && antes.connIdx >= 0) {
+                    terminadas.insert(antes.connIdx);
+                }
+            }
             m_allJobs = filas;
+            for (int conn : std::as_const(terminadas)) {
+                if (conn < m_conns.profiles.size()) {
+                    refreshConnectionByIndex(conn);
+                }
+            }
             int activos = 0;
             for (const DaemonJobRow& f : filas) {
                 activos += estaActivo(f.state) ? 1 : 0;
@@ -97,25 +115,6 @@ void MainWindow::updateJobsListWidget() {
             filas.push_back(f);
             vistos.insert(f.id);
         }
-    }
-    for (const ActiveDaemonJob& job : std::as_const(m_activeDaemonJobs)) {
-        if (vistos.contains(job.jobId)) {
-            continue;
-        }
-        DaemonJobRow f;
-        f.connIdx = job.srcConnIdx;
-        f.connName = (job.srcConnIdx >= 0 && job.srcConnIdx < m_conns.profiles.size())
-                         ? m_conns.profiles[job.srcConnIdx].name
-                         : QString();
-        f.id = job.jobId;
-        f.state = job.state;
-        f.type = QStringLiteral("send-to-peer");
-        f.snap = job.displayLabel;
-        f.bytes = job.bytesTransferred;
-        f.rate = job.rateMiBs;
-        f.elapsed = job.elapsedSecs;
-        f.error = job.errorText;
-        filas.push_back(f);
     }
     const QSignalBlocker sinSenales(m_jobsListWidget);
     m_jobsListWidget->clear();
@@ -153,17 +152,10 @@ void MainWindow::cancelSelectedJob() {
         return;
     }
     runCli(QStringLiteral("job cancel %1 --on %2").arg(jobId, zfsmUrl(connIdx)),
-           [this, jobId](const CliService::Result& r) {
+           [this](const CliService::Result& r) {
                if (r.rc != 0) {
                    return;
                }
-               for (ActiveDaemonJob& j : m_activeDaemonJobs) {
-                   if (j.jobId == jobId) {
-                       j.state = QStringLiteral("cancelled");
-                       break;
-                   }
-               }
-               updateJobsListWidget();
                if (m_refreshAfterCli) {
                    refreshAllJobsAsync();
                }

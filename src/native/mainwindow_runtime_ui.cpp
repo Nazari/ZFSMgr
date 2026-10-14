@@ -131,8 +131,10 @@ void MainWindow::closeEvent(QCloseEvent* event) {
     // Warn if daemon background jobs are still running
     {
         int runningJobs = 0;
-        for (const ActiveDaemonJob& j : m_activeDaemonJobs) {
-            if (j.state == QStringLiteral("running")) ++runningJobs;
+        for (const DaemonJobRow& j : std::as_const(m_allJobs)) {
+            if (j.state == QStringLiteral("running") || j.state == QStringLiteral("queued")) {
+                ++runningJobs;
+            }
         }
         if (runningJobs > 0) {
             const auto choice = QMessageBox::question(

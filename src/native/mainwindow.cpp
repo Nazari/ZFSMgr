@@ -1819,41 +1819,6 @@ bool MainWindow::selectDatasetForTest(const QString& datasetName, bool bottom) {
     return true;
 }
 
-void MainWindow::addActiveDaemonJobForTest(int srcConnIdx, int dstConnIdx, const QString& jobId) {
-    ActiveDaemonJob job;
-    job.srcConnIdx = srcConnIdx;
-    job.dstConnIdx = dstConnIdx;
-    job.jobId = jobId;
-    job.displayLabel = jobId;
-    job.state = QStringLiteral("running");
-    m_activeDaemonJobs.push_back(job);
-}
-
-void MainWindow::removeActiveDaemonJobForTest(const QString& jobId) {
-    for (int i = 0; i < m_activeDaemonJobs.size(); ++i) {
-        if (m_activeDaemonJobs[i].jobId == jobId) {
-            m_activeDaemonJobs.removeAt(i);
-            return;
-        }
-    }
-}
-
-void MainWindow::deliverDaemonBecameActiveForTest(int connIdx) {
-    if (connIdx < 0 || connIdx >= m_conns.profiles.size() || connIdx >= m_conns.states.size()) {
-        return;
-    }
-    ConnectionRuntimeState nuevo = m_conns.states[connIdx];
-    nuevo.daemonInstalled = true;
-    nuevo.daemonActive = true;
-    nuevo.daemonJobsSupported = true;
-    nuevo.status = QStringLiteral("OK");
-    // El estado GUARDADO tiene que decir «no activo»: lo que se ejercita es la transición.
-    m_conns.states[connIdx].daemonActive = false;
-    onAsyncRefreshResult(m_refreshGeneration, connIdx, m_conns.profiles[connIdx].id, nuevo);
-    // El rastreo se encarga con `singleShot(0)`, así que hay que dejar correr el bucle.
-    QCoreApplication::processEvents();
-}
-
 void MainWindow::setConnectionStatusForTest(int connIdx, const QString& status) {
     if (connIdx < 0 || connIdx >= m_conns.states.size()) {
         return;
@@ -1878,10 +1843,6 @@ QStringList MainWindow::paneConnectionComboEntriesForTest(bool bottom) const {
     return salida;
 }
 
-void MainWindow::refreshTransfersListForTest() {
-    updateJobsListWidget();
-}
-
 bool MainWindow::selectTransferJobForTest(const QString& jobId) {
     if (!m_jobsListWidget) {
         return false;
@@ -1902,28 +1863,6 @@ QString MainWindow::selectedTransferJobForTest() const {
     }
     QTreeWidgetItem* item = m_jobsListWidget->currentItem();
     return item ? item->data(0, Qt::UserRole).toString() : QString();
-}
-
-void MainWindow::pollDaemonJobsForTest() {
-    pollDaemonJobs();
-}
-
-quint64 MainWindow::daemonJobBytesForTest(const QString& jobId) const {
-    for (const ActiveDaemonJob& j : m_activeDaemonJobs) {
-        if (j.jobId == jobId) {
-            return j.bytesTransferred;
-        }
-    }
-    return 0;
-}
-
-QString MainWindow::daemonJobErrorForTest(const QString& jobId) const {
-    for (const ActiveDaemonJob& j : m_activeDaemonJobs) {
-        if (j.jobId == jobId) {
-            return j.errorText;
-        }
-    }
-    return {};
 }
 
 MainWindow::TransferSelectionForTest MainWindow::transferSelectionForTest(const QString& side) const {

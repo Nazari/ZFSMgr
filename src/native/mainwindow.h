@@ -168,11 +168,6 @@ public:
         QString snapshotName;
     };
     TransferSelectionForTest transferSelectionForTest(const QString& side) const;
-    // Un trabajo del daemon en marcha, y el sondeo que lo consulta. Sirven para fijar que
-    // una conexión Local TAMBIÉN se sondea: por el túnel no se puede, y saltárselo no da
-    // error, solo deja el panel de Transferencias sin progreso.
-    void addActiveDaemonJobForTest(int srcConnIdx, int dstConnIdx, const QString& jobId);
-    void pollDaemonJobsForTest();
     void refreshAllJobsForTest() { refreshAllJobsAsync(); }
     void setCliFakeForTest(CliService::Fake fake) {
         m_cli->setFakeForTest(std::move(fake));
@@ -230,19 +225,12 @@ public:
     }
     void setPaneScheduleDailyForTest(int pane, int daily, bool enabled);
     void applyPaneScheduleForTest(int pane) { applyPaneSchedule(pane); }
-    void refreshTransfersListForTest();
     // El estado de validación de una conexión, y cómo queda su fila en el desplegable del
     // panel: «<rótulo>|caida» o «<rótulo>|viva».
     void setConnectionStatusForTest(int connIdx, const QString& status);
     QStringList paneConnectionComboEntriesForTest(bool bottom = false) const;
-    // Simula que el daemon de una conexión ACABA de ponerse en marcha, que es el momento en
-    // que hay que buscar trabajos que sigan corriendo sin que esta ventana lo sepa.
-    void deliverDaemonBecameActiveForTest(int connIdx);
-    void removeActiveDaemonJobForTest(const QString& jobId);
     bool selectTransferJobForTest(const QString& jobId);
     QString selectedTransferJobForTest() const;
-    quint64 daemonJobBytesForTest(const QString& jobId) const;
-    QString daemonJobErrorForTest(const QString& jobId) const;
     bool selectSnapshotInPaneDetailForTest(const QString& datasetName, const QString& snapshotName,
                                            bool bottom = false);
     // Deja el panel como lo deja un refresco: sin selección en el árbol y sin origen/destino.
@@ -568,11 +556,6 @@ private:
                          int& rc,
                          const QByteArray& stdinPayload = {});
 
-    // Material TLS del daemon LOCAL. Vive bajo /etc/zfsmgr con permisos de root, así
-    // que hay que leerlo elevando, igual que el de las conexiones remotas se trae por
-    // SSH con sudo. Se cachea en memoria para no pedir credenciales en cada orden.
-    bool runAgentOnConnection(const ConnectionProfile& p, const QStringList& agentArgs,
-                              int timeoutMs, QString& out, QString& err, int& rc);
     bool ensureLocalDaemonTlsMaterial(QByteArray& serverCertPem,
                                       QByteArray& clientCertPem,
                                       QByteArray& clientKeyPem,
@@ -809,8 +792,6 @@ private:
     void refreshConnectionDaemonLogAsync(int idx, bool fullReset = false, bool userAsked = false);
     void runDaemonHeartbeat(const QString& connId);
     void pollDaemonZedAllConnections();
-    void pollDaemonJobs();
-    void scanOrphanedJobsForConnection(int connIdx);
     void updateJobsListWidget();
     // The jobs of every connection with a daemon, asked in the background.
     void refreshAllJobsAsync();
@@ -1114,22 +1095,7 @@ private:
     QVBoxLayout* m_pendingButtonsCol{nullptr};
     QTimer* m_pendingSpinnerTimer{nullptr};
     QTimer* m_autoRefreshTimer{nullptr};
-    QTimer* m_jobPollTimer{nullptr};
 
-    struct ActiveDaemonJob {
-        int     srcConnIdx{-1};
-        int     dstConnIdx{-1};
-        QString jobId;
-        QString displayLabel;
-        QString state;    // "running"|"done"|"failed"|"cancelled"
-        quint64 bytesTransferred{0};
-        double  rateMiBs{0.0};
-        long    elapsedSecs{0};
-        QString lastProgressLine;
-        QString startedAt;
-        QString errorText;
-    };
-    QList<ActiveDaemonJob> m_activeDaemonJobs;
     QTreeWidget* m_jobsListWidget{nullptr};
     // A row of the Jobs box: what `jobs -a` shows for one job of one connection.
     struct DaemonJobRow {

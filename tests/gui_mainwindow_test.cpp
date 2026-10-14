@@ -5,6 +5,7 @@
 #include "cliservice.h"
 #include <QFileInfo>
 #include <QTemporaryDir>
+#include <memory>
 #include <QtConcurrent/QtConcurrent>
 #include <QLabel>
 #include <QTextEdit>
@@ -350,60 +351,6 @@ private Q_SLOTS:
                                                       QStringLiteral("tank1/datos"),
                                                       QString())
                      .valid);
-    }
-
-    // El progreso de una transferencia con origen LOCAL no llegaba nunca al panel.
-    //
-    // `pollDaemonJobs()` preguntaba por el trabajo con `tryRunRemoteAgentRpcViaTunnel()`, y
-    // esa función rechaza de plano cualquier conexión que no sea SSH —«Local» es otro tipo—
-    // devolviendo false sin intentar nada. El bucle hacía `continue` y el trabajo no se
-    // consultaba jamás: ni progreso, ni enterarse de que había terminado. Y no fallaba: se
-    // quedaba callado, que es lo que costó verlo.
-    //
-    // El transporte de prueba solo intercepta el camino de `runAgentCommand`, o sea el que
-    // sirve a Local. Así que si el sondeo vuelve a irse por el túnel, aquí no llega ninguna
-    // llamada y los bytes se quedan a cero.
-    void localJobProgressReachesTheTransfersPanel() {
-        MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
-        ConnectionProfile profile;
-        profile.id = QStringLiteral("local");
-        profile.name = QStringLiteral("Local");
-        profile.connType = QStringLiteral("Local");
-        profile.useSudo = true;
-        window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank1")}, {});
-        window.setConnectionDaemonStateForTest(0, true, true);
-
-        window.setAgentTransportForTest(
-            [](const std::vector<std::string>& argv, std::string& out, std::string& err,
-               int& rc) {
-                err.clear();
-                rc = 0;
-                if (!argv.empty() && argv[0] == "--job-status") {
-                    out = "STATE=running\nBYTES=3600034328\nRATE_MIB_S=38.5\nELAPSED_SECS=90\n";
-                    return true;
-                }
-                out.clear();
-                return true;
-            });
-
-        window.addActiveDaemonJobForTest(0, 0, QStringLiteral("dc813986b04ce990"));
-        QCOMPARE(window.daemonJobBytesForTest(QStringLiteral("dc813986b04ce990")), quint64(0));
-
-        window.pollDaemonJobsForTest();
-
-        // Los bytes de la transferencia real que destapó el fallo.
-        QCOMPARE(window.daemonJobBytesForTest(QStringLiteral("dc813986b04ce990")),
-                 quint64(3600034328ULL));
-
-        // Y que se preguntó por el trabajo que era, no por otro.
-        bool preguntoPorElTrabajo = false;
-        for (const auto& call : window.agentCallsForTest()) {
-            if (call.argv.size() >= 2 && call.argv[0] == "--job-status"
-                && call.argv[1] == "dc813986b04ce990") {
-                preguntoPorElTrabajo = true;
-            }
-        }
-        QVERIFY(preguntoPorElTrabajo);
     }
 
     // The Jobs box lists the jobs of every daemon, not only those this window launched: a
@@ -764,36 +711,6 @@ private Q_SLOTS:
                  qPrintable(linea));
     }
 
-    // Why a job failed reaches the panel. The agent says it as `ERROR_CODE=` and `ERROR_ARGS=`
-    // and the client words it; the GUI kept reading the old `ERROR=` and a failed transfer
-    // showed no reason at all.
-    void failedJobShowsItsReason() {
-        MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
-        ConnectionProfile profile;
-        profile.id = QStringLiteral("local");
-        profile.name = QStringLiteral("Local");
-        profile.connType = QStringLiteral("Local");
-        profile.useSudo = true;
-        window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank1")}, {});
-        window.setConnectionDaemonStateForTest(0, true, true);
-        window.setAgentTransportForTest(
-            [](const std::vector<std::string>& argv, std::string& out, std::string& err, int& rc) {
-                err.clear();
-                rc = 0;
-                out.clear();
-                if (!argv.empty() && argv[0] == "--job-status") {
-                    out =
-                        "STATE=failed\nBYTES=0\nERROR_CODE=snapshot_not_found\n"
-                        "ERROR_ARGS=[\"tank1/datos@noexiste\"]\n";
-                }
-                return true;
-            });
-        window.addActiveDaemonJobForTest(0, 0, QStringLiteral("job-falla"));
-        window.pollDaemonJobsForTest();
-        const QString motivo = window.daemonJobErrorForTest(QStringLiteral("job-falla"));
-        QVERIFY2(motivo.contains(QStringLiteral("tank1/datos@noexiste")), qPrintable(motivo));
-    }
-
     // La lista de Transferencias se rehace cada 2,5 segundos con el progreso, y `clear()`
     // se llevaba la selección por delante: marcar una para cancelarla y llegar al botón era
     // una carrera contra el siguiente refresco.
@@ -803,66 +720,35 @@ private Q_SLOTS:
         profile.id = QStringLiteral("local");
         profile.name = QStringLiteral("Local");
         profile.connType = QStringLiteral("Local");
-        profile.useSudo = true;
         window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank1")}, {});
-
-        window.addActiveDaemonJobForTest(0, 0, QStringLiteral("job-uno"));
-        window.addActiveDaemonJobForTest(0, 0, QStringLiteral("job-dos"));
-        window.refreshTransfersListForTest();
-
-        // La SEGUNDA, para que no valga con que se quede en la fila 0 por casualidad.
-        QVERIFY(window.selectTransferJobForTest(QStringLiteral("job-dos")));
-        QCOMPARE(window.selectedTransferJobForTest(), QStringLiteral("job-dos"));
-
-        window.refreshTransfersListForTest();
-        QCOMPARE(window.selectedTransferJobForTest(), QStringLiteral("job-dos"));
-
-        // Y si el trabajo marcado desaparece —terminó y se fue de la lista—, no se hereda
-        // la marca a otro: cancelar «el que quedó donde estaba» sería peor que no cancelar.
-        window.addActiveDaemonJobForTest(0, 0, QStringLiteral("job-tres"));
-        window.refreshTransfersListForTest();
-        QVERIFY(window.selectTransferJobForTest(QStringLiteral("job-tres")));
-        window.removeActiveDaemonJobForTest(QStringLiteral("job-tres"));
-        window.refreshTransfersListForTest();
-        QVERIFY(window.selectedTransferJobForTest().isEmpty()
-                || window.selectedTransferJobForTest() == QStringLiteral("job-tres"));
-    }
-
-    // Al arrancar la interfaz con una transferencia ya lanzada, el panel salía vacío aunque
-    // el `zfs send` siguiera vivo. El rastreo de trabajos huérfanos existía y NO se ejecutaba
-    // nunca: se comprobaba «el daemon acaba de ponerse en marcha» leyendo el estado guardado
-    // DESPUÉS de haberlo sobrescrito con el nuevo, o sea `X && !X`.
-    void orphanedJobsAreLookedForWhenTheDaemonComesUp() {
-        MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
-        ConnectionProfile profile;
-        profile.id = QStringLiteral("local");
-        profile.name = QStringLiteral("Local");
-        profile.connType = QStringLiteral("Local");
-        profile.useSudo = true;
-        window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank1")}, {});
-
-        window.setAgentTransportForTest(
-            [](const std::vector<std::string>& argv, std::string& out, std::string& err,
-               int& rc) {
-                err.clear();
-                rc = 0;
-                out.clear();
-                if (!argv.empty() && argv[0] == "--job-list") {
-                    out = "JOB={\"id\":\"648b64bba8a7a74c\",\"state\":\"running\"}\n";
+        window.setConnectionDaemonStateForTest(0, true, true);
+        auto ids = std::make_shared<QStringList>(
+            QStringList{QStringLiteral("job-uno"), QStringLiteral("job-dos")});
+        window.setCliReadFakeForTest([ids](const QString& line) {
+            CliService::Result r;
+            r.rc = 0;
+            if (line.startsWith(QStringLiteral("jobs "))) {
+                QStringList filas;
+                for (const QString& id : *ids) {
+                    filas << QStringLiteral(
+                                 "{\"id\":\"%1\",\"state\":\"running\",\"type\":\"mutation\"}")
+                                 .arg(id);
                 }
-                return true;
-            });
-
-        window.deliverDaemonBecameActiveForTest(0);
-
-        bool preguntoPorLosTrabajos = false;
-        for (const auto& call : window.agentCallsForTest()) {
-            if (!call.argv.empty() && call.argv[0] == "--job-list") {
-                preguntoPorLosTrabajos = true;
+                r.out = QStringLiteral("{\"jobs\":[%1]}").arg(filas.join(QLatin1Char(',')));
             }
-        }
-        QVERIFY2(preguntoPorLosTrabajos,
-                 "nadie preguntó por los trabajos en marcha al activarse el daemon");
+            return r;
+        });
+        window.refreshAllJobsForTest();
+        // The SECOND, so that staying on row 0 by chance does not pass.
+        QTRY_VERIFY_WITH_TIMEOUT(window.selectTransferJobForTest(QStringLiteral("job-dos")), 5000);
+        window.refreshAllJobsForTest();
+        QTest::qWait(300);
+        QCOMPARE(window.selectedTransferJobForTest(), QStringLiteral("job-dos"));
+        // And when the marked job goes —it ended—, the mark is not handed to another one.
+        ids->removeAll(QStringLiteral("job-dos"));
+        window.refreshAllJobsForTest();
+        QTest::qWait(300);
+        QVERIFY(window.selectedTransferJobForTest().isEmpty());
     }
 
     // Una máquina apagada salía en el desplegable igual que las demás, y solo al elegirla
