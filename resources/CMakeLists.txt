@@ -464,6 +464,8 @@ set(ZFSMGR_CORE_SOURCES
     ../src/native/mainwindow_cli_actions.cpp
     ../src/native/cliservice.cpp
     ../src/native/cliservice.h
+    ../src/native/clireader.cpp
+    ../src/native/clireader.h
     ../src/native/mainwindow_remote.cpp
     ../src/native/mainwindow_table_utils.cpp
     ../src/native/mainwindow_settings.cpp

@@ -5,6 +5,7 @@
 #include "cliservice.h"
 #include <QFileInfo>
 #include <QTemporaryDir>
+#include <QtConcurrent/QtConcurrent>
 #include <QLabel>
 #include <QTextEdit>
 #include <QApplication>
@@ -439,21 +440,21 @@ private Q_SLOTS:
         profile.useSudo = true;
         window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank1")}, {});
         window.setConnectionDaemonStateForTest(0, true, true);
-        window.setAgentTransportForTest(
-            [](const std::vector<std::string>& argv, std::string& out, std::string& err, int& rc) {
-                err.clear();
-                rc = 0;
-                out.clear();
-                if (!argv.empty() && argv[0] == "--job-list") {
-                    out =
-                        "JOB={\"id\":\"gsa0001\",\"state\":\"running\",\"type\":\"gsa-level\","
-                        "\"snap\":\"tank1/x@GSA-hourly\",\"bytes\":1024,\"rate\":1.5,"
-                        "\"elapsed\":3,\"error_code\":\"\",\"error_args\":[]}\nJOBS_COUNT=1\n";
-                }
-                return true;
-            });
+        window.setCliReadFakeForTest([](const QString& line) {
+            CliService::Result r;
+            r.rc = 0;
+            if (line.startsWith(QStringLiteral("jobs "))) {
+                r.out = QStringLiteral(
+                    "{\"jobs\":[{\"id\":\"gsa0001\",\"state\":\"running\",\"type\":\"gsa-level\","
+                    "\"snap\":\"tank1/x@GSA-hourly\",\"bytes\":1024,\"rate\":\"1.50\","
+                    "\"elapsed\":3,\"error\":null,\"connection\":\"local\"}]}");
+            }
+            return r;
+        });
         window.refreshAllJobsForTest();
         QTRY_VERIFY_WITH_TIMEOUT(window.selectTransferJobForTest(QStringLiteral("gsa0001")), 5000);
+        QVERIFY(window.cliReadLinesForTest().contains(
+            QStringLiteral("jobs --history --on zfsm://local")));
     }
 
     // The shell service the window drives, with the REAL zfsmgr-cli: a line goes in, its exit
@@ -480,6 +481,30 @@ private Q_SLOTS:
         QCOMPARE(res[1].rc, 127);
         QVERIFY(res[1].err.contains(QStringLiteral("nosuchcommand")));
         QCOMPARE(res[2].rc, 0);
+    }
+
+    // The reads' shell, with the REAL zfsmgr-cli: from the interface thread and from two
+    // worker threads at once, each connection on its own process.
+    void cliReaderReadsFromAnyThread() {
+        const QString cli = QStringLiteral(ZFSMGR_TEST_CLI_PATH);
+        if (!QFileInfo::exists(cli)) {
+            QSKIP("zfsmgr-cli not built");
+        }
+        QTemporaryDir dir;
+        CliReader lector;
+        lector.configure(cli,
+                         {QStringLiteral("--serve"), QStringLiteral("--lang"), QStringLiteral("en"),
+                          QStringLiteral("--config-dir"), dir.path()},
+                         QString());
+        const CliService::Result r = lector.read(QStringLiteral("a"), QStringLiteral("pwd"));
+        QCOMPARE(r.rc, 0);
+        QCOMPARE(r.out.trimmed(), QStringLiteral("zfsm://"));
+        auto f1 = QtConcurrent::run(
+            [&lector]() { return lector.read(QStringLiteral("a"), QStringLiteral("pwd")); });
+        auto f2 = QtConcurrent::run(
+            [&lector]() { return lector.read(QStringLiteral("b"), QStringLiteral("nosuch")); });
+        QCOMPARE(f1.result().rc, 0);
+        QCOMPARE(f2.result().rc, 127);
     }
 
     // The window's actions send the shell's command lines, not strings of their own.

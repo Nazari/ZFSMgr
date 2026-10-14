@@ -3,7 +3,8 @@
 #include "base/agentmsg.h"
 #include "base/json.h"
 #include "base/strutil.h"
-#include "commands/requests.h"
+#include <QJsonArray>
+#include <QJsonObject>
 
 #include <QHeaderView>
 #include <QSignalBlocker>
@@ -38,37 +39,27 @@ void MainWindow::refreshAllJobsAsync() {
             if (m_destroying.load()) {
                 return;
             }
-            QString out;
-            QString err;
-            int rc = -1;
-            if (!runAgentOnConnection(par.second,
-                                      mwhelpers::argvQt(zfsmgr::commands::requests::jobList()),
-                                      5000, out, err, rc)
-                || rc != 0) {
+            // The shell's `jobs --history`: every job of that daemon, with its error worded.
+            QJsonObject respuesta;
+            if (!cliReadJson(par.first,
+                             QStringLiteral("jobs --history --on %1").arg(zfsmUrl(par.first)),
+                             respuesta, nullptr, 15000)) {
                 continue;
             }
             alguna = true;
-            for (const QString& linea : out.split(QLatin1Char('\n'), Qt::SkipEmptyParts)) {
-                if (!linea.startsWith(QStringLiteral("JOB="))) {
-                    continue;
-                }
-                zfsmgr::base::json::Value j;
-                std::string e;
-                if (!zfsmgr::base::json::parse(linea.mid(4).toStdString(), j, &e)) {
-                    continue;
-                }
+            for (const QJsonValue& v : respuesta.value(QStringLiteral("jobs")).toArray()) {
+                const QJsonObject j = v.toObject();
                 DaemonJobRow f;
                 f.connIdx = par.first;
                 f.connName = par.second.name;
-                f.id = QString::fromStdString(j["id"].toString());
-                f.state = QString::fromStdString(j["state"].toString());
-                f.type = QString::fromStdString(j["type"].toString());
-                f.snap = QString::fromStdString(j["snap"].toString());
-                f.bytes = static_cast<qulonglong>(j["bytes"].toInt(0));
-                f.rate = j["rate"].toDouble();
-                f.elapsed = j["elapsed"].toInt(0);
-                f.error = QString::fromStdString(zfsmgr::base::agentmsg::renderJsonArgs(
-                    j["error_code"].toString(), zfsmgr::base::json::toCompact(j["error_args"])));
+                f.id = j.value(QStringLiteral("id")).toString();
+                f.state = j.value(QStringLiteral("state")).toString();
+                f.type = j.value(QStringLiteral("type")).toString();
+                f.snap = j.value(QStringLiteral("snap")).toString();
+                f.bytes = static_cast<qulonglong>(j.value(QStringLiteral("bytes")).toDouble());
+                f.rate = j.value(QStringLiteral("rate")).toVariant().toDouble();
+                f.elapsed = j.value(QStringLiteral("elapsed")).toInt();
+                f.error = j.value(QStringLiteral("error")).toString();
                 filas.push_back(f);
             }
         }

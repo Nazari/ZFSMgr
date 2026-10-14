@@ -2,6 +2,7 @@
 
 #include "commands/gsa.h"
 #include "cliservice.h"
+#include "clireader.h"
 #include "connectionmodel.h"
 #include "connectionregistry.h"
 #include "transportsession.h"
@@ -177,6 +178,11 @@ public:
         m_cli->setFakeForTest(std::move(fake));
         m_refreshAfterCli = false;
     }
+    // What the shell answers to the window's READS (`ls … --format json`, `jobs`…).
+    void setCliReadFakeForTest(CliService::Fake fake) {
+        m_cliReader->setFakeForTest(std::move(fake));
+    }
+    QStringList cliReadLinesForTest() const { return m_cliReader->linesForTest(); }
     QStringList cliLinesForTest() const { return m_cli->linesForTest(); }
     bool mountDatasetForTest(int connIdx, const QString& ds);
     bool cliPoolForTest(int connIdx, const QString& pool, const QString& verb,
@@ -851,6 +857,10 @@ private:
     void showCliText(const QString& title, const QString& text);
     // How the shell names a connection: its id, or its name when it has none.
     QString cliConnName(int connIdx) const;
+    // A read of the shell, as JSON, on the process of that connection. Callable from any
+    // thread. False (and `error`) when the line failed or did not answer JSON.
+    bool cliReadJson(int connIdx, const QString& line, QJsonObject& out, QString* error = nullptr,
+                     int timeoutMs = 120000);
     // The options of `create <id>` / `edit <id>` for what the connection dialog holds.
     static QString cliConnectionOptions(const ConnectionProfile& p, bool editing);
     void buildStatusBar();
@@ -1062,6 +1072,7 @@ private:
     };
     QList<LogWindow> m_logWindows;
     CliService* m_cli{nullptr};
+    CliReader* m_cliReader{nullptr};
     bool m_cliRefused{false};  // the user answered «no» to the last confirmation
     // The answer to the secrets the shell asks for while one line runs, when a dialog already
     // took it (the password of the connection dialog). The caller resets it afterwards.

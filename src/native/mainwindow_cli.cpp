@@ -6,6 +6,8 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QInputDialog>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLineEdit>
 #include <QMessageBox>
 
@@ -15,6 +17,7 @@
 
 void MainWindow::initCliService() {
     m_cli = new CliService(this);
+    m_cliReader = new CliReader(this);
 #ifdef _WIN32
     const QString nombre = QStringLiteral("zfsmgr-cli.exe");
 #else
@@ -27,6 +30,22 @@ void MainWindow::initCliService() {
                      {QStringLiteral("--serve"), QStringLiteral("--lang"), m_language,
                       QStringLiteral("--config-dir"), m_conns.store.configDir()},
                      m_conns.store.masterPassword());
+    m_cliReader->configure(ejecutable,
+                           {QStringLiteral("--serve"), QStringLiteral("--lang"), m_language,
+                            QStringLiteral("--config-dir"), m_conns.store.configDir()},
+                           m_conns.store.masterPassword());
+    // In the tests, no real shell unless the test gives one: it would read the user's machines.
+    const QByteArray modoPrueba = qgetenv("ZFSMGR_TEST_MODE");
+    if (!modoPrueba.isEmpty() && modoPrueba != "0") {
+        const auto sinShell = [](const QString&) {
+            CliService::Result r;
+            r.rc = -1;
+            r.err = QStringLiteral("no shell in the tests");
+            return r;
+        };
+        m_cli->setFakeForTest(sinShell);
+        m_cliReader->setFakeForTest(sinShell);
+    }
     m_cli->setAskSecret([this](const QString& prompt, QString& secreto) {
         if (m_cliPresetSecret) {
             secreto = *m_cliPresetSecret;  // every ask of that line: a passphrase is asked twice
@@ -93,6 +112,30 @@ QString MainWindow::zfsmUrl(int connIdx, const QString& dataset, const QString& 
         }
     }
     return QString::fromStdString(Z::formatZfsmUrl(u));
+}
+
+bool MainWindow::cliReadJson(int connIdx, const QString& line, QJsonObject& out, QString* error,
+                             int timeoutMs) {
+    const QString clave = cliConnName(connIdx);
+    const CliService::Result r =
+        m_cliReader->read(clave.isEmpty() ? QStringLiteral("-") : clave, line, timeoutMs);
+    if (r.rc != 0) {
+        if (error) {
+            *error =
+                r.err.trimmed().isEmpty() ? QStringLiteral("rc=%1").arg(r.rc) : r.err.trimmed();
+        }
+        return false;
+    }
+    QJsonParseError pe;
+    const QJsonDocument doc = QJsonDocument::fromJson(r.out.toUtf8(), &pe);
+    if (!doc.isObject()) {
+        if (error) {
+            *error = QStringLiteral("%1: %2").arg(line, pe.errorString());
+        }
+        return false;
+    }
+    out = doc.object();
+    return true;
 }
 
 QString MainWindow::cliConnName(int connIdx) const {
