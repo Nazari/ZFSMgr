@@ -731,6 +731,10 @@ private Q_SLOTS:
         QCOMPARE(window.zfsmUrlForTest(0, QStringLiteral("tank1/user"), QStringLiteral("s1")),
                  QStringLiteral("zfsm://local/tank1/user@s1"));
         QCOMPARE(window.zfsmUrlForTest(0, QString(), QString()), QStringLiteral("zfsm://local"));
+        QCOMPARE(window.pathUrlForTest(0, QStringLiteral("/home/a b")),
+                 QStringLiteral("zfsm://local#path/home/a%20b"));
+        QCOMPARE(window.pathUrlForTest(0, QStringLiteral("C:\\Users\\x")),
+                 QStringLiteral("zfsm://local#path/C:/Users/x"));
     }
 
     // The Schedules tab runs the shell's `schedule` line with the whole schedule it shows.

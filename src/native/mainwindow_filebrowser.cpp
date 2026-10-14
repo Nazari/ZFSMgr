@@ -1,5 +1,8 @@
 #include <functional>
 #include "mainwindow.h"
+
+#include <QJsonArray>
+#include <QJsonObject>
 #include "mainwindow_helpers.h"
 
 #include <QApplication>
@@ -32,101 +35,6 @@ struct FileBrowserEntry {
     bool isLink = false;
 };
 
-// Comillas simples de PowerShell: dentro, la comilla simple se duplica.
-static QString psSingleQuoteForBrowser(const QString& s) {
-    QString out = s;
-    out.replace(QLatin1Char('\''), QStringLiteral("''"));
-    return QLatin1Char('\'') + out + QLatin1Char('\'');
-}
-
-static QString humanReadableSize(qint64 bytes) {
-    if (bytes < 1024) {
-        return QStringLiteral("%1 B").arg(bytes);
-    }
-    if (bytes < 1024 * 1024) {
-        return QStringLiteral("%1 KB").arg(bytes / 1024);
-    }
-    if (bytes < 1024LL * 1024 * 1024) {
-        return QStringLiteral("%1 MB").arg(bytes / (1024 * 1024));
-    }
-    return QStringLiteral("%1 GB").arg(bytes / (1024LL * 1024 * 1024));
-}
-
-// Listado de Windows: `Get-ChildItem` con campos separados por tabulador.
-//
-// No se imita la salida de `ls -l` a propósito: fingir un formato ajeno obliga a rellenar
-// permisos, enlaces, propietario y grupo que en Windows no significan lo mismo, y
-// cualquier nombre con espacios rompe el troceo por espacios del parser de Unix.
-static QList<FileBrowserEntry> parseWindowsListing(const QString& out) {
-    QList<FileBrowserEntry> result;
-    for (const QString& rawLine : out.split('\n', Qt::SkipEmptyParts)) {
-        const QString line = rawLine.trimmed();
-        if (line.isEmpty()) {
-            continue;
-        }
-        const QStringList parts = line.split('\t');
-        if (parts.size() < 4) {
-            continue;
-        }
-        FileBrowserEntry e;
-        e.isDir = (parts.at(0).trimmed() == QStringLiteral("d"));
-        e.permissions = e.isDir ? QStringLiteral("d") : QStringLiteral("-");
-        bool okSize = false;
-        const qint64 raw = parts.at(1).trimmed().toLongLong(&okSize);
-        e.size = e.isDir ? QString() : (okSize ? humanReadableSize(raw) : QString());
-        e.mtime = parts.at(2).trimmed();
-        // El nombre va el ÚLTIMO y se toma entero: puede llevar tabuladores dentro, y
-        // trocear sin más se comería parte del nombre.
-        e.name = parts.mid(3).join(QLatin1Char('\t')).trimmed();
-        if (e.name.isEmpty()) {
-            continue;
-        }
-        result.push_back(e);
-    }
-    return result;
-}
-
-static QList<FileBrowserEntry> parseLsOutput(const QString& out) {
-    QList<FileBrowserEntry> result;
-    const QStringList lines = out.split('\n', Qt::KeepEmptyParts);
-    for (const QString& rawLine : lines) {
-        const QString line = rawLine.trimmed();
-        if (line.startsWith(QStringLiteral("total ")) || line.isEmpty()) {
-            continue;
-        }
-        // Expected: perms nlinks owner group size month day time name
-        // Example:  drwxr-xr-x  2 user group 4096 Jan 15 12:34 dirname
-        const QStringList parts = line.split(' ', Qt::SkipEmptyParts);
-        if (parts.size() < 9) {
-            continue;
-        }
-        FileBrowserEntry e;
-        e.permissions = parts.at(0);
-        e.owner = parts.at(2);
-        e.group = parts.at(3);
-        const qint64 rawSize = parts.at(4).toLongLong();
-        e.size = humanReadableSize(rawSize);
-        e.mtime = parts.at(5) + QStringLiteral(" ") + parts.at(6) + QStringLiteral(" ") + parts.at(7);
-        // name: everything from index 8 onward (handles spaces)
-        QStringList nameParts;
-        for (int i = 8; i < parts.size(); ++i) {
-            const QString& p = parts.at(i);
-            if (p == QStringLiteral("->")) {
-                break;
-            }
-            nameParts << p;
-        }
-        e.name = nameParts.join(' ');
-        if (e.name.isEmpty()) {
-            continue;
-        }
-        e.isDir = e.permissions.startsWith(QLatin1Char('d'));
-        e.isLink = e.permissions.startsWith(QLatin1Char('l'));
-        result.push_back(e);
-    }
-    return result;
-}
-
 } // namespace
 
 void MainWindow::populateFileBrowserNode(QTreeWidget* tree, QTreeWidgetItem* browserNode) {
@@ -149,59 +57,41 @@ void MainWindow::populateFileBrowserNode(QTreeWidget* tree, QTreeWidgetItem* bro
         delete browserNode->takeChild(0);
     }
 
-    const ConnectionProfile prof = m_conns.profiles[connIdx];
-    // En Windows no hay `sh`: el intérprete respondía
-    //   sh : The term 'sh' is not recognized as the name of a cmdlet
-    // y el nodo Contenido no podía desplegarse. Se lista con Get-ChildItem.
-    const bool browseWindows = isWindowsConnection(prof);
-    const QString browserScript = QStringLiteral(
-                                      "p=%1; "
-                                      "if [ -d \"$p\" ]; then "
-                                      "  ls -lA \"$p\" 2>&1; "
-                                      "elif [ -e \"$p\" ]; then "
-                                      "  echo \"not a directory: $p\" >&2; exit 2; "
-                                      "else "
-                                      "  echo \"path not found: $p\" >&2; exit 3; "
-                                      "fi")
-                                      .arg(shSingleQuote(dirPath));
-    const QString windowsScript =
-        QStringLiteral(
-            "$ErrorActionPreference='Stop'; "
-            "$p=%1; "
-            "if(-not (Test-Path -LiteralPath $p)){ Write-Error \"path not found: $p\"; exit 3 }; "
-            "if(-not (Test-Path -LiteralPath $p -PathType Container)){ "
-            "  Write-Error \"not a directory: $p\"; exit 2 }; "
-            "Get-ChildItem -LiteralPath $p -Force | ForEach-Object { "
-            "  $d = if($_.PSIsContainer){'d'}else{'-'}; "
-            "  $z = if($_.PSIsContainer){0}else{$_.Length}; "
-            "  ($d + \"`t\" + $z + \"`t\" + $_.LastWriteTime.ToString('yyyy-MM-dd HH:mm') "
-            "     + \"`t\" + $_.Name) }")
-            .arg(psSingleQuoteForBrowser(dirPath));
-    const QString remoteCmdRaw =
-        browseWindows ? windowsScript
-                      : QStringLiteral("sh -lc %1").arg(shSingleQuote(browserScript));
-    const QString remoteCmd = withSudo(prof, remoteCmdRaw);
-
-    QString out;
+    // The shell's `ls zfsm://<conn>#path/<dir>`: the same listing as at the shell, from the
+    // daemon, on every platform.
+    QJsonObject r;
     QString err;
-    int rc = -1;
     beginTransientUiBusy(QStringLiteral("Leyendo contenido..."));
-    const bool ran = runSsh(prof, remoteCmd, 20000, out, err, rc);
+    const bool leido = cliReadJson(connIdx, QStringLiteral("ls %1").arg(pathUrl(connIdx, dirPath)),
+                                   r, &err, 30000);
     endTransientUiBusy();
-
-    if (!ran || rc != 0) {
+    if (!leido || !err.isEmpty()) {
         auto* errItem = new QTreeWidgetItem(browserNode);
-        // Con err y out vacíos el mensaje quedaba en "(error: )", que no dice nada de
-        // nada. Al menos el código de salida acota si fue la orden o el transporte.
-        const QString detail = !err.trimmed().isEmpty()   ? err.trimmed()
-                               : !out.trimmed().isEmpty() ? out.trimmed()
-                                                          : QStringLiteral("sin detalle (código %1)").arg(rc);
-        errItem->setText(0, QStringLiteral("(error: %1)").arg(detail));
+        errItem->setText(
+            0, QStringLiteral("(error: %1)").arg(err.isEmpty() ? QStringLiteral("?") : err));
         errItem->setFlags(errItem->flags() & ~Qt::ItemIsUserCheckable);
         return;
     }
+    QList<FileBrowserEntry> entries;
+    for (const QJsonValue& v : r.value(QStringLiteral("entries")).toArray()) {
+        const QJsonObject o = v.toObject();
+        FileBrowserEntry e;
+        e.name = o.value(QStringLiteral("name")).toString();
+        const QString tipo = o.value(QStringLiteral("type")).toString();
+        e.isDir = tipo == QStringLiteral("directory");
+        e.isLink = tipo == QStringLiteral("symlink");
+        e.permissions = o.value(QStringLiteral("mode")).toString();
+        e.owner = o.value(QStringLiteral("owner")).toString();
+        e.group = o.value(QStringLiteral("group")).toString();
+        const QJsonValue tam = o.value(QStringLiteral("size"));
+        e.size =
+            tam.isDouble() ? QString::number(static_cast<qint64>(tam.toDouble())) : tam.toString();
+        e.mtime = o.value(QStringLiteral("modified")).toString();
+        if (!e.name.isEmpty()) {
+            entries.push_back(e);
+        }
+    }
 
-    const QList<FileBrowserEntry> entries = (browseWindows ? parseWindowsListing(out) : parseLsOutput(out));
     if (entries.isEmpty()) {
         auto* emptyItem = new QTreeWidgetItem(browserNode);
         emptyItem->setText(0, QStringLiteral("(vacío)"));

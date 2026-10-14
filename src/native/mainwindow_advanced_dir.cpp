@@ -84,11 +84,6 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
         QTreeWidget* tree{nullptr};
     };
 
-    auto psSingle = [](const QString& v) {
-        QString out = v;
-        out.replace(QStringLiteral("'"), QStringLiteral("''"));
-        return QStringLiteral("'") + out + QStringLiteral("'");
-    };
     auto normalizePathForCompare = [](QString path, bool windows) {
         QString p = path.trimmed();
         if (windows) {
@@ -355,44 +350,34 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
             errorMsg = QStringLiteral("invalid connection");
             return false;
         }
-        const ConnectionProfile prof = m_conns.profiles[connIdx];
+        // The shell's `ls zfsm://<conn>#path/<dir>`, keeping the directories. On Windows the
+        // root lists the drives («C:»), which the tree writes as «C:\».
         const bool isWinRemote = isWindowsConnection(connIdx);
-        QString remoteCmd;
-        if (isWinRemote) {
-            const QString normalized = basePath.trimmed().replace('/', '\\');
-            if (normalized.isEmpty()) {
-                remoteCmd = QStringLiteral(
-                    "Get-PSDrive -PSProvider FileSystem | Select-Object -ExpandProperty Root | Sort-Object");
-            } else {
-                remoteCmd = QStringLiteral(
-                                "$p=%1; "
-                                "if (-not (Test-Path -LiteralPath $p -PathType Container)) { exit 2; } "
-                                "Get-ChildItem -LiteralPath $p -Directory -Name -ErrorAction SilentlyContinue | Sort-Object")
-                                .arg(psSingle(normalized));
-            }
-        } else {
-            const QString requested = basePath.trimmed().isEmpty() ? QStringLiteral("/") : basePath.trimmed();
-            remoteCmd = QStringLiteral(
-                            "BASE=%1; "
-                            "if [ -d \"$BASE\" ]; then cd \"$BASE\" 2>/dev/null || exit 2; else exit 2; fi; "
-                            "ls -1A 2>/dev/null | while IFS= read -r e; do [ -d \"$e\" ] && printf '%s\\n' \"$e\"; done | sort")
-                            .arg(shSingleQuote(requested));
-        }
-        QString out;
+        QJsonObject r;
         QString err;
-        int rc = -1;
-        if (!runSsh(prof, remoteCmd, 25000, out, err, rc) || rc != 0) {
-            errorMsg = oneLine(err.isEmpty() ? QStringLiteral("ssh exit %1").arg(rc) : err);
+        if (!cliReadJson(connIdx, QStringLiteral("ls %1").arg(pathUrl(connIdx, basePath)), r, &err,
+                         25000)
+            || !err.isEmpty()) {
+            errorMsg = err;
             return false;
         }
         children.clear();
-        const QStringList lines = out.split('\n', Qt::KeepEmptyParts);
-        for (const QString& line : lines) {
-            const QString trimmed = line.trimmed();
-            if (!trimmed.isEmpty()) {
-                children.push_back(trimmed);
+        for (const QJsonValue& v : r.value(QStringLiteral("entries")).toArray()) {
+            const QJsonObject o = v.toObject();
+            if (o.value(QStringLiteral("type")).toString() != QStringLiteral("directory")) {
+                continue;
             }
+            QString nombre = o.value(QStringLiteral("name")).toString().trimmed();
+            if (nombre.isEmpty()) {
+                continue;
+            }
+            if (isWinRemote && basePath.trimmed().isEmpty()
+                && !nombre.endsWith(QLatin1Char('\\'))) {
+                nombre += QLatin1Char('\\');
+            }
+            children.push_back(nombre);
         }
+        children.sort(Qt::CaseInsensitive);
         return true;
     };
     auto joinRemotePath = [](const QString& base, const QString& name, bool windows) -> QString {

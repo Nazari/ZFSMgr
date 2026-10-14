@@ -10,6 +10,7 @@
 #include <QJsonObject>
 #include <QLineEdit>
 #include <QMessageBox>
+#include <QRegularExpression>
 
 // Every action of the window runs a line of the shell through CliService. The window only
 // gathers what the user chose and shows what the shell answers: the rules, the checks and the
@@ -171,6 +172,24 @@ QString MainWindow::cliConnectionOptions(const ConnectionProfile& p, bool editin
     pon("--family", p.sshAddressFamily.isEmpty() ? QStringLiteral("auto") : p.sshAddressFamily);
     o.removeAll(QString());
     return o.join(QLatin1Char(' '));
+}
+
+QString MainWindow::pathUrl(int connIdx, const QString& path) const {
+    namespace Z = zfsmgr::base;
+    if (connIdx < 0 || connIdx >= m_conns.profiles.size()) {
+        return QString();
+    }
+    const ConnectionProfile& p = m_conns.profiles[connIdx];
+    Z::ZfsmUrl u;
+    u.connection = (p.id.isEmpty() ? p.name : p.id).toStdString();
+    u.kind = Z::ZfsmKind::Connection;
+    u.section = Z::zfsmSection::kPath;
+    // Segment by segment, so each is percent-encoded; «C:\x» and «/x» both work.
+    for (const QString& s :
+         path.split(QRegularExpression(QStringLiteral("[/\\\\]")), Qt::SkipEmptyParts)) {
+        u.detail.push_back(s.toStdString());
+    }
+    return QString::fromStdString(Z::formatZfsmUrl(u));
 }
 
 void MainWindow::refreshAfterCli(const DatasetSelectionContext& ctx) {

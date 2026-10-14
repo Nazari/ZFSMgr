@@ -286,6 +286,8 @@ def casos_lectura(ctx):
     caso(ctx, "ls #properties --pool: las del pool, no las de su dataset raíz",
          [f"cd Local/{P}", "ls #properties --pool"], espera=[r"^ashift\s", r"^health\s"],
          no_espera=[r"^compression\s"])
+    caso(ctx, "ls #path en json: el nombre de un enlace es su nombre y el destino va aparte",
+         ["format json", "ls zfsm://local#path"], espera=[r'"name": "bin"', r'"target": "usr/bin"'])
     caso(ctx, "ls: #properties enseña las propiedades",
          [f"cd Local/{P}/datos", "ls #properties"], espera=[r"mountpoint", r"compression"])
     caso(ctx, "ls: #content enseña los ficheros",

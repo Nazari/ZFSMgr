@@ -219,6 +219,9 @@ public:
     static QString cliConnectionOptionsForTest(const ConnectionProfile& p, bool editing) {
         return cliConnectionOptions(p, editing);
     }
+    QString pathUrlForTest(int connIdx, const QString& path) const {
+        return pathUrl(connIdx, path);
+    }
     QString zfsmUrlForTest(int connIdx, const QString& ds, const QString& snap) const {
         return zfsmUrl(connIdx, ds, snap);
     }
@@ -869,6 +872,8 @@ private:
     void showCliText(const QString& title, const QString& text);
     // How the shell names a connection: its id, or its name when it has none.
     QString cliConnName(int connIdx) const;
+    // A path of the machine as the shell's URL: `zfsm://<conn>#path/<segments>`.
+    QString pathUrl(int connIdx, const QString& path) const;
     // A read of the shell, as JSON, on the process of that connection. Callable from any
     // thread. False (and `error`) when the line failed or did not answer JSON.
     bool cliReadJson(int connIdx, const QString& line, QJsonObject& out, QString* error = nullptr,

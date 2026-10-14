@@ -1210,9 +1210,10 @@ bool imprimeFicheros(Estado& e, const std::vector<B::json::Value>& entradas) {
                         T("t_cab_tamano", "TAMAÑO"),        T("t_cab_permisos", "PERMISOS"),
                         T("t_cab_dueno", "DUEÑO"),          T("t_cab_grupo", "GRUPO"),
                         T("t_cab_modificado", "MODIFICADO")};
-    t.campos = {"name", "type", "size", "mode", "owner", "group", "modified"};
-    t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Bytes, Tipo::Cadena,
-               Tipo::Cadena, Tipo::Cadena, Tipo::Cadena};
+    // `target`, json only: a link's name is its name there, and where it points goes apart.
+    t.campos = {"name", "type", "size", "mode", "owner", "group", "modified", "target"};
+    t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Bytes,  Tipo::Cadena,
+               Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena};
     std::vector<B::json::Value> orden = entradas;
     std::sort(orden.begin(), orden.end(), [](const B::json::Value& a, const B::json::Value& b) {
         return a["name"].toString() < b["name"].toString();
@@ -1220,15 +1221,16 @@ bool imprimeFicheros(Estado& e, const std::vector<B::json::Value>& entradas) {
     for (const B::json::Value& v : orden) {
         const std::string tipo = v["type"].toString();
         std::string nombre = v["name"].toString();
-        if (!v["target"].toString().empty()) {
+        if (!v["target"].toString().empty() && e.formato != Formato::Json) {
             nombre += " -> " + v["target"].toString();
         }
-        t.filas.push_back(
-            {nombre, nombreDeTipo(tipo), tipo == "f" ? std::to_string(v["size"].toInt()) : "",
-             // Sin bits de modo —Windows— se deja en blanco: «----------»
-             // diría «sin permisos», que es otra cosa.
-             v["mode"].toInt() != 0 ? modoComoLs(tipo, v["mode"].toInt()) : "",
-             v["owner"].toString(), v["group"].toString(), fechaCorta(v["mtime"].toInt())});
+        t.filas.push_back({nombre, nombreDeTipo(tipo),
+                           tipo == "f" ? std::to_string(v["size"].toInt()) : "",
+                           // Sin bits de modo —Windows— se deja en blanco: «----------»
+                           // diría «sin permisos», que es otra cosa.
+                           v["mode"].toInt() != 0 ? modoComoLs(tipo, v["mode"].toInt()) : "",
+                           v["owner"].toString(), v["group"].toString(),
+                           fechaCorta(v["mtime"].toInt()), v["target"].toString()});
     }
     if (!aplicaFiltro(e, t)) {
         return false;
