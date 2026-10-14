@@ -65,6 +65,8 @@ std::vector<std::string> datasetExists(const std::string& object);
 std::vector<std::string> guidMap(const std::string& object);
 // The snapshots of ONE dataset (no descendants), oldest first by createtxg, «name\tguid».
 std::vector<std::string> snapshotGuids(const std::string& dataset);
+// The machine's user («user») or group («group») names, one per line.
+std::vector<std::string> accounts(const std::string& kind);
 // Several properties of one object in a single query. The list goes COMMA-SEPARATED in one
 // argument, not as loose arguments: asking one at a time is N round trips.
 std::vector<std::string> specificProperties(const std::vector<std::string>& properties,

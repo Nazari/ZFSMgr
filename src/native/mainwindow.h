@@ -183,6 +183,9 @@ public:
         m_cliReader->setFakeForTest(std::move(fake));
     }
     QStringList cliReadLinesForTest() const { return m_cliReader->linesForTest(); }
+    bool readPermissionsForTest(int connIdx, const QString& ds, DatasetPermissionsCacheEntry& e) {
+        return readPermissionsEntry(connIdx, ds, e);
+    }
     bool loadPoolDatasetsForTest(int connIdx, const QString& pool) {
         m_conns.poolDatasetCache.remove(datasetCacheKey(connIdx, pool));
         return ensureDatasetsLoaded(connIdx, pool, true);
@@ -680,6 +683,9 @@ private:
     QString poolDetailsCacheKey(int connIdx, const QString& poolName) const;
     void readPoolGuids(int connIdx);
     bool ensureDatasetsLoaded(int connIdx, const QString& poolName, bool allowRemoteLoadIfMissing = true);
+    bool readPermissionsEntry(int connIdx, const QString& datasetName,
+                              DatasetPermissionsCacheEntry& entry, QString* error = nullptr);
+    QStringList readAccounts(int connIdx, bool groups);
     bool ensureDatasetPermissionsLoaded(int connIdx, const QString& poolName, const QString& datasetName);
     bool ensureDatasetPermissionsLoadedBatch(int connIdx, const QString& poolName, const QStringList& datasetNames);
     bool ensurePoolDetailsLoaded(int connIdx, const QString& poolName);
@@ -730,9 +736,6 @@ private:
         const DatasetSelectionContext& ctx, const QTreeWidget* treeHint = nullptr) const;
     QStringList daemonizeZfsMutationArgs(int connIdx, const QStringList& argv) const;
     QStringList daemonizeZpoolMutationArgs(int connIdx, const QStringList& argv) const;
-    bool fetchConnectionCommandOutput(int connIdx, const QString& actionName,
-                                      const QString& remoteCmd, QString* outputOut,
-                                      QString* failureDetailOut = nullptr, int timeoutMs = 45000);
     bool ensureLocalSudoCredentials(ConnectionProfile& profile);
     bool hasEquivalentLocalSshConnection() const;
     void invalidateDatasetCacheEntry(int connIdx, const QString& poolName, const QString& objectName, bool invalidatePermissions = true);

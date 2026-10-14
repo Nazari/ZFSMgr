@@ -2,6 +2,14 @@
 
 #include "agent_internal.h"
 
+#include <algorithm>
+#include <mutex>
+#include <set>
+#ifndef _WIN32
+#include <grp.h>
+#include <pwd.h>
+#endif
+
 namespace zfsmgr::agent {
 
 const TablaDeVerbos& tablaDeVerbos() {
@@ -222,6 +230,75 @@ const TablaDeVerbos& tablaDeVerbos() {
             const std::uintmax_t cuanto =
                 p.params.size() > 2 ? std::strtoull(p.params[2].c_str(), nullptr, 10) : 0;
             return leeFichero(p.params[0], desde, cuanto);
+        });
+        // The machine's user or group names, one per line, sorted: who a permission can be
+        // delegated to. Read from the system's account database, not from a shell: on Unix
+        // getpwent/getgrent (which also see LDAP/NIS through NSS, as `getent` does), on
+        // Windows the local accounts.
+        t.pon({"--dump-accounts"}, [](const Peticion& p) -> ExecResult {
+            ExecResult r;
+            const std::string clase = p.params.empty() ? std::string() : p.params[0];
+            if (clase != "user" && clase != "group") {
+                r.rc = 2;
+                ponCodigo(r, "usage", {std::string(p.argv0) + " --dump-accounts <user|group>"});
+                return r;
+            }
+            std::set<std::string> nombres;
+#ifndef _WIN32
+            // getpwent keeps its position in global state: one reader at a time.
+            static std::mutex m;
+            std::lock_guard<std::mutex> lock(m);
+            if (clase == "user") {
+                setpwent();
+                while (const passwd* pw = getpwent()) {
+                    if (pw->pw_name && *pw->pw_name) {
+                        nombres.insert(pw->pw_name);
+                    }
+                }
+                endpwent();
+            } else {
+                setgrent();
+                while (const group* gr = getgrent()) {
+                    if (gr->gr_name && *gr->gr_name) {
+                        nombres.insert(gr->gr_name);
+                    }
+                }
+                endgrent();
+            }
+#else
+            // The agent runs as a scheduled task, where powershell is not on the PATH.
+            const std::string guion = clase == "user"
+                                          ? "Get-LocalUser | ForEach-Object { $_.Name }"
+                                          : "Get-LocalGroup | ForEach-Object { $_.Name }";
+            std::vector<std::string> candidatos;
+            if (const char* raiz = std::getenv("SystemRoot")) {
+                candidatos.push_back(std::string(raiz)
+                                     + "\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
+            }
+            candidatos.push_back("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
+            candidatos.push_back("powershell");
+            ExecResult ps;
+            ps.rc = 1;
+            for (const std::string& exe : candidatos) {
+                ps = runExecCapture(exe, {"-NoProfile", "-NonInteractive", "-Command", guion});
+                if (ps.rc == 0) {
+                    break;
+                }
+            }
+            if (ps.rc != 0) {
+                return ps;
+            }
+            for (const std::string& l : splitLines(ps.out)) {
+                if (!trim(l).empty()) {
+                    nombres.insert(trim(l));
+                }
+            }
+#endif
+            for (const std::string& n : nombres) {
+                r.out += n + "\n";
+            }
+            r.rc = 0;
+            return r;
         });
         // `-s createtxg` and not `creation`: two snapshots of the same second keep their order.
         t.pon({"--dump-zfs-snapshot-guids"}, [](const Peticion& p) -> ExecResult {

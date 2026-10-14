@@ -484,6 +484,48 @@ private Q_SLOTS:
         QCOMPARE(f2.result().rc, 127);
     }
 
+    // The delegations come from the shell's `ls #permissions`, one row per section and
+    // recipient, into the editor's five lists.
+    void permissionsComeFromTheShellsLs() {
+        MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
+        ConnectionProfile profile;
+        profile.id = QStringLiteral("local");
+        profile.name = QStringLiteral("Local");
+        profile.connType = QStringLiteral("Local");
+        window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank")}, {});
+        window.setCliReadFakeForTest([](const QString& line) {
+            CliService::Result r;
+            r.rc = line == QStringLiteral("ls zfsm://local/tank/d#permissions") ? 0 : 1;
+            r.out = QStringLiteral(
+                "{\"permissions\":["
+                "{\"scope\":\"Local permissions\",\"kind\":\"user\",\"who\":\"ana\","
+                "\"permissions\":\"mount,snapshot\"},"
+                "{\"scope\":\"Descendent permissions\",\"kind\":\"group\",\"who\":\"staff\","
+                "\"permissions\":\"send\"},"
+                "{\"scope\":\"Local+Descendent permissions\",\"kind\":\"everyone\","
+                "\"who\":\"everyone\",\"permissions\":\"hold\"},"
+                "{\"scope\":\"Create time permissions\",\"kind\":\"\",\"who\":\"\","
+                "\"permissions\":\"destroy\"},"
+                "{\"scope\":\"Permission sets\",\"kind\":\"set\",\"who\":\"@base\","
+                "\"permissions\":\"mount\"}]}");
+            return r;
+        });
+        DatasetPermissionsCacheEntry e;
+        QVERIFY(window.readPermissionsForTest(0, QStringLiteral("tank/d"), e));
+        QCOMPARE(e.localGrants.size(), 1);
+        QCOMPARE(e.localGrants[0].targetName, QStringLiteral("ana"));
+        QCOMPARE(e.localGrants[0].permissions,
+                 (QStringList{QStringLiteral("mount"), QStringLiteral("snapshot")}));
+        QCOMPARE(e.descendantGrants.size(), 1);
+        QCOMPARE(e.descendantGrants[0].targetType, QStringLiteral("group"));
+        QCOMPARE(e.localDescendantGrants.size(), 1);
+        QCOMPARE(e.localDescendantGrants[0].targetType, QStringLiteral("everyone"));
+        QCOMPARE(e.createPermissions, QStringList{QStringLiteral("destroy")});
+        QCOMPARE(e.permissionSets.size(), 1);
+        QCOMPARE(e.permissionSets[0].name, QStringLiteral("@base"));
+        QCOMPARE(e.originalLocalGrants.size(), 1);
+    }
+
     // The tree of a pool is the shell's `ls -r`: datasets, snapshots newest first, guids.
     void poolTreeComesFromTheShellsLs() {
         MainWindow window(QStringLiteral("test"), QStringLiteral("en"));

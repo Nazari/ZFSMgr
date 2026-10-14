@@ -1672,42 +1672,6 @@ void MainWindow::applyPoolAutoSnapshotInfoLoadResult(
     }
 }
 
-bool MainWindow::fetchConnectionCommandOutput(int connIdx,
-                                              const QString& actionName,
-                                              const QString& remoteCmd,
-                                              QString* outputOut,
-                                              QString* failureDetailOut,
-                                              int timeoutMs) {
-    if (connIdx < 0 || connIdx >= m_conns.profiles.size() || actionName.trimmed().isEmpty()) {
-        if (failureDetailOut) {
-            *failureDetailOut = QStringLiteral("invalid connection query context");
-        }
-        return false;
-    }
-    const ConnectionProfile p = m_conns.profiles[connIdx];
-    QString out;
-    QString err;
-    int rc = -1;
-    const bool ok = runSsh(p, remoteCmd, timeoutMs, out, err, rc) && rc == 0;
-    if (!ok) {
-        if (failureDetailOut) {
-            QStringList parts;
-            if (!err.trimmed().isEmpty()) {
-                parts << err.trimmed();
-            }
-            if (!out.trimmed().isEmpty()) {
-                parts << out.trimmed();
-            }
-            *failureDetailOut = parts.isEmpty() ? QStringLiteral("exit %1").arg(rc) : parts.join(QStringLiteral("\n\n"));
-        }
-        return false;
-    }
-    if (outputOut) {
-        *outputOut = out;
-    }
-    return true;
-}
-
 QMap<QString, QMap<QString, QString>> MainWindow::poolAutoSnapshotPropsByDataset(int connIdx, const QString& poolName) const {
     if (const PoolInfo* poolInfo = findPoolInfo(connIdx, poolName)) {
         return poolInfo->runtime.autoSnapshotPropsByDataset;
@@ -1725,20 +1689,13 @@ bool MainWindow::ensureDatasetSnapshotHoldsLoaded(int connIdx, const QString& po
     if (dsInfo && dsInfo->runtime.holdsState == LoadState::Loaded) {
         return true;
     }
-    // Copy, not a reference: m_conns.profiles is reassigned wholesale by loadConnections(),
-    // which a queued event can trigger while runSsh() pumps the event loop.
-    const ConnectionProfile p = m_conns.profiles[connIdx];
-    QString out;
+    // The shell's `holds`.
+    QJsonObject r;
     QString err;
-    int rc = -1;
-    // Los holds, por verbo tipado. Aquí se armaba `zfs holds -H` y se ejecutaba con sudo por
-    // SSH, sin mirar siquiera si había agente.
-    if (!requireDaemonForRead(connIdx, QStringLiteral("leer los holds"))) {
-        return false;
-    }
-    const bool holdsOk =
-        runAgentCommand(p, mwhelpers::argvQt(zfsmgr::commands::requests::holdsOf({trimmedObject.toStdString()})), 20000, out, err, rc)
-        && rc == 0;
+    const QString ds = trimmedObject.section(QLatin1Char('@'), 0, 0);
+    const QString snap = trimmedObject.section(QLatin1Char('@'), 1);
+    const bool holdsOk = cliReadJson(
+        connIdx, QStringLiteral("holds --on %1").arg(zfsmUrl(connIdx, ds, snap)), r, &err, 20000);
     // Re-look up after the yield: rebuildConnInfoFor() replaces the whole ConnInfo,
     // destroying the nested maps dsInfo points into. Every use below is after this.
     dsInfo = findDsInfo(connIdx, trimmedPool, trimmedObject);
@@ -1749,22 +1706,16 @@ bool MainWindow::ensureDatasetSnapshotHoldsLoaded(int connIdx, const QString& po
         }
         return false;
     }
-
     QVector<QPair<QString, QString>> holds;
     QSet<QString> seen;
-    for (const QString& line : out.split('\n', Qt::SkipEmptyParts)) {
-        const QStringList parts = line.split('\t');
-        if (parts.size() < 2) {
+    for (const QJsonValue& v : r.value(QStringLiteral("holds")).toArray()) {
+        const QJsonObject o = v.toObject();
+        const QString tag = o.value(QStringLiteral("tag")).toString().trimmed();
+        if (tag.isEmpty() || seen.contains(tag.toLower())) {
             continue;
         }
-        const QString tag = parts.value(1).trimmed();
-        const QString timestamp = parts.value(2).trimmed();
-        const QString key = tag.toLower();
-        if (tag.isEmpty() || seen.contains(key)) {
-            continue;
-        }
-        seen.insert(key);
-        holds.push_back(qMakePair(tag, timestamp));
+        seen.insert(tag.toLower());
+        holds.push_back(qMakePair(tag, o.value(QStringLiteral("created")).toString().trimmed()));
     }
     if (dsInfo) {
         dsInfo->runtime.snapshotHolds = holds;

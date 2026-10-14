@@ -785,6 +785,13 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
       {"export-trust unibody",
        {"t_ej_export_trust_1", "lleva el almacén de confianza a esa máquina"}},
      }},
+    {"accounts",
+     {
+      {"accounts",
+       {"t_ej_accounts_1", "los usuarios de la máquina"}},
+      {"accounts --groups",
+       {"t_ej_accounts_2", "y sus grupos"}},
+     }},
     {"peers",
      {
       {"peers",
@@ -1496,6 +1503,13 @@ const std::vector<Orden> kOrdenes = {
        "con esos daemons como usted."}},
      Objetivo::Conexion,
      {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::Una}}},
+    {"accounts", {"t_permisos_d_3db5da", "Permisos delegados"}, {"t_accounts_uso", "[--groups]"},
+     {"t_accounts_res", "Los usuarios de la máquina, o sus grupos: a quién se puede delegar un permiso."},
+     {{{"t_accounts_groups", "--groups"}, {"t_accounts_groups_q", "Los grupos en vez de los usuarios."}}},
+     {{"t_accounts_det", "Salen de la base de cuentas del sistema —también las de LDAP o NIS, como "
+       "con «getent»—, no de un fichero; en Windows, las cuentas locales."}},
+     Objetivo::Conexion,
+     {}},
     {"peers", {"t_daemon_48e665", "Daemon"}, {"t_peers_uso", "[--push]"},
      {"t_peers_res", "Qué otras máquinas sabe alcanzar el daemon de esta."},
      {{{"t_peers_push", "--push"},

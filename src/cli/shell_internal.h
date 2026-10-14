@@ -374,6 +374,7 @@ bool cmdAuthorizeKey(Estado& e, const LineaAnalizada& linea);
 bool cmdExportTrust(Estado& e, const LineaAnalizada& linea);
 bool cmdRepairMounts(Estado& e, const LineaAnalizada& linea);
 bool cmdPeers(Estado& e, const LineaAnalizada& linea);
+bool cmdAccounts(Estado& e, const LineaAnalizada& linea);
 bool cmdLog(Estado& e, const LineaAnalizada& linea);
 bool cmdSchedules(Estado& e, const LineaAnalizada& linea);
 B::gsa::ConnectionState estadoDeProgramaciones(Sesion& ses, const B::ConnectionProfile& p,

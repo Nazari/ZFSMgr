@@ -2061,6 +2061,10 @@ def casos_permisos(ctx):
     caso(ctx, "allow: delega un permiso y ZFS lo tiene",
          [f"cd Local/{P}/datos", "allow --user linarese snapshot"],
          estado=[("zfs allow lo enseña", f"zfs allow {P}/datos", r"linarese.*snapshot")])
+    caso(ctx, "accounts: los usuarios de la máquina, de la base de cuentas",
+         ["cd Local", "accounts"], espera=[r"^root$", r"^linarese$"])
+    caso(ctx, "accounts --groups: y sus grupos",
+         ["cd Local", "format json", "accounts --groups"], espera=[r'"name": "root"'])
     caso(ctx, "allow: sin argumentos LISTA lo delegado",
          [f"cd Local/{P}/datos", "allow"], espera=[r"linarese"])
     caso(ctx, "unallow: lo revoca",

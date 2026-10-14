@@ -219,6 +219,34 @@ bool cmdRepairMounts(Estado& e, const LineaAnalizada& linea) {
 // daemon solo, de madrugada, sin nadie delante: las credenciales tienen que estar en la
 // máquina. Y son las de la OTRA punta —cada daemon verifica a sus clientes contra su
 // propio certificado—, que es justo lo que el cliente ya guarda por conexión.
+// The machine's users, or with --groups its groups: who a permission can be delegated to.
+bool cmdAccounts(Estado& e, const LineaAnalizada& linea) {
+    Peticion pet;
+    if (!prepara(e, linea, pet)) {
+        return false;
+    }
+    const bool grupos = pet.tiene("--groups");
+    std::string out;
+    if (!agente(e, pet.objetivo, PET::accounts(grupos ? "group" : "user"), out, 20000)) {
+        return false;
+    }
+    Tabla t;
+    t.nombreJson = grupos ? "groups" : "users";
+    t.cabecerasTexto = {grupos ? T("t_cab_grupo", "GRUPO") : T("t_cab_usuario", "USUARIO")};
+    t.campos = {"name"};
+    t.tipos = {Tipo::Cadena};
+    for (const std::string& n : B::split(out, "\n", true)) {
+        if (!B::trim(n).empty()) {
+            t.filas.push_back({B::trim(n)});
+        }
+    }
+    if (!aplicaFiltro(e, t)) {
+        return false;
+    }
+    t.imprime(e.formato);
+    return true;
+}
+
 bool cmdPeers(Estado& e, const LineaAnalizada& linea) {
     Peticion pet;
     if (!prepara(e, linea, pet)) {

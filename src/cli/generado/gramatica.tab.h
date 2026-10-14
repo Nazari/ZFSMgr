@@ -124,24 +124,25 @@ extern int zfsmclidebug;
     V_LOG = 311,                   /* V_LOG  */
     V_PEERS = 312,                 /* V_PEERS  */
     V_REPAIR_MOUNTS = 313,         /* V_REPAIR_MOUNTS  */
-    V_AUTHORIZE_KEY = 314,         /* V_AUTHORIZE_KEY  */
-    V_EXPORT_TRUST = 315,          /* V_EXPORT_TRUST  */
-    V_ROLLBACK = 316,              /* V_ROLLBACK  */
-    V_HOLDS = 317,                 /* V_HOLDS  */
-    V_HOLD = 318,                  /* V_HOLD  */
-    V_RELEASE = 319,               /* V_RELEASE  */
-    V_CLONE = 320,                 /* V_CLONE  */
-    V_DIFF = 321,                  /* V_DIFF  */
-    V_SEND = 322,                  /* V_SEND  */
-    V_ALLOW = 323,                 /* V_ALLOW  */
-    V_UNALLOW = 324,               /* V_UNALLOW  */
-    V_BREAKDOWN = 325,             /* V_BREAKDOWN  */
-    V_ASSEMBLE = 326,              /* V_ASSEMBLE  */
-    V_TODIR = 327,                 /* V_TODIR  */
-    V_FROMDIR = 328,               /* V_FROMDIR  */
-    V_RSYNC = 329,                 /* V_RSYNC  */
-    V_CP = 330,                    /* V_CP  */
-    V_DESCONOCIDO = 331            /* V_DESCONOCIDO  */
+    V_ACCOUNTS = 314,              /* V_ACCOUNTS  */
+    V_AUTHORIZE_KEY = 315,         /* V_AUTHORIZE_KEY  */
+    V_EXPORT_TRUST = 316,          /* V_EXPORT_TRUST  */
+    V_ROLLBACK = 317,              /* V_ROLLBACK  */
+    V_HOLDS = 318,                 /* V_HOLDS  */
+    V_HOLD = 319,                  /* V_HOLD  */
+    V_RELEASE = 320,               /* V_RELEASE  */
+    V_CLONE = 321,                 /* V_CLONE  */
+    V_DIFF = 322,                  /* V_DIFF  */
+    V_SEND = 323,                  /* V_SEND  */
+    V_ALLOW = 324,                 /* V_ALLOW  */
+    V_UNALLOW = 325,               /* V_UNALLOW  */
+    V_BREAKDOWN = 326,             /* V_BREAKDOWN  */
+    V_ASSEMBLE = 327,              /* V_ASSEMBLE  */
+    V_TODIR = 328,                 /* V_TODIR  */
+    V_FROMDIR = 329,               /* V_FROMDIR  */
+    V_RSYNC = 330,                 /* V_RSYNC  */
+    V_CP = 331,                    /* V_CP  */
+    V_DESCONOCIDO = 332            /* V_DESCONOCIDO  */
   };
   typedef enum zfsmclitokentype zfsmclitoken_kind_t;
 #endif
@@ -154,7 +155,7 @@ union ZFSMCLISTYPE
 
     char* texto;
 
-#line 158 "generado/gramatica.tab.h"
+#line 159 "generado/gramatica.tab.h"
 
 };
 typedef union ZFSMCLISTYPE ZFSMCLISTYPE;
@@ -173,6 +174,6 @@ int zfsmcliparse (void* scanner, AnalisisCli* res);
 int zfsmclilex(ZFSMCLISTYPE* yylval, void* scanner);
 void zfsmclierror(void* scanner, AnalisisCli* res, const char* msg);
 
-#line 177 "generado/gramatica.tab.h"
+#line 178 "generado/gramatica.tab.h"
 
 #endif /* !YY_ZFSMCLI_GENERADO_GRAMATICA_TAB_H_INCLUDED  */

@@ -62,7 +62,7 @@ void zfsmclierror(void* scanner, AnalisisCli* res, const char* msg);
 %token <texto> V_SCRUB V_TRIM V_INITIALIZE V_CLEAR
 %token <texto> V_CREATE V_DESTROY V_RENAME V_MOUNT V_UNMOUNT V_PROMOTE
 %token <texto> V_GET V_SET V_INHERIT V_LOAD_KEY V_UNLOAD_KEY V_CHANGE_KEY
-%token <texto> V_SCHEDULE V_SCHEDULES V_LOG V_PEERS V_REPAIR_MOUNTS
+%token <texto> V_SCHEDULE V_SCHEDULES V_LOG V_PEERS V_REPAIR_MOUNTS V_ACCOUNTS
 %token <texto> V_AUTHORIZE_KEY V_EXPORT_TRUST
 %token <texto> V_ROLLBACK V_HOLDS V_HOLD V_RELEASE V_CLONE V_DIFF V_SEND
 %token <texto> V_ALLOW V_UNALLOW
@@ -155,6 +155,7 @@ orden
     | V_SCHEDULES destino_opt                { astVerbo(res, $1); }
     | V_LOG destino_opt                      { astVerbo(res, $1); }
     | V_PEERS destino_opt                    { astVerbo(res, $1); }
+    | V_ACCOUNTS destino_opt                 { astVerbo(res, $1); }
     | V_REPAIR_MOUNTS destino_opt            { astVerbo(res, $1); }
 /* Las dos llevan la OTRA máquina como palabra: «authorize-key oldlau» estando en unibody.
  * Por eso su destino propio va por `--on`, como en `send`: si no, no habría forma de saber

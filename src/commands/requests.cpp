@@ -105,6 +105,10 @@ std::vector<std::string> guidMap(const std::string& objeto) {
     return withOne("--dump-zfs-guid-map", objeto);
 }
 
+std::vector<std::string> accounts(const std::string& clase) {
+    return withOne("--dump-accounts", clase);
+}
+
 std::vector<std::string> snapshotGuids(const std::string& dataset) {
     return withOne("--dump-zfs-snapshot-guids", dataset);
 }

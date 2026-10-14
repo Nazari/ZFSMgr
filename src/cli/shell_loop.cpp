@@ -524,6 +524,7 @@ const std::map<std::string, Manejador>& ordenesDelInterprete() {
         {"schedules", cmdSchedules},
         {"log", cmdLog},
         {"peers", cmdPeers},
+        {"accounts", cmdAccounts},
         {"repair-mounts", cmdRepairMounts},
         {"authorize-key", cmdAuthorizeKey},
         {"export-trust", cmdExportTrust},
