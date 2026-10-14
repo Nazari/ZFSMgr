@@ -8,6 +8,8 @@
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPushButton>
@@ -145,27 +147,60 @@ void MainWindow::fillPaneSchedules(int paneIdx, int connIdx, const QString& pool
     }
 }
 
+bool MainWindow::readScheduleStatus(int connIdx, G::ConnectionState& out, QString* error) {
+    out = G::ConnectionState{};
+    out.connection = cliConnName(connIdx).toStdString();
+    QJsonObject r;
+    QString err;
+    const bool leido = cliReadJson(
+        connIdx, QStringLiteral("schedule status %1").arg(cliConnName(connIdx)), r, &err, 20000);
+    if (error) {
+        *error = err;
+    }
+    if (!leido) {
+        out.whyNotChecked = err.toStdString();
+        return false;
+    }
+    out.checked = true;
+    const auto texto = [](const QJsonObject& o, const char* k) {
+        return o.value(QLatin1String(k)).toString().toStdString();
+    };
+    const auto entero = [](const QJsonObject& o, const char* k) {
+        return static_cast<long long>(o.value(QLatin1String(k)).toDouble());
+    };
+    for (const QJsonValue& v : r.value(QStringLiteral("schedule_status")).toArray()) {
+        const QJsonObject o = v.toObject();
+        G::DatasetState d;
+        d.dataset = texto(o, "dataset");
+        d.destination = texto(o, "destination");
+        d.lastSnapshot = texto(o, "last_snapshot");
+        d.lastSnapshotTime = entero(o, "last_snapshot_time");
+        d.level = o.value(QStringLiteral("levels")).toBool();
+        d.hasLevel = o.value(QStringLiteral("has_level")).toBool();
+        d.levelOk = o.value(QStringLiteral("level_ok")).toBool(true);
+        d.lastLevelTime = entero(o, "last_level_time");
+        d.next = entero(o, "next");
+        d.failedStep = texto(o, "failed_step");
+        d.error = texto(o, "error");
+        out.datasets.push_back(std::move(d));
+    }
+    return true;
+}
+
 void MainWindow::loadPaneScheduleStatusAsync(int paneIdx) {
     const DatasetPane& pane = m_datasetPanes[paneIdx];
     const int connIdx = pane.schedConnIdx;
     if (connIdx < 0 || connIdx >= m_conns.profiles.size()) {
         return;
     }
-    const ConnectionProfile p = m_conns.profiles[connIdx];
     const QString dataset = pane.schedDataset;
-    (void)QtConcurrent::run([this, paneIdx, p, dataset]() {
+    (void)QtConcurrent::run([this, paneIdx, connIdx, dataset]() {
         if (m_destroying.load()) {
             return;
         }
-        QString out;
         QString err;
-        int rc = -1;
         G::ConnectionState c;
-        std::string error;
-        const bool ok =
-            runAgentOnConnection(p, mwhelpers::argvQt(zfsmgr::commands::requests::gsaStatus()),
-                                 8000, out, err, rc)
-            && rc == 0 && G::parseState(out.toStdString(), c, error);
+        const bool ok = readScheduleStatus(connIdx, c, &err);
         QMetaObject::invokeMethod(this, [this, paneIdx, dataset, ok, c, err]() {
             DatasetPane& pn = m_datasetPanes[paneIdx];
             if (!pn.schedStatus || pn.schedDataset != dataset) {

@@ -132,10 +132,11 @@ void MainWindow::composeStatusBar() {
 }
 
 void MainWindow::refreshStatusBarSchedulesAsync() {
-    QVector<ConnectionProfile> perfiles;
+    QVector<QPair<int, QString>> perfiles;
     for (int i = 0; i < m_conns.profiles.size() && i < m_conns.states.size(); ++i) {
         if (m_conns.states[i].daemonActive && !isConnectionDisconnected(i)) {
-            perfiles.push_back(m_conns.profiles[i]);
+            const ConnectionProfile& p = m_conns.profiles[i];
+            perfiles.push_back({i, p.name.isEmpty() ? p.id : p.name});
         }
     }
     if (perfiles.isEmpty()) {
@@ -144,22 +145,13 @@ void MainWindow::refreshStatusBarSchedulesAsync() {
     // One task for all of them; the window waits for it when it is destroyed (~MainWindow).
     (void)QtConcurrent::run([this, perfiles]() {
         std::vector<zfsmgr::base::gsa::ConnectionState> estados;
-        for (const ConnectionProfile& p : perfiles) {
+        for (const auto& par : perfiles) {
             if (m_destroying.load()) {
                 return;
             }
             zfsmgr::base::gsa::ConnectionState c;
-            c.connection = (p.name.isEmpty() ? p.id : p.name).toStdString();
-            QString out;
-            QString err;
-            int rc = -1;
-            std::string error;
-            if (runAgentOnConnection(p, mwhelpers::argvQt(zfsmgr::commands::requests::gsaStatus()),
-                                     8000, out, err, rc)
-                && rc == 0) {
-                zfsmgr::base::gsa::parseState(out.toStdString(), c, error);
-            }
-            c.connection = (p.name.isEmpty() ? p.id : p.name).toStdString();
+            readScheduleStatus(par.first, c);
+            c.connection = par.second.toStdString();
             estados.push_back(std::move(c));
         }
         QMetaObject::invokeMethod(this, [this, estados]() {

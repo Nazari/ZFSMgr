@@ -74,7 +74,9 @@ inline Acumulador*& acumuladorActivo() {
 struct Tabla {
     std::string nombreJson;                   // la clave de la colección: "connections"
     std::vector<std::string> cabecerasTexto;  // en el idioma de la aplicación
-    std::vector<std::string> campos;          // estables, en inglés; los usan tsv y json
+    // Stable, in English. Those beyond `cabecerasTexto` go in json only: what a program needs
+    // (times in seconds, the error) and a person reads in other words.
+    std::vector<std::string> campos;
     std::vector<Tipo> tipos;                  // por columna; solo lo mira json
     std::vector<std::vector<std::string>> filas;
 
@@ -174,7 +176,7 @@ struct Tabla {
         }
         if (f == Formato::Tsv) {
             for (const auto& fila : filas) {
-                for (std::size_t i = 0; i < fila.size(); ++i) {
+                for (std::size_t i = 0; i < fila.size() && i < cabecerasTexto.size(); ++i) {
                     std::printf("%s%s", i ? "\t" : "", fila[i].empty() ? "-" : fila[i].c_str());
                 }
                 std::printf("\n");
@@ -188,7 +190,7 @@ struct Tabla {
             std::vector<std::vector<std::string>> celdas;
             for (const auto& fila : filas) {
                 std::vector<std::string> c;
-                for (std::size_t i = 0; i < fila.size(); ++i) {
+                for (std::size_t i = 0; i < fila.size() && i < cabecerasTexto.size(); ++i) {
                     const std::string v = celdaTexto(i, fila[i]);
                     c.push_back(v.empty() ? "-" : v);
                 }
@@ -216,7 +218,11 @@ struct Tabla {
         for (std::size_t i = 0; i < cabecerasTexto.size(); ++i) {
             ancho[i] = anchoVisible(cabecerasTexto[i]);
         }
-        for (const auto& fila : filas) {
+        for (const auto& filaEntera : filas) {
+            const std::vector<std::string> fila(
+                filaEntera.begin(),
+                filaEntera.begin()
+                    + static_cast<std::ptrdiff_t>(std::min(filaEntera.size(), ancho.size())));
             for (std::size_t i = 0; i < fila.size() && i < ancho.size(); ++i) {
                 // La ÚLTIMA celda de una fila no se rellena —`linea()` no le pone espacios
                 // detrás— así que su anchura no pinta nada y no debe ensanchar la columna.
@@ -247,7 +253,12 @@ struct Tabla {
         };
         linea(cabecerasTexto, true);
         for (const auto& fila : filas) {
-            linea(fila, false);
+            linea(fila.size() > cabecerasTexto.size()
+                      ? std::vector<std::string>(
+                            fila.begin(),
+                            fila.begin() + static_cast<std::ptrdiff_t>(cabecerasTexto.size()))
+                      : fila,
+                  false);
         }
     }
 };

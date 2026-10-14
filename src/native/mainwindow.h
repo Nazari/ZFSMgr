@@ -861,6 +861,9 @@ private:
     // thread. False (and `error`) when the line failed or did not answer JSON.
     bool cliReadJson(int connIdx, const QString& line, QJsonObject& out, QString* error = nullptr,
                      int timeoutMs = 120000);
+    // The schedules of a connection as the shell's `schedule status <conn>` reports them.
+    bool readScheduleStatus(int connIdx, zfsmgr::base::gsa::ConnectionState& out,
+                            QString* error = nullptr);
     // The options of `create <id>` / `edit <id>` for what the connection dialog holds.
     static QString cliConnectionOptions(const ConnectionProfile& p, bool editing);
     void buildStatusBar();

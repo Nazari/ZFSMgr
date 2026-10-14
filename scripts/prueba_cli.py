@@ -2132,6 +2132,9 @@ def casos_gsa(ctx):
          [f"cd Local/{O}", "schedule run --wait"], rc=0,
          estado=[("el diario en el origen", snaps(O), r"@GSA-daily-\d{8}-\d{6}$"),
                  ("y en el destino", snaps(C), r"@GSA-daily-\d{8}-\d{6}$")])
+    caso(ctx, "gsa: schedule status en json lleva las horas y el paso que falló",
+         [f"cd Local/{O}", "format json", "schedule status"], rc=0,
+         espera=[r'"next": \d+', r'"last_snapshot_time": \d+', r'"failed_step": null'])
     caso(ctx, "gsa: schedule status en verde",
          [f"cd Local/{O}", "schedule status"], rc=0, idioma="es",
          espera=[rf"local\s+{O}\s+GSA-daily-\S+\s+ok .*verde"])

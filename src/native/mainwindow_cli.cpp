@@ -119,17 +119,17 @@ bool MainWindow::cliReadJson(int connIdx, const QString& line, QJsonObject& out,
     const QString clave = cliConnName(connIdx);
     const CliService::Result r =
         m_cliReader->read(clave.isEmpty() ? QStringLiteral("-") : clave, line, timeoutMs);
-    if (r.rc != 0) {
-        if (error) {
-            *error =
-                r.err.trimmed().isEmpty() ? QStringLiteral("rc=%1").arg(r.rc) : r.err.trimmed();
-        }
-        return false;
+    // A line can answer its table AND fail —`schedule status` with a red schedule—: the
+    // table counts, and the error is kept for whoever wants it.
+    if (error) {
+        *error = r.rc == 0                   ? QString()
+                 : r.err.trimmed().isEmpty() ? QStringLiteral("rc=%1").arg(r.rc)
+                                             : r.err.trimmed();
     }
     QJsonParseError pe;
     const QJsonDocument doc = QJsonDocument::fromJson(r.out.toUtf8(), &pe);
     if (!doc.isObject()) {
-        if (error) {
+        if (error && error->isEmpty()) {
             *error = QStringLiteral("%1: %2").arg(line, pe.errorString());
         }
         return false;

@@ -190,8 +190,13 @@ bool cmdScheduleStatus(Estado& e, const LineaAnalizada& linea) {
     t.cabecerasTexto = {T("t_cab_conexion", "CONEXIÓN"),        T("t_cab_dataset", "DATASET"),
                         T("t_cab_ult_snap", "ÚLTIMO SNAPSHOT"), T("t_cab_nivelacion", "NIVELACIÓN"),
                         T("t_cab_destino", "DESTINO"),          T("t_cab_estado", "ESTADO")};
-    t.campos = {"connection", "dataset", "last_snapshot", "level", "destination", "state"};
-    t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena};
+    t.campos = {"connection", "dataset", "last_snapshot", "level", "destination", "state",
+                // json only:
+                "last_snapshot_time", "levels", "has_level", "level_ok", "last_level_time", "next",
+                "failed_step", "error"};
+    t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Cadena,   Tipo::Cadena,   Tipo::Cadena,
+               Tipo::Cadena, Tipo::Entero, Tipo::Booleano, Tipo::Booleano, Tipo::Booleano,
+               Tipo::Entero, Tipo::Entero, Tipo::Cadena,   Tipo::Cadena};
     std::vector<std::string> motivos;
     bool algunFallo = false;
     for (const auto* p : maquinas) {
@@ -228,9 +233,13 @@ bool cmdScheduleStatus(Estado& e, const LineaAnalizada& linea) {
             } else if (d.pending) {
                 estado = T("t_sch_pendiente", "pendiente");
             }
-            t.filas.push_back({c.connection, d.dataset,
-                               d.lastSnapshot.empty() ? "-" : d.lastSnapshot, nivel,
-                               d.destination.empty() ? "-" : d.destination, estado});
+            const auto b = [](bool v) { return std::string(v ? "true" : "false"); };
+            const auto n = [](long long v) { return v > 0 ? std::to_string(v) : std::string(); };
+            t.filas.push_back(
+                {c.connection, d.dataset, d.lastSnapshot.empty() ? "-" : d.lastSnapshot, nivel,
+                 d.destination.empty() ? "-" : d.destination, estado, n(d.lastSnapshotTime),
+                 b(d.level), b(d.hasLevel), b(d.levelOk), n(d.lastLevelTime), n(d.next),
+                 c.stale ? std::string("scheduler") : d.failedStep, d.error});
         }
     }
     if (t.filas.empty() && motivos.empty()) {
