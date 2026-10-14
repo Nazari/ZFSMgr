@@ -842,8 +842,10 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
     // sin ella, la comprobación del arranque de siempre, en una línea.
     std::unique_ptr<ComprobacionDeArranque> comprobacion;
     std::unique_ptr<MonitorDeEstado> monitor;
+    std::string huellaMonitor;
     if (interactivo && pantalla::activa() && !ses.sinSecretos) {
         monitor = std::make_unique<MonitorDeEstado>(ses, e.conns, compruebaProgramaciones);
+        huellaMonitor = MonitorDeEstado::huella(e.conns);
     } else if (interactivo && compruebaProgramaciones && !ses.sinSecretos) {
         comprobacion = std::make_unique<ComprobacionDeArranque>(ses, e.conns);
     }
@@ -870,6 +872,12 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
     while (!e.salir) {
         if (monitor) {
             pantalla::sincroniza();
+            // The connections changed under it: a new monitor over the current ones.
+            if (const std::string h = MonitorDeEstado::huella(e.conns); h != huellaMonitor) {
+                monitor.reset();
+                monitor = std::make_unique<MonitorDeEstado>(ses, e.conns, compruebaProgramaciones);
+                huellaMonitor = h;
+            }
             monitor->trasOrden(e.ultimoRc, pantalla::ultimaLineaDeError(),
                                B::startsWith(ultimaOrden, "schedule"));
         }

@@ -622,8 +622,8 @@ bool cmdFromDir(Estado& e, const LineaAnalizada& linea) {
                     e.ultimoRc = 1;
                     return false;
                 }
-                std::fprintf(stderr,
-                             TC("t_fromdir_verificado", "copia verificada: ninguna diferencia\n"));
+                std::fputs(TC("t_fromdir_verificado", "copia verificada: ninguna diferencia\n"),
+                           stderr);
                 std::string borrado;
                 if (!agente(e, origen, AV::argvRemoveTree(dir), borrado, 600000)) {
                     return false;

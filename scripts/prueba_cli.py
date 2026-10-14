@@ -1370,12 +1370,13 @@ class Tmux:
     se le puede cambiar el tamaño y devuelve lo que se VE. En un servidor propio
     (`-L zfsmgr-bateria`), sin tocar ninguna sesión del usuario."""
 
-    def __init__(self, ctx, ancho, alto, extra=""):
+    def __init__(self, ctx, ancho, alto, extra="", programaciones=False):
         self.t = ["tmux", "-L", "zfsmgr-bateria"]
         fichero = os.path.join(ctx.dir_tmp, ".maestra")
         subprocess.run(self.t + ["kill-server"], capture_output=True)
+        sin = "" if programaciones else "--no-schedule-check "
         orden = (f"bash -c 'exec 9<{fichero}; exec {CLI} --password-fd 9 --lang es "
-                 f"--no-schedule-check {extra}'")
+                 f"{sin}{extra}'")
         subprocess.run(self.t + ["new-session", "-d", "-s", "p", "-x", str(ancho), "-y",
                                  str(alto), orden], check=True)
         subprocess.run(self.t + ["set", "-g", "window-size", "manual"], capture_output=True)
@@ -1691,6 +1692,54 @@ def casos_pantalla(ctx):
                   [] if "✗" not in abajo else [f"sigue: «{abajo}»"], abajo)
     finally:
         t.cierra()
+
+
+def casos_monitor_conexiones(ctx):
+    """La zona de estado sigue a las conexiones: dar de alta o reconectar una que tiene
+    programaciones las enseña sin salir del intérprete. El monitor tomaba la lista solo al
+    arrancar y seguía diciendo «sin programaciones»."""
+    if not shutil.which("tmux"):
+        print("  (sin tmux: no se prueba la pantalla)")
+        return
+    cfg = os.path.join(ctx.dir_tmp, "cfg-monitor")
+    if os.path.isdir(cfg):
+        shutil.rmtree(cfg)
+    shutil.copytree(os.path.expanduser("~/.config/ZFSMgr"), cfg)
+    with open(os.path.join(cfg, "config.json")) as f:
+        ids = [c.get("id") or c.get("name") for c in json.load(f).get("connections", [])]
+    # Every connection out but unib, the one with an hourly schedule; and unib too, for now.
+    fichero = os.path.join(ctx.dir_tmp, ".maestra")
+    entrada = "".join(f"disconnect zfsm://{i}\n" for i in ids) + "exit\n"
+    subprocess.run(f"exec 9<{fichero}; exec {CLI!r} --password-fd 9 -y --no-tui "
+                   f"--config-dir {shlex.quote(cfg)}", shell=True, input=entrada, text=True,
+                   capture_output=True, timeout=120)
+
+    def comprueba(nombre, problemas, vista):
+        if problemas:
+            ctx.fallos.append((nombre, problemas, vista[-600:]))
+            print(f"  FALLO  {nombre}")
+            for x in problemas:
+                print(f"         {x}")
+        else:
+            ctx.pasados.append(nombre)
+            print(f"  ok     {nombre}")
+
+    t = Tmux(ctx, 160, 15, f"--config-dir {shlex.quote(cfg)}", programaciones=True)
+    try:
+        t.espera("sin programaciones", 30)
+        abajo = t.pantalla().rstrip().splitlines()[-1]
+        comprueba("pantalla: sin conexiones con programaciones, la zona lo dice",
+                  [] if "sin programaciones" in abajo else [f"la última fila es «{abajo}»"],
+                  abajo)
+        t.teclas("connect zfsm://unib", "Enter")
+        t.espera(r"siguiente: .* unib/", 40)
+        abajo = t.pantalla().rstrip().splitlines()[-1]
+        comprueba("pantalla: al conectar una con programaciones, la zona las enseña",
+                  [] if re.search(r"siguiente: .* unib/", abajo)
+                  else [f"la última fila es «{abajo}»"], abajo)
+    finally:
+        t.cierra()
+        shutil.rmtree(cfg, ignore_errors=True)
 
 
 def casos_tab_continua(ctx):
@@ -3050,7 +3099,7 @@ def casos_arranque(ctx):
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
 LOCALES = [casos_arranque, casos_identidad, casos_devices, casos_ayuda, casos_version_openzfs, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
-           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_send_level, casos_recepcion_a_medias, casos_send_fichero, casos_send_comprimido, casos_gsa, casos_sin_montar, casos_cp_destino, casos_load_key, casos_editor_ancho, casos_tab_continua, casos_pantalla, casos_path, casos_info_labelclear, casos_servicio, casos_servicio_conexiones, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
+           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_send_level, casos_recepcion_a_medias, casos_send_fichero, casos_send_comprimido, casos_gsa, casos_sin_montar, casos_cp_destino, casos_load_key, casos_editor_ancho, casos_tab_continua, casos_pantalla, casos_monitor_conexiones, casos_path, casos_info_labelclear, casos_servicio, casos_servicio_conexiones, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
 ENTRE_MAQUINAS = [casos_entre_maquinas]

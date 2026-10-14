@@ -488,6 +488,19 @@ private:
 // verdict is seen here, and failures are also written out once.
 class MonitorDeEstado {
 public:
+    // What the monitor watches, as one string: when it changes —a connection created,
+    // deleted, edited, connected or disconnected— the monitor has to be rebuilt. It took
+    // the list once at start and a new connection's schedules never reached the status line.
+    static std::string huella(const Conexiones& conns) {
+        std::string h;
+        for (const auto& p : conns.perfiles) {
+            const std::string id = p.id.empty() ? p.name : p.id;
+            h += id + '\x1f' + p.name + '\x1f' + p.host + '\x1f' + std::to_string(p.port) + '\x1f'
+                 + p.username + '\x1f' + p.connType + '\x1f' + (conns.desconectada(id) ? "d" : "c")
+                 + (conns.secretoSinAbrir(id) ? "s" : "o") + '\x1e';
+        }
+        return h;
+    }
     MonitorDeEstado(const Sesion& ses, const Conexiones& conns, bool programaciones)
         : m_dirConfig(ses.dirConfig), m_maestra(ses.maestra), m_programaciones(programaciones) {
         for (const auto& p : conns.perfiles) {
