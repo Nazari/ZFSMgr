@@ -44,25 +44,11 @@ struct ConnectionRuntimeState {
     // Por qué no hay versión de ZFS, cuando el agente sabe decirlo: «no está instalado» y
     // «está instalado y el módulo no está cargado» piden respuestas distintas.
     QString zfsUnavailableDetail;
-    QStringList detectedUnixCommands;
-    QStringList missingUnixCommands;
-    QString helperPlatformId;
-    QString helperPlatformLabel;
-    QString helperPackageManagerId;
-    QString helperPackageManagerLabel;
-    QString helperInstallReason;
-    QString helperInstallCommandPreview;
-    QStringList helperInstallableCommands;
-    QStringList helperUnsupportedCommands;
-    QStringList helperInstallPackages;
-    bool helperPackageManagerDetected{false};
-    bool helperInstallSupported{false};
     QVector<PoolImported> importedPools;
     QVector<PoolImportable> importablePools;
     QMap<QString, QString> poolGuidByName;
     QVector<QPair<QString, QString>> mountedDatasets; // dataset, mountpoint
     QMap<QString, QString> poolStatusByName;
-    QString daemonScheduler;
     QString daemonVersion;
     QString daemonApiVersion;
     QString daemonDetail;
@@ -75,7 +61,6 @@ struct ConnectionRuntimeState {
     // Verbos que el agente declara servir, tal cual los publica en --health. Vacío
     // significa "no lo dice", y entonces manda la tabla estática de zfsmgr::caps.
     QSet<QString> daemonCaps;
-    bool daemonZpoolImportUsable{true};
     QString daemonLastSeenZedEvent{QStringLiteral("@")}; // "@" = never polled; "" = polled/no events; "T" = last event
 };
 

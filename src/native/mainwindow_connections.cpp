@@ -1,4 +1,7 @@
 #include "mainwindow.h"
+
+#include <QJsonArray>
+#include <QJsonObject>
 #include "commands/peers.h"
 #include "connectionstore.h"
 #include "mainwindow_helpers.h"
@@ -171,8 +174,7 @@ QColor MainWindow::connectionStateRowColor(int connIdx) const {
         if (zfsTooOld) {
             return QColor(QStringLiteral("#f9dfdf"));
         }
-        return st.missingUnixCommands.isEmpty() ? QColor(QStringLiteral("#e4f4e4"))
-                                                : QColor(QStringLiteral("#fff1d9"));
+        return QColor(QStringLiteral("#e4f4e4"));
     }
     if (!status.isEmpty()) {
         return QColor(QStringLiteral("#f9dfdf"));
@@ -226,12 +228,6 @@ QString MainWindow::connectionStateColorReason(int connIdx) const {
         return trk(QStringLiteral("t_conn_color_reason_zfs_old_001"),
                    QStringLiteral("La versión de OpenZFS es demasiado antigua (mínimo recomendado: 2.3.3)."),
                    QStringLiteral("The OpenZFS version is too old (recommended minimum: 2.3.3)."));
-    }
-    if (!st.missingUnixCommands.isEmpty()) {
-        return trk(QStringLiteral("t_conn_color_reason_cmds_001"),
-                   QStringLiteral("Faltan comandos auxiliares requeridos: %1"),
-                   QStringLiteral("Required helper commands are missing: %1"))
-            .arg(st.missingUnixCommands.join(QStringLiteral(", ")));
     }
     return QString();
 }
@@ -290,32 +286,20 @@ QString MainWindow::connectionStateTooltipHtml(int connIdx) const {
         }
     }
     lines << QStringLiteral("Daemon: %1")
-                 .arg(!st.daemonInstalled ? QStringLiteral("no instalado")
-                                          : QStringLiteral("%1 | %2 | %3")
-                                                .arg(st.daemonVersion.trimmed().isEmpty() ? QStringLiteral("-")
-                                                                                           : st.daemonVersion.trimmed(),
-                                                     st.daemonScheduler.trimmed().isEmpty() ? QStringLiteral("-")
-                                                                                            : st.daemonScheduler.trimmed(),
-                                                     st.daemonActive ? QStringLiteral("activo")
-                                                                     : QStringLiteral("inactivo")));
+                 .arg(!st.daemonInstalled
+                          ? QStringLiteral("no instalado")
+                          : QStringLiteral("%1 | %2").arg(
+                                st.daemonVersion.trimmed().isEmpty() ? QStringLiteral("-")
+                                                                     : st.daemonVersion.trimmed(),
+                                st.daemonActive ? QStringLiteral("activo")
+                                                : QStringLiteral("inactivo")));
     lines << QStringLiteral("API daemon: %1")
                  .arg(st.daemonApiVersion.trimmed().isEmpty() ? QStringLiteral("-")
                                                               : st.daemonApiVersion.trimmed());
-    // Se informa de lo que la sonda encontró realmente, no de lo que se deduzca del
-    // sistema operativo: Windows lleva daemon nativo como todos los demás.
-    lines << QStringLiteral("Binario daemon: %1")
-                 .arg(st.daemonNativeBinary ? QStringLiteral("nativo")
-                                            : QStringLiteral("script/no nativo"));
     if (st.daemonNeedsAttention && !st.daemonAttentionReasons.isEmpty()) {
         lines << QStringLiteral("Atención daemon: %1")
                      .arg(st.daemonAttentionReasons.join(QStringLiteral(", ")));
     }
-    lines << QStringLiteral("Comandos detectados: %1")
-                 .arg(st.detectedUnixCommands.isEmpty() ? QStringLiteral("(ninguno)")
-                                                        : st.detectedUnixCommands.join(QStringLiteral(", ")));
-    lines << QStringLiteral("Comandos no detectados: %1")
-                 .arg(st.missingUnixCommands.isEmpty() ? QStringLiteral("(ninguno)")
-                                                       : st.missingUnixCommands.join(QStringLiteral(", ")));
     // Lo que esta conexión NO puede hacer, y por qué. Antes esto no se decía en
     // ninguna parte: el usuario lo descubría al pulsar y ver fallar la acción.
     {
@@ -343,9 +327,6 @@ QString MainWindow::connectionStateTooltipHtml(int connIdx) const {
             lines << QStringLiteral("Funciones no disponibles: %1")
                          .arg(unavailable.join(QStringLiteral("; ")));
         }
-    }
-    if (!st.helperInstallReason.trimmed().isEmpty()) {
-        lines << QStringLiteral("Motivo instalación asistida: %1").arg(st.helperInstallReason.trimmed());
     }
     if (windowsSshConn && !disconnected
         && st.status.trimmed().compare(QStringLiteral("OK"), Qt::CaseInsensitive) != 0) {
@@ -1120,10 +1101,8 @@ void MainWindow::pollDaemonZedAllConnections() {
 
     QVector<int> toCheck;
     for (int i = 0; i < m_conns.profiles.size() && i < m_conns.states.size(); ++i) {
-        if (m_conns.states[i].daemonActive
-            && !isLocalConnection(i)
-            && !isWindowsConnection(m_conns.profiles[i])
-            && m_conns.profiles[i].connType.trimmed().compare(QStringLiteral("SSH"), Qt::CaseInsensitive) == 0) {
+        // Every connection whose daemon answers: the shell reaches Local and Windows too.
+        if (m_conns.states[i].daemonActive && !isConnectionDisconnected(i)) {
             toCheck.append(i);
         }
     }
@@ -1138,24 +1117,24 @@ void MainWindow::pollDaemonZedAllConnections() {
     m_zedPollPending = toCheck.size();
 
     for (int idx : std::as_const(toCheck)) {
-        const ConnectionProfile profile = m_conns.profiles[idx];
-        const QString healthCmd = mwhelpers::agentShellCommand(profile, mwhelpers::argvQt(zfsmgr::commands::requests::health()));
-        const QString connId = profile.id;
+        const QString connId = m_conns.profiles[idx].id;
+        const QString url = zfsmUrl(idx);
 
-        (void)QtConcurrent::run([this, idx, connId, profile, healthCmd]() {
-            QString hout, herr;
-            int hrc = -1;
-            const bool ok = runSsh(profile, healthCmd, 8000, hout, herr, hrc) && hrc == 0;
+        (void)QtConcurrent::run([this, idx, connId, url]() {
+            // The shell's `info zfsm://<conn>`: the daemon's status and its last ZED event.
+            QJsonObject info;
+            const bool ok =
+                cliReadJson(idx, QStringLiteral("info %1").arg(url), info, nullptr, 15000);
             QString newZed;
             bool statusOk = false;
-            if (ok) {
-                const QString combined = hout + QStringLiteral("\n") + herr;
-                for (const QString& line : combined.split(QLatin1Char('\n'), Qt::SkipEmptyParts)) {
-                    if (line.startsWith(QStringLiteral("ZED_LAST_EVENT_UTC="))) {
-                        newZed = line.mid(19).trimmed();
-                    } else if (line.startsWith(QStringLiteral("STATUS=OK"))) {
-                        statusOk = true;
-                    }
+            for (const QJsonValue& v : info.value(QStringLiteral("items")).toArray()) {
+                const QJsonObject o = v.toObject();
+                const QString campo = o.value(QStringLiteral("field")).toString();
+                const QString valor = o.value(QStringLiteral("value")).toString().trimmed();
+                if (campo == QStringLiteral("zed_last_event_utc")) {
+                    newZed = valor;
+                } else if (campo == QStringLiteral("status")) {
+                    statusOk = valor == QStringLiteral("OK");
                 }
             }
             const bool healthFailed = !ok || !statusOk;

@@ -186,6 +186,9 @@ public:
     bool readPermissionsForTest(int connIdx, const QString& ds, DatasetPermissionsCacheEntry& e) {
         return readPermissionsEntry(connIdx, ds, e);
     }
+    ConnectionRuntimeState refreshConnectionForTest(const ConnectionProfile& p) {
+        return refreshConnection(p);
+    }
     bool loadPoolDatasetsForTest(int connIdx, const QString& pool) {
         m_conns.poolDatasetCache.remove(datasetCacheKey(connIdx, pool));
         return ensureDatasetsLoaded(connIdx, pool, true);
@@ -379,16 +382,6 @@ private:
         QString poolName;
         QString datasetName;
         DatasetPermissionsCacheEntry entry;
-    };
-    struct RefreshRuntimeCacheEntry {
-        QDateTime loadedAt;
-        QMap<QString, QString> poolStatusByName;
-        QMap<QString, QString> poolGuidByName;
-        QMap<QString, QMap<QString, QString>> gsaPropsByDataset;
-        bool commandsProbeLoaded{false};
-        QStringList detectedUnixCommands;
-        QStringList missingUnixCommands;
-        QMap<QString, bool> packageManagerAvailabilityById;
     };
     // Disponibilidad de las seis acciones que necesitan origen Y destino.
     //
@@ -1228,7 +1221,6 @@ private:
     // Túneles, reintentos y el cerrojo que los protege, todo junto. Antes el cerrojo y
     // lo que protegía estaban separados y solo un comentario decía cuáles iban juntos.
     TransportSession m_transport;
-    QMap<QString, RefreshRuntimeCacheEntry> m_refreshRuntimeCacheByConnId;
     QMap<QString, QStringList> m_connSystemUsersCacheByKey;
     QMap<QString, QStringList> m_connSystemGroupsCacheByKey;
     QSet<QString> m_connSystemUsersLoadedKeys;

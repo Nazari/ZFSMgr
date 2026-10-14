@@ -526,6 +526,61 @@ private Q_SLOTS:
         QCOMPARE(e.originalLocalGrants.size(), 1);
     }
 
+    // A connection's refresh is the shell's `refresh`, `ls` and `status`: no probe of its own.
+    void connectionRefreshComesFromTheShell() {
+        MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
+        ConnectionProfile profile;
+        profile.id = QStringLiteral("local");
+        profile.name = QStringLiteral("Local");
+        profile.connType = QStringLiteral("Local");
+        window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank")}, {});
+        window.setAgentTransportForTest(
+            [](const std::vector<std::string>&, std::string&, std::string&, int& rc) {
+                rc = 0;
+                return true;
+            });
+        window.setCliReadFakeForTest([](const QString& line) {
+            CliService::Result r;
+            r.rc = 0;
+            if (line == QStringLiteral("refresh --on zfsm://local")) {
+                r.out = QStringLiteral(
+                    "{\"refresh\":[{\"field\":\"os_line\",\"value\":\"Arch Linux\"},"
+                    "{\"field\":\"machine_uuid\",\"value\":\"c5aa63e237974d848427b62b044ae5a5\"},"
+                    "{\"field\":\"zfs_version_raw\",\"value\":\"zfs-2.4.4-1 zfs-kmod-2.4.4-1\"},"
+                    "{\"field\":\"status\",\"value\":\"OK\"},"
+                    "{\"field\":\"version\",\"value\":\"0.0.1\"},"
+                    "{\"field\":\"api\",\"value\":\"3\"},"
+                    "{\"field\":\"jobs_support\",\"value\":\"1\"},"
+                    "{\"field\":\"caps\",\"value\":\"--dump-zfs-allow,--job-submit\"}]}");
+            } else if (line == QStringLiteral("ls zfsm://local")) {
+                r.out = QStringLiteral(
+                    "{\"pools\":[{\"name\":\"tank\",\"imported\":true,\"guid\":\"11\"},"
+                    "{\"name\":\"old\",\"imported\":false,\"guid\":\"22\","
+                    "\"state\":\"ONLINE\",\"reason\":\"last accessed by another system\"}]}");
+            } else if (line == QStringLiteral("status --on zfsm://local/tank")) {
+                r.out = QStringLiteral("  pool: tank\n state: ONLINE\n");
+            } else {
+                r.rc = 1;
+            }
+            return r;
+        });
+        const ConnectionRuntimeState st = window.refreshConnectionForTest(profile);
+        QCOMPARE(st.status, QStringLiteral("OK"));
+        QCOMPARE(st.osLine, QStringLiteral("Arch Linux"));
+        QCOMPARE(st.zfsVersion, QStringLiteral("2.4.4"));
+        QVERIFY(st.daemonActive);
+        QVERIFY(st.daemonJobsSupported);
+        QVERIFY(st.daemonCaps.contains(QStringLiteral("--job-submit")));
+        QVERIFY(st.daemonNeedsAttention);  // 0.0.1 is older than this build
+        QCOMPARE(st.importedPools.size(), 1);
+        QCOMPARE(st.poolGuidByName.value(QStringLiteral("tank")), QStringLiteral("11"));
+        QCOMPARE(st.importablePools.size(), 1);
+        QCOMPARE(st.importablePools[0].guid, QStringLiteral("22"));
+        QVERIFY(
+            st.poolStatusByName.value(QStringLiteral("tank")).contains(QStringLiteral("ONLINE")));
+        QVERIFY2(window.agentCallsForTest().isEmpty(), "the refresh asks the shell, nothing else");
+    }
+
     // The tree of a pool is the shell's `ls -r`: datasets, snapshots newest first, guids.
     void poolTreeComesFromTheShellsLs() {
         MainWindow window(QStringLiteral("test"), QStringLiteral("en"));

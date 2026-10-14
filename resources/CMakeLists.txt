@@ -433,8 +433,6 @@ endif()
 set(ZFSMGR_CORE_SOURCES
     ../src/native/mainwindow.cpp
     ../src/native/mainwindow_helpers.cpp
-    ../src/native/helperinstallcatalog.cpp
-    ../src/native/helperinstallcatalog.h
     ../src/native/mainwindow_ui_logic.cpp
     ../src/native/connectioncapabilities.cpp
     ../src/native/mainwindow_ui.cpp

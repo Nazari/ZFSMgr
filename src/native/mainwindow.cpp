@@ -2160,12 +2160,6 @@ zfsmgr::caps::Platform MainWindow::capabilityPlatform(int connIdx) const {
         plat.daemonApiOk =
             st.daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
         plat.daemonCaps = st.daemonCaps;
-        for (const QString& c : st.missingUnixCommands) {
-            const QString t = c.trimmed();
-            if (!t.isEmpty()) {
-                plat.missingTools.insert(t);
-            }
-        }
     }
     return plat;
 }
