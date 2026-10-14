@@ -732,113 +732,32 @@ void MainWindow::appendConnectionLog(const QString& connId, const QString& line)
 }
 
 void MainWindow::refreshConnectionDaemonLogAsync(int idx, bool fullReset, bool userAsked) {
-    if (idx < 0 || idx >= m_conns.profiles.size()) {
+    Q_UNUSED(fullReset);
+    Q_UNUSED(userAsked);
+    if (idx < 0 || idx >= m_conns.profiles.size() || isConnectionDisconnected(idx)) {
         return;
     }
     const QString connId = m_conns.profiles[idx].id;
-    QPlainTextEdit* view = m_connectionGsaLogViews.value(connId, nullptr);
-    if (!view) {
+    if (!m_connectionGsaLogViews.value(connId, nullptr)) {
         return;
     }
-    if (isConnectionDisconnected(idx)) {
-        return;
-    }
-    const ConnectionProfile profile = m_conns.profiles[idx];
-    // Local only when the user asks (opening the daemon log window). Refreshed on its own it
-    // runs local commands from a pool task while the window's thread may be resolving the
-    // local sudo credentials, and the two wait for each other.
-    if (isLocalConnection(profile) && !userAsked) {
-        return;
-    }
-
-    if (fullReset) {
-        view->clear();
-        m_connectionDaemonLogOffset.remove(connId);
-    }
-    const qint64 offset = m_connectionDaemonLogOffset.value(connId, 0);
-
-    const QString cmd =
-        // Segundo argumento: máximo de bytes. Con offset 0 —cada arranque— el daemon
-        // devuelve solo la COLA en vez de días enteros de latidos. 256 KiB dan de sobra
-        // para las 2000 líneas que la vista conserva.
-        mwhelpers::agentCommand(profile,
-                                mwhelpers::argvQt(zfsmgr::commands::requests::daemonLog(
-                                                      static_cast<unsigned long long>(offset),
-                                                      262144))
-                                    .join(QLatin1Char(' ')));
-
-    (void)QtConcurrent::run([this, profile, connId, cmd, offset]() {
-        QString out, err;
-        int rc = -1;
-        // Ver la nota de refreshConnectionsState: el agente de Windows debe invocarse
-        // como binario nativo, no a través del bash de MSYS2 que elige el modo Auto.
-        // Sin eco al registro: el destino de estas líneas es la vista del log del
-        // daemon. Se piden desde el desplazamiento 0 en cada arranque, y con un daemon
-        // llevando días en marcha son ~13.000 líneas de latidos —medido: el 84 % de todo
-        // el registro de la aplicación—, cada una con su escritura a fichero y su
-        // llamada al registro de eventos de Windows.
-        const bool ok = runSsh(profile, cmd, 15000, out, err, rc, {}, {}, {}, {},
-                               /*allowAgentRpc=*/true, /*echoOutputToLog=*/false)
-                        && rc == 0;
-        QMetaObject::invokeMethod(this, [this, connId, out, offset, ok]() {
+    // The shell's `log`: the tail of the daemon's log, as the shell shows it.
+    const QString linea = QStringLiteral("log --lines 2000 --on %1").arg(zfsmUrl(idx));
+    const QString clave = cliConnName(idx);
+    (void)QtConcurrent::run([this, connId, linea, clave]() {
+        const CliService::Result r = m_cliReader->read(clave, linea, 20000);
+        QMetaObject::invokeMethod(this, [this, connId, r]() {
             QPlainTextEdit* v = m_connectionGsaLogViews.value(connId, nullptr);
-            if (!v || !ok || out.isEmpty()) {
+            if (!v) {
                 return;
             }
-            QStringList lines = out.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
-            // El daemon declara el desplazamiento ABSOLUTO donde termina lo que envía.
-            // Hace falta porque al devolver solo la cola la vieja cuenta —sumar el
-            // tamaño de lo recibido al desplazamiento pedido— dejaría de corresponder
-            // con el fichero y el siguiente refresco releería lo mismo. Un daemon
-            // anterior no emite la marca: entonces se usa la cuenta de siempre.
-            qint64 newOffset = -1;
-            if (!lines.isEmpty()
-                && lines.first().startsWith(QStringLiteral("__ZFSMGR_LOG_OFFSET__:"))) {
-                bool okOff = false;
-                const qint64 parsed =
-                    lines.first().section(QLatin1Char(':'), 1).trimmed().toLongLong(&okOff);
-                if (okOff && parsed >= 0) {
-                    newOffset = parsed;
-                }
-                lines.removeFirst();
-            }
-            if (newOffset < 0) {
-                newOffset = offset + static_cast<qint64>(out.toUtf8().size());
-            }
-            m_connectionDaemonLogOffset[connId] = newOffset;
-            // Recortar ANTES de pintar y añadir en un solo bloque. appendPlainText por
-            // línea rehace el trazado del widget en cada llamada: con el volcado inicial
-            // desde el desplazamiento 0 de un daemon que lleva días en marcha son ~27.000
-            // llamadas en el hilo de interfaz (medido en una VM Windows). trimLogWidget
-            // recortaba después, así que se pagaba el pintado de todo lo que iba a
-            // descartarse.
-            constexpr int kMaxDumpLines = 2000;
-            const int dropped = qMax(0, lines.size() - kMaxDumpLines);
-            if (dropped > 0) {
-                lines = lines.mid(dropped);
-            }
-            QStringList kept;
-            kept.reserve(lines.size() + 1);
-            if (dropped > 0) {
-                kept << QStringLiteral("… %1 líneas anteriores omitidas").arg(dropped);
-            }
-            for (const QString& line : lines) {
-                const QString t = line.trimmed();
-                if (!t.isEmpty()) {
-                    kept << t;
-                }
-            }
-            if (!kept.isEmpty()) {
-                v->appendPlainText(kept.join(QLatin1Char('\n')));
-            }
-            trimLogWidget(v);
-            scrollLogViewToLatest(v);
-        }, Qt::QueuedConnection);
+            v->setPlainText(r.rc == 0 ? r.out : r.err);
+            v->moveCursor(QTextCursor::End);
+        });
     });
 }
 
-void MainWindow::runDaemonHeartbeat(const QString& connId)
-{
+void MainWindow::runDaemonHeartbeat(const QString& connId) {
     int idx = -1;
     for (int i = 0; i < m_conns.profiles.size(); ++i) {
         if (m_conns.profiles[i].id == connId) {
@@ -849,39 +768,18 @@ void MainWindow::runDaemonHeartbeat(const QString& connId)
     if (idx < 0 || isConnectionDisconnected(idx)) {
         return;
     }
-    QPlainTextEdit* view = m_connectionGsaLogViews.value(connId, nullptr);
-    if (view) {
-        view->appendPlainText(QStringLiteral("--- heartbeat ---"));
+    if (QPlainTextEdit* view = m_connectionGsaLogViews.value(connId, nullptr)) {
+        view->appendPlainText(QStringLiteral("--- info ---"));
     }
-    const ConnectionProfile profile = m_conns.profiles[idx];
-
-    const QString hbCmd = mwhelpers::agentCommand(profile, QStringLiteral("--heartbeat"));
-
-    (void)QtConcurrent::run([this, idx, connId, hbCmd, profile]() {
-        QString out, err;
-        int rc = -1;
-        const bool ok = runSsh(profile, hbCmd, 10000, out, err, rc, {}, {}, {});
-        QMetaObject::invokeMethod(this, [this, connId, out, err, ok, rc, idx]() {
-            QPlainTextEdit* v = m_connectionGsaLogViews.value(connId, nullptr);
-            if (!v) return;
-            if (ok && rc == 0 && !out.trimmed().isEmpty()) {
-                const QStringList lines = out.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
-                for (const QString& line : lines) {
-                    const QString t = line.trimmed();
-                    if (!t.isEmpty()) {
-                        v->appendPlainText(t);
-                    }
-                }
-            } else {
-                v->appendPlainText(
-                    QStringLiteral("heartbeat failed rc=%1 %2")
-                        .arg(rc)
-                        .arg(err.trimmed().isEmpty() ? out.trimmed() : err.trimmed()));
+    // Whether the daemon answers, and what it says about itself: the shell's `info`.
+    const QString linea = QStringLiteral("info %1").arg(zfsmUrl(idx));
+    const QString clave = cliConnName(idx);
+    (void)QtConcurrent::run([this, connId, linea, clave]() {
+        const CliService::Result r = m_cliReader->read(clave, linea, 20000, QStringLiteral("text"));
+        QMetaObject::invokeMethod(this, [this, connId, r]() {
+            if (QPlainTextEdit* v = m_connectionGsaLogViews.value(connId, nullptr)) {
+                v->appendPlainText((r.rc == 0 ? r.out : r.err).trimmed());
             }
-            // Also fetch new daemon log entries since last offset
-            refreshConnectionDaemonLogAsync(idx);
-            trimLogWidget(v);
-            scrollLogViewToLatest(v);
-        }, Qt::QueuedConnection);
+        });
     });
 }

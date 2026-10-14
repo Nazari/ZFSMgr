@@ -30,8 +30,9 @@ public:
 
     void configure(const QString& executable, const QStringList& arguments, const QString& master);
     // `connection` picks the process; it is only a key, the line names its own targets.
-    CliService::Result read(const QString& connection, const QString& line,
-                            int timeoutMs = 120000);
+    // `format`: empty for json, "text" for what is read as it is printed.
+    CliService::Result read(const QString& connection, const QString& line, int timeoutMs = 120000,
+                            const QString& format = QString());
 
     // For the tests: no processes; each line is answered by `fake`, and remembered.
     void setFakeForTest(CliService::Fake fake) { m_fake = std::move(fake); }

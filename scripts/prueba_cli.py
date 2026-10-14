@@ -2037,6 +2037,9 @@ def casos_pool(ctx):
          [f"cd Local/{P}", "flush"], rc=0)
     caso(ctx, "devices: enseña los discos de la máquina",
          ["cd Local", "devices"], espera=[r"NAME|PATH|SIZE"])
+    caso(ctx, "devices en json: qué pool reclama cada disco y el disco de cada partición",
+         ["cd Local", "format json", "devices"],
+         espera=[r'"pool": "[\w.:-]+"', r'"pool_imported": true', r'"parent": "/dev/'])
 
 
 def casos_diff_rollback(ctx):

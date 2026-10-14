@@ -1510,6 +1510,11 @@ std::vector<ImportablePoolInfo> parseZpoolImportOutput(const std::string& text) 
             iss >> nombre >> estado;
             std::string resto;
             std::getline(iss, resto);
+            // `zpool status` heads its tree with «NAME STATE READ WRITE CKSUM»; `zpool import`
+            // does not. Taken for the pool's row, it closed the tree at the real one.
+            if (nombre == "NAME" && estado == "STATE") {
+                continue;
+            }
             if (sangriaPool == std::string::npos) {
                 sangriaPool = sangria;   // la primera es la del propio pool
                 continue;

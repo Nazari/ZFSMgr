@@ -51,8 +51,8 @@ CliReader::Worker& CliReader::workerFor(const QString& connection) {
     return *m_workers.insert(connection, w);
 }
 
-CliService::Result CliReader::read(const QString& connection, const QString& line,
-                                   int timeoutMs) {
+CliService::Result CliReader::read(const QString& connection, const QString& line, int timeoutMs,
+                                   const QString& format) {
     if (m_fake) {
         {
             QMutexLocker lock(&m_mutex);
@@ -68,8 +68,9 @@ CliService::Result CliReader::read(const QString& connection, const QString& lin
     }
     auto promesa = std::make_shared<std::promise<CliService::Result>>();
     std::future<CliService::Result> futuro = promesa->get_future();
-    QMetaObject::invokeMethod(service, [service, line, promesa]() {
-        service->run(line, [promesa](const CliService::Result& r) { promesa->set_value(r); });
+    QMetaObject::invokeMethod(service, [service, line, promesa, format]() {
+        service->run(
+            line, [promesa](const CliService::Result& r) { promesa->set_value(r); }, format);
     });
     const auto plazo = std::chrono::milliseconds(timeoutMs > 0 ? timeoutMs : 120000);
     if (QThread::currentThread() == QCoreApplication::instance()->thread()) {

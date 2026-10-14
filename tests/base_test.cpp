@@ -717,6 +717,17 @@ void caso24() {
         // Un nombre con espacio no es un nombre de pool valido y se descarta.
         comprobar(H::parseZpoolImportOutput("   pool: mal nombre\n  state: ONLINE\n").empty(),
                   "un nombre invalido se descarta");
+        // The tree of `zpool status`, with its NAME/STATE header: the devices still come out.
+        const auto st = H::parseZpoolImportOutput(
+            "  pool: ppal\n state: ONLINE\nconfig:\n\n\tNAME        STATE     READ WRITE CKSUM\n"
+            "\tppal        ONLINE       0     0     0\n\t  mirror-0  ONLINE       0     0     0\n"
+            "\t    sdb1    ONLINE       0     0     0\n\t    sdc1    ONLINE       0     0     0\n"
+            "\nerrors: No known data errors\n");
+        int hojas = 0;
+        for (const auto& d : st.empty() ? std::vector<H::ImportableDevice>{} : st[0].devices) {
+            hojas += d.leaf ? 1 : 0;
+        }
+        comprobar(st.size() == 1 && hojas == 2, "zpool status: las dos hojas del espejo");
     }
 }
 

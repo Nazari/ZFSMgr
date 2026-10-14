@@ -1,4 +1,7 @@
 #include "mainwindow.h"
+
+#include <QJsonArray>
+#include <QJsonObject>
 #include "mainwindow_helpers.h"
 #include "requests.h"
 #include "listings.h"
@@ -383,618 +386,85 @@ void MainWindow::createPoolForSelectedConnection() {
         bool poolImported{true};
     };
 
-    auto runRemote = [this, &p](const QString& cmd, int timeoutMs, QString& outText) -> bool {
-        QString err;
-        int rc = -1;
-        outText.clear();
-        return runSsh(p, cmd, timeoutMs, outText, err, rc) && rc == 0;
-    };
+    // The compatibility files zpool knows, from the directories OpenZFS installs them in,
+    // read with the shell's `ls #path`.
     QStringList compatibilityNames;
     {
-        QString compOut;
-        QString compCmd;
-        if (isWindowsConnection(p)) {
-            compCmd = QStringLiteral(
-                "$ErrorActionPreference='SilentlyContinue'; "
-                "$dirs=@("
-                "'C:\\\\Program Files\\\\OpenZFS On Windows\\\\share\\\\zfs\\\\compatibility.d',"
-                "'C:\\\\Program Files\\\\OpenZFS On Windows\\\\compatibility.d'"
-                "); "
-                "foreach($d in $dirs){ if(Test-Path -LiteralPath $d){ Get-ChildItem -LiteralPath $d -File | ForEach-Object { $_.Name } } }");
-        } else {
-            compCmd = QStringLiteral(
-                "for d in /etc/zfs/compatibility.d /usr/share/zfs/compatibility.d /usr/local/zfs/share/zfs/compatibility.d; do "
-                "  [ -d \"$d\" ] || continue; "
-                "  for f in \"$d\"/*; do [ -f \"$f\" ] || continue; basename \"$f\"; done; "
-                "done | sort -u");
-        }
-        if (runRemote(compCmd, 15000, compOut)) {
-            const QStringList lines = compOut.split('\n', Qt::SkipEmptyParts);
-            for (QString n : lines) {
-                n = n.trimmed();
-                if (!n.isEmpty()) {
-                    compatibilityNames << n;
+        const QStringList dirs =
+            isWindowsConnection(p)
+                ? QStringList{QStringLiteral("C:\\Program Files\\OpenZFS On "
+                                             "Windows\\share\\zfs\\compatibility.d"),
+                              QStringLiteral(
+                                  "C:\\Program Files\\OpenZFS On Windows\\compatibility.d")}
+                : QStringList{QStringLiteral("/etc/zfs/compatibility.d"),
+                              QStringLiteral("/usr/share/zfs/compatibility.d"),
+                              QStringLiteral("/usr/local/zfs/share/zfs/compatibility.d"),
+                              QStringLiteral("/usr/local/share/zfs/compatibility.d")};
+        for (const QString& d : dirs) {
+            QJsonObject r;
+            if (!cliReadJson(idx, QStringLiteral("ls %1").arg(pathUrl(idx, d)), r, nullptr,
+                             15000)) {
+                continue;
+            }
+            for (const QJsonValue& v : r.value(QStringLiteral("entries")).toArray()) {
+                const QJsonObject o = v.toObject();
+                if (o.value(QStringLiteral("type")).toString() == QStringLiteral("file")) {
+                    compatibilityNames << o.value(QStringLiteral("name")).toString();
                 }
             }
-            compatibilityNames.removeDuplicates();
-            std::sort(compatibilityNames.begin(), compatibilityNames.end());
         }
+        compatibilityNames.removeDuplicates();
+        std::sort(compatibilityNames.begin(), compatibilityNames.end());
     }
 
+    // The disks and partitions, with what claims each one —an imported pool, or the label of
+    // one that is not imported—: the shell's `devices`.
     QMap<QString, DeviceEntry> devicesByPath;
-    QString out;
-    // El descubrimiento de discos, por RPC tipado.
-    //
-    // Aquí había TRES guiones —`lsblk` en Linux, `diskutil` en macOS, `Get-Partition` en
-    // Windows— que producían un formato común de columnas que se analiza más abajo. El
-    // agente ya sabe hacerlo en las tres plataformas y contesta JSON, así que lo único que
-    // queda aquí es traducir su respuesta a esas mismas columnas: el análisis de abajo
-    // —alias `by-id`, rutas resueltas, deduplicado— no se toca.
-    //
-    // No es solo quitar guiones. Al portar el verbo aparecieron dos formas de marcar como
-    // LIBRE un disco que no lo está —el que aloja un contenedor APFS y el que respalda un
-    // pool importado—, y lo que se ofrece con un disco libre es borrarlo.
-    QVector<QPair<QString, QString>> dispositivosAlias;  // alias -> dispositivo real
-    bool descubrimientoOk = false;
-    if (requireDaemonForRead(idx, QStringLiteral("listar los discos"))) {
-        QString devOut;
-        QString devErr;
-        int devRc = -1;
-        if (runAgentCommand(p, mwhelpers::argvQt(zfsmgr::commands::requests::blockDevices()),
-                            25000, devOut, devErr, devRc)
-            && devRc == 0) {
-            std::vector<zfsmgr::base::listings::Device> lista;
-            std::string errJson;
-            if (zfsmgr::base::listings::devices(devOut.toStdString(), lista, errJson)) {
-                QStringList filas;
-                for (const auto& d : lista) {
-                    if (d.alias) {
-                        // Los alias no son dispositivos: se apuntan aparte para colgarlos
-                        // luego del dispositivo al que apuntan.
-                        dispositivosAlias.push_back(
-                            {QString::fromStdString(d.path), QString::fromStdString(d.resolved)});
-                        continue;
-                    }
-                    const QString ruta = QString::fromStdString(d.path);
-                    const QString resuelta = QString::fromStdString(
-                        d.resolved.empty() ? d.path : d.resolved);
-                    // Los tamaños llegan en BYTES y aquí se enseñan a una persona. La regla
-                    // de formato es la misma que usa el intérprete, en `base/strutil`.
-                    const QString tam =
-                        d.alias ? QString()
-                                : QString::fromStdString(zfsmgr::base::humanSize(
-                                      std::to_string(d.size)));
-                    filas << QStringLiteral("%1\t%2\t%3\t%4\t%5\t%6")
-                                 .arg(ruta, tam, QString::fromStdString(d.mountpoint), resuelta,
-                                      QString::fromStdString(d.fs),
-                                      QString::fromStdString(d.type));
-                }
-                out = filas.join(QLatin1Char('\n'));
-                descubrimientoOk = true;
-            }
-        }
-    }
-    if (descubrimientoOk) {
-        const QStringList lines = out.split('\n', Qt::SkipEmptyParts);
-        QSet<QString> dedupeKeys;
-        auto parseKv = [](const QString& line, const QString& key) -> QString {
-            const QRegularExpression rx(QStringLiteral("\\b%1=\"([^\"]*)\"").arg(QRegularExpression::escape(key)));
-            const QRegularExpressionMatch m = rx.match(line);
-            return m.hasMatch() ? m.captured(1) : QString();
-        };
-        for (const QString& line : lines) {
-            QString path;
-            QString size;
-            QString mp;
-            QString resolved;
-            QString fsType;
-            QString type;
-            if (line.contains(QStringLiteral("NAME=\"")) && line.contains(QStringLiteral("TYPE=\""))) {
-                path = parseKv(line, QStringLiteral("NAME")).trimmed();
-                size = parseKv(line, QStringLiteral("SIZE")).trimmed();
-                fsType = parseKv(line, QStringLiteral("FSTYPE")).trimmed();
-                mp = parseKv(line, QStringLiteral("MOUNTPOINTS")).trimmed();
-                if (mp.isEmpty()) {
-                    mp = parseKv(line, QStringLiteral("MOUNTPOINT")).trimmed();
-                }
-                type = parseKv(line, QStringLiteral("TYPE")).trimmed().toLower();
-                resolved = path;
-                if (type != QStringLiteral("disk") && type != QStringLiteral("part")) {
-                    continue;
-                }
-            } else {
-                const QStringList cols = line.split('\t');
-                if (cols.isEmpty()) {
-                    continue;
-                }
-                path = cols.value(0).trimmed();
-                size = cols.value(1).trimmed();
-                mp = cols.value(2).trimmed();
-                resolved = cols.value(3).trimmed();
-                fsType = cols.value(4).trimmed();
-                type = cols.value(5).trimmed().toLower();
-                if (type.isEmpty()) {
-                    type = QStringLiteral("part");
-                }
-            }
-            if (path.isEmpty()) {
-                continue;
-            }
-            DeviceEntry e;
-            e.resolvedPath = resolved.isEmpty() ? path : resolved;
-            e.path = path;
-            if (path.startsWith(QStringLiteral("/var/run/disk/by-id/"))
-                || path.startsWith(QStringLiteral("/private/var/run/disk/by-id/"))
-                || path.startsWith(QStringLiteral("/dev/disk/by-id/"))
-                || path.startsWith(QStringLiteral("/dev/diskid/"))
-                || path.startsWith(QStringLiteral("/dev/gptid/"))) {
-                e.byIdAlias = QFileInfo(path).fileName();
-            }
-            if ((e.path.startsWith(QStringLiteral("/var/run/disk/by-id/"))
-                 || e.path.startsWith(QStringLiteral("/private/var/run/disk/by-id/"))
-                 || e.path.startsWith(QStringLiteral("/dev/disk/by-id/"))
-                 || e.path.startsWith(QStringLiteral("/dev/diskid/"))
-                 || e.path.startsWith(QStringLiteral("/dev/gptid/")))
-                && !e.resolvedPath.isEmpty()) {
-                e.path = e.resolvedPath;
-            }
-            e.size = size.isEmpty() ? QStringLiteral("-") : size;
-            if (isMacConn && e.size != QStringLiteral("-")) {
-                const QRegularExpression gbRx(QStringLiteral("(\\d+[\\.,]?\\d*)\\s*GB"),
-                                              QRegularExpression::CaseInsensitiveOption);
-                const QRegularExpressionMatch mm = gbRx.match(e.size);
-                if (mm.hasMatch()) {
-                    e.size = mm.captured(1) + QStringLiteral(" GB");
-                } else {
-                    const QRegularExpression numRx(QStringLiteral("(\\d+[\\.,]?\\d*)"));
-                    const QRegularExpressionMatch m2 = numRx.match(e.size);
-                    if (m2.hasMatch()) {
-                        e.size = m2.captured(1) + QStringLiteral(" GB");
-                    }
-                }
-            }
-            e.mountpoint = mp.isEmpty() ? QStringLiteral("-") : mp;
-            e.fsType = fsType.isEmpty() ? QStringLiteral("-") : fsType;
-            if (isWindowsConnection(p)) {
-                e.fsType = formatWindowsFsTypeDetail(e.fsType);
-            }
-            e.devType = type.isEmpty() ? QStringLiteral("part") : type;
-            QString fsLower = e.fsType.trimmed().toLower();
-            fsLower.remove('{');
-            fsLower.remove('}');
-            if (e.fsType.compare(QStringLiteral("zfs_member"), Qt::CaseInsensitive) == 0
-                || fsLower.contains(QStringLiteral("zfs"))
-                || fsLower.contains(QStringLiteral("6a945a3b-1dd2-11b2-99a6-080020736631"))
-                || fsLower.contains(QStringLiteral("6a898cc3-1dd2-11b2-99a6-080020736631"))) {
-                e.zfsSignature = true;
-            }
-            const QString dedupeKey = (e.resolvedPath.isEmpty() ? e.path : e.resolvedPath).trimmed();
-            if (!dedupeKey.isEmpty()) {
-                if (dedupeKeys.contains(dedupeKey)) {
-                    continue;
-                }
-                dedupeKeys.insert(dedupeKey);
-            }
-            devicesByPath[path] = e;
-        }
-    }
     QMap<QString, QSet<QString>> byIdAliasesByPath;
-    for (auto it = devicesByPath.cbegin(); it != devicesByPath.cend(); ++it) {
-        QSet<QString> aliases;
-        const QString byId = it.value().byIdAlias.trimmed();
-        if (!byId.isEmpty()) {
-            aliases.insert(byId);
+    {
+        QJsonObject r;
+        QString err;
+        if (!cliReadJson(idx, QStringLiteral("devices --on %1").arg(zfsmUrl(idx)), r, &err,
+                         120000)) {
+            appLog(QStringLiteral("WARN"), QStringLiteral("devices: %1").arg(err));
         }
-        if (!aliases.isEmpty()) {
-            byIdAliasesByPath[it.key()] = aliases;
-        }
-    }
-    // Los alias `by-id` los trae ya el propio verbo, con su destino resuelto. Aquí había un
-    // segundo guion —un bucle de shell con `perl -MCwd=realpath` dentro— que recorría los
-    // mismos directorios por SSH para averiguar lo mismo.
-    for (const auto& d : dispositivosAlias) {
-        for (auto it = devicesByPath.begin(); it != devicesByPath.end(); ++it) {
-            if (it.value().path == d.second || it.value().resolvedPath == d.second) {
-                auto& aliases = byIdAliasesByPath[it.key()];
-                aliases.insert(d.first);
-                aliases.insert(QFileInfo(d.first).fileName());
-            }
-        }
-    }
-
-    auto normalizeWinPhysPart = [](const QString& raw) -> QString {
-        const QString s = raw.trimmed();
-        if (s.isEmpty()) {
-            return QString();
-        }
-        static const QRegularExpression rx(
-            QStringLiteral("physicaldrive\\s*(\\d+)(?:\\D+partition\\s*(\\d+))?"),
-            QRegularExpression::CaseInsensitiveOption);
-        const QRegularExpressionMatch m = rx.match(s);
-        if (!m.hasMatch()) {
-            return QString();
-        }
-        const QString d = m.captured(1);
-        const QString partNo = m.captured(2);
-        return partNo.isEmpty() ? QStringLiteral("physicaldrive%1").arg(d)
-                                : QStringLiteral("physicaldrive%1/partition%2").arg(d, partNo);
-    };
-    // Los tokens de cada pool POR SEPARADO. collectPoolTokens mezcla la salida entera,
-    // así que no se puede saber qué pool reclama qué disco; y con varios pools a la vez
-    // —uno importado y los restos de otro— esa distinción es justo la que falta.
-    struct PoolBlock {
-        QString name;
-        QString state;
-        QSet<QString> tokens;
-    };
-    auto collectPoolBlocks = [](const QString& text) -> QVector<PoolBlock> {
-        static const QSet<QString> skipTok = {
-            QStringLiteral("NAME"), QStringLiteral("MIRROR"), QStringLiteral("RAIDZ"),
-            QStringLiteral("RAIDZ1"), QStringLiteral("RAIDZ2"), QStringLiteral("RAIDZ3"),
-            QStringLiteral("SPARE"), QStringLiteral("LOGS"), QStringLiteral("CACHE"),
-            QStringLiteral("SPECIAL"), QStringLiteral("DEDUP"), QStringLiteral("ONLINE"),
-            QStringLiteral("OFFLINE"), QStringLiteral("UNAVAIL"), QStringLiteral("UNAVAILABLE"),
-            QStringLiteral("DEGRADED"), QStringLiteral("FAULTED"), QStringLiteral("REMOVED"),
-            QStringLiteral("AVAIL"), QStringLiteral("INDIRECT-0")
-        };
-        QVector<PoolBlock> blocks;
-        PoolBlock cur;
-        bool inConfig = false;
-        const QStringList lines = text.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
-        for (const QString& line : lines) {
-            const QString t = line.trimmed();
-            if (t.isEmpty()) {
+        for (const QJsonValue& v : r.value(QStringLiteral("devices")).toArray()) {
+            const QJsonObject o = v.toObject();
+            DeviceEntry e;
+            e.path = o.value(QStringLiteral("path")).toString();
+            if (e.path.isEmpty()) {
                 continue;
             }
-            if (t.startsWith(QStringLiteral("pool:"))) {
-                if (!cur.name.isEmpty()) {
-                    blocks.push_back(cur);
+            e.resolvedPath = e.path;
+            const qint64 tam = static_cast<qint64>(o.value(QStringLiteral("size")).toDouble());
+            e.size = tam > 0 ? QString::fromStdString(zfsmgr::base::humanSize(std::to_string(tam)))
+                             : QStringLiteral("-");
+            const QString mp = o.value(QStringLiteral("mountpoint")).toString();
+            e.mountpoint = mp.isEmpty() ? QStringLiteral("-") : mp;
+            const QString fs = o.value(QStringLiteral("fstype")).toString();
+            e.fsType = fs.isEmpty() ? QStringLiteral("-") : fs;
+            e.devType = o.value(QStringLiteral("type")).toString();
+            if (e.devType.isEmpty()) {
+                e.devType = QStringLiteral("part");
+            }
+            e.zfsSignature = fs.contains(QStringLiteral("zfs"), Qt::CaseInsensitive);
+            e.poolName = o.value(QStringLiteral("pool")).toString();
+            e.poolState = o.value(QStringLiteral("pool_state")).toString();
+            e.poolImported = o.value(QStringLiteral("pool_imported")).toBool(true);
+            e.inPool = o.value(QStringLiteral("inuse")).toBool() || !e.poolName.isEmpty();
+            QSet<QString> alias;
+            for (const QJsonValue& a : o.value(QStringLiteral("aliases")).toArray()) {
+                const QString s = a.toString();
+                alias.insert(s);
+                alias.insert(QFileInfo(s).fileName());
+                if (e.byIdAlias.isEmpty()) {
+                    e.byIdAlias = QFileInfo(s).fileName();
                 }
-                cur = PoolBlock{};
-                cur.name = t.mid(5).trimmed();
-                inConfig = false;
-                continue;
             }
-            if (t.startsWith(QStringLiteral("state:"))) {
-                cur.state = t.mid(6).trimmed();
-                continue;
-            }
-            if (t.startsWith(QStringLiteral("config:"))) {
-                inConfig = true;
-                continue;
-            }
-            if (t.startsWith(QStringLiteral("errors:")) || t.startsWith(QStringLiteral("status:"))
-                || t.startsWith(QStringLiteral("action:")) || t.startsWith(QStringLiteral("see:"))
-                || t.startsWith(QStringLiteral("scan:")) || t.startsWith(QStringLiteral("id:"))
-                || t.startsWith(QStringLiteral("remove:"))) {
-                continue;
-            }
-            if (!inConfig) {
-                continue;   // fuera de config: nada de lo que hay son dispositivos
-            }
-            const QString token = t.split(QRegularExpression(QStringLiteral("\\s+")),
-                                          Qt::SkipEmptyParts).value(0);
-            if (token.isEmpty() || skipTok.contains(token.toUpper())
-                || token.endsWith(QLatin1Char(':')) || token.endsWith(QLatin1Char('-'))
-                || token == cur.name) {
-                continue;
-            }
-            cur.tokens.insert(token);
-            if (token.startsWith(QLatin1Char('/'))) {
-                cur.tokens.insert(QFileInfo(token).fileName());
-            }
-        }
-        if (!cur.name.isEmpty()) {
-            blocks.push_back(cur);
-        }
-        return blocks;
-    };
-
-    auto markDevicesInPoolByTokens = [&devicesByPath, &byIdAliasesByPath, &normalizeWinPhysPart](
-                                         const QSet<QString>& usedTokens,
-                                         const QString& poolName = QString(),
-                                         const QString& poolState = QString(),
-                                         bool poolImported = true) {
-        auto canonicalUnixDev = [](QString s) -> QString {
-            s = s.trimmed().toLower();
-            if (s.startsWith(QStringLiteral("/dev/rdisk"))) {
-                s.replace(0, QStringLiteral("/dev/r").size(), QStringLiteral("/dev/"));
-            }
-            return s;
-        };
-        auto canonicalBase = [](const QString& pathOrToken) -> QString {
-            QString b = QFileInfo(pathOrToken.trimmed()).fileName().toLower();
-            if (b.startsWith(QStringLiteral("rdisk"))) {
-                b.remove(0, 1); // rdiskN -> diskN
-            }
-            return b;
-        };
-        if (usedTokens.isEmpty()) {
-            return;
-        }
-        for (auto it = devicesByPath.begin(); it != devicesByPath.end(); ++it) {
-            const QString pth = it.value().path.trimmed();
-            const QString real = it.value().resolvedPath.trimmed();
-            const QString pthBase = QFileInfo(pth).fileName();
-            const QString realBase = QFileInfo(real).fileName();
-            const QString pthLower = pth.toLower();
-            const QString realLower = real.toLower();
-            const QString pthCanon = canonicalUnixDev(pth);
-            const QString realCanon = canonicalUnixDev(real);
-            const QString pthBaseCanon = canonicalBase(pth);
-            const QString realBaseCanon = canonicalBase(real);
-            const QString pthNorm = normalizeWinPhysPart(pthLower);
-            const QString realNorm = normalizeWinPhysPart(realLower);
-            QSet<QString> aliases = byIdAliasesByPath.value(it.key());
-            const QString alias = it.value().byIdAlias.trimmed();
             if (!alias.isEmpty()) {
-                aliases.insert(alias);
+                byIdAliasesByPath.insert(e.path, alias);
             }
-            for (const QString& tkRaw : usedTokens) {
-                const QString tk = tkRaw.trimmed();
-                if (tk.isEmpty()) {
-                    continue;
-                }
-                const QString tkLower = tk.toLower();
-                const QString tkCanon = canonicalUnixDev(tk);
-                const QString tkBaseCanon = canonicalBase(tk);
-                const QString tkNorm = normalizeWinPhysPart(tkLower);
-                bool matchesAlias = false;
-                for (const QString& a : aliases) {
-                    if (a.compare(tk, Qt::CaseInsensitive) == 0
-                        || a.toLower().contains(tkLower)
-                        || tkLower.contains(a.toLower())) {
-                        matchesAlias = true;
-                        break;
-                    }
-                }
-                if (tk == pth || tk == real || tk == alias
-                    || tk == pthBase || tk == realBase
-                    || tkCanon == pthCanon || tkCanon == realCanon
-                    || (!tkBaseCanon.isEmpty() && (tkBaseCanon == pthBaseCanon || tkBaseCanon == realBaseCanon))
-                    || matchesAlias
-                    || pthLower.contains(tkLower) || realLower.contains(tkLower)
-                    || pthCanon.contains(tkCanon) || realCanon.contains(tkCanon)
-                    || (!tkNorm.isEmpty() && (tkNorm == pthNorm || tkNorm == realNorm))) {
-                    it.value().inPool = true;
-                    // El primero que lo reclama se queda con la explicación, salvo que
-                    // llegue un pool IMPORTADO: ese aviso pesa más que el de unos restos.
-                    if (it.value().poolName.isEmpty() || (poolImported && !it.value().poolImported)) {
-                        it.value().poolName = poolName;
-                        it.value().poolState = poolState;
-                        it.value().poolImported = poolImported;
-                    }
-                    break;
-                }
-            }
-        }
-    };
-
-    auto countInPool = [&devicesByPath]() -> int {
-        int n = 0;
-        for (auto it = devicesByPath.cbegin(); it != devicesByPath.cend(); ++it) {
-            if (it.value().inPool) {
-                ++n;
-            }
-        }
-        return n;
-    };
-    auto markPhysicalDriveWholeDisk = [&devicesByPath](const QString& text) {
-        static const QRegularExpression pdRx(QStringLiteral("physicaldrive\\s*(\\d+)"),
-                                             QRegularExpression::CaseInsensitiveOption);
-        QSet<QString> disks;
-        auto it = pdRx.globalMatch(text);
-        while (it.hasNext()) {
-            const QRegularExpressionMatch m = it.next();
-            if (m.hasMatch()) {
-                disks.insert(m.captured(1));
-            }
-        }
-        if (disks.isEmpty()) {
-            return;
-        }
-        for (auto itDev = devicesByPath.begin(); itDev != devicesByPath.end(); ++itDev) {
-            const QString blob = (itDev.value().path + QStringLiteral(" ") + itDev.value().resolvedPath).toLower();
-            for (const QString& d : disks) {
-                if (blob.contains(QStringLiteral("physicaldrive%1").arg(d))) {
-                    itDev.value().inPool = true;
-                    break;
-                }
-            }
-        }
-    };
-
-    // Localizar zpool. DOS variantes, porque esto se ejecuta también en Windows y allí
-    // la de abajo es sintaxis POSIX que PowerShell no entiende:
-    //
-    //   + ... ZPOOL="$(command -v zpool ...)"; if [ -z "$ ...
-    //   Missing '(' after 'if' in if statement.
-    //
-    // Visto en el registro de una máquina Windows real. Las dos consultas que usan este
-    // script fallaban enteras, así que ZFSMgr no podía saber qué discos estaban YA en un
-    // pool y los ofrecía como libres. El tratamiento especial de la salida para Windows
-    // —markPhysicalDriveWholeDisk— llevaba ahí desde el principio, pero nunca recibía nada.
-    const QString zpoolLocateScriptWin = QStringLiteral(
-        "$ErrorActionPreference='SilentlyContinue'; "
-        "$zp=(Get-Command zpool.exe -ErrorAction SilentlyContinue).Source; "
-        "if (-not $zp) { foreach ($c in @("
-        "'C:\\Program Files\\OpenZFS On Windows\\zpool.exe',"
-        "'C:\\Program Files (x86)\\OpenZFS On Windows\\zpool.exe')) "
-        "{ if (Test-Path $c) { $zp=$c; break } } }; "
-        "if (-not $zp) { exit 0 }; ");
-    const QString zpoolLocateScriptUnix = QStringLiteral(
-        "PATH=\"/usr/local/zfs/bin:/usr/local/bin:/opt/homebrew/bin:/usr/sbin:/sbin:/usr/bin:$PATH\"; "
-        "ZPOOL=\"$(command -v zpool 2>/dev/null || true)\"; "
-        "if [ -z \"$ZPOOL\" ]; then "
-        "  for c in /usr/local/zfs/bin/zpool /usr/local/bin/zpool /opt/homebrew/bin/zpool /usr/sbin/zpool /sbin/zpool /usr/bin/zpool; do "
-        "    [ -x \"$c\" ] && ZPOOL=\"$c\" && break; "
-        "  done; "
-        "fi; "
-        "[ -n \"$ZPOOL\" ] || exit 0; ");
-    const bool poolProbeIsWindows = isWindowsConnection(p);
-    const QString zpoolLocateScript =
-        poolProbeIsWindows ? zpoolLocateScriptWin : zpoolLocateScriptUnix;
-    out.clear();
-    const QString inPoolCmd = withSudo(p, zpoolLocateScript
-        + (poolProbeIsWindows
-               ? QStringLiteral("& $zp status -LP")
-               : QStringLiteral("($ZPOOL status -LP 2>/dev/null || $ZPOOL status -P 2>/dev/null "
-                                "|| $ZPOOL status -L 2>/dev/null || $ZPOOL status)")));
-    if (runRemote(inPoolCmd, 25000, out)) {
-        for (const PoolBlock& b : collectPoolBlocks(out)) {
-            markDevicesInPoolByTokens(b.tokens, b.name, b.state, true);
-        }
-        if (isWindowsConnection(p)) {
-            markPhysicalDriveWholeDisk(out);
-        }
-    }
-    QString outListV;
-    const QString listVCmd = withSudo(p, zpoolLocateScript
-        + (poolProbeIsWindows
-               ? QStringLiteral("& $zp list -v -P")
-               : QStringLiteral("($ZPOOL list -v -P 2>/dev/null || $ZPOOL list -v)")));
-    if (runRemote(listVCmd, 25000, outListV)) {
-        for (const PoolBlock& b : collectPoolBlocks(outListV)) {
-            markDevicesInPoolByTokens(b.tokens, b.name, b.state, true);
-        }
-        if (isWindowsConnection(p)) {
-            markPhysicalDriveWholeDisk(outListV);
-        }
-    }
-    // Windows: explicit ZFS GPT signature scan (covers imported pools when names do not map cleanly).
-    if (isWindowsConnection(p)) {
-        QString zfsPartOut;
-        const QString zfsPartCmd = QStringLiteral(
-            "$ErrorActionPreference='SilentlyContinue'; "
-            "Get-Partition | "
-            "Where-Object { $_.GptType -and @('6a945a3b-1dd2-11b2-99a6-080020736631','6a898cc3-1dd2-11b2-99a6-080020736631') -contains $_.GptType.ToString().Trim('{}').ToLower() } | "
-            "ForEach-Object { Write-Output ('\\\\?\\Harddisk' + $_.DiskNumber + 'Partition' + $_.PartitionNumber) }");
-        if (runRemote(zfsPartCmd, 20000, zfsPartOut)) {
-            QSet<QString> zfsTokens;
-            const QStringList lines = zfsPartOut.split('\n', Qt::SkipEmptyParts);
-            for (const QString& raw : lines) {
-                const QString token = raw.trimmed();
-                if (!token.isEmpty()) {
-                    zfsTokens.insert(token);
-                    zfsTokens.insert(token.toLower());
-                }
-            }
-            markDevicesInPoolByTokens(zfsTokens);
-        }
-    }
-    // Also probe importable (not imported) pools and mark their devices as in-pool.
-    out.clear();
-    QString outImp;
-    const QString importProbeCmd = withSudo(p, zpoolLocateScript
-        + (poolProbeIsWindows
-               ? QStringLiteral("& $zp import; & $zp import -s")
-               : QStringLiteral("($ZPOOL import; $ZPOOL import -s)")));
-    if (runRemote(importProbeCmd, 25000, outImp)) {
-        // Estos NO están importados: son pools exportados, de otra máquina, o los
-        // restos de uno destruido cuya etiqueta sigue en el disco.
-        for (const PoolBlock& b : collectPoolBlocks(outImp)) {
-            markDevicesInPoolByTokens(b.tokens, b.name, b.state, false);
-        }
-        if (isWindowsConnection(p)) {
-            markPhysicalDriveWholeDisk(outImp);
-        }
-    }
-
-    if (isWindowsConnection(p)) {
-        const int marked = countInPool();
-        if (marked == 0) {
-            appLog(QStringLiteral("WARN"),
-                   QStringLiteral("%1: no device marked IN_POOL while probing zpool output in pool-create dialog")
-                       .arg(p.name));
-        }
-    }
-
-    QSet<QString> macSynthesizedRootPaths;
-    if (isMacConn) {
-        QString synthOut;
-        const QString synthCmd = QStringLiteral(
-            "diskutil list | awk '"
-            "  /^\\/dev\\/disk[0-9]+/ { "
-            "    current=$1; sub(/:$/, \"\", current); "
-            "    if (index(tolower($0),\"synthesized\")>0) print current; "
-            "  }'");
-        if (runRemote(synthCmd, 15000, synthOut)) {
-            const QStringList lines = synthOut.split('\n', Qt::SkipEmptyParts);
-            for (const QString& line : lines) {
-                const QString path = line.trimmed();
-                if (!path.isEmpty()) {
-                    macSynthesizedRootPaths.insert(path);
-                }
-            }
-        }
-    }
-
-    {
-        QMap<QString, DeviceEntry> synthesizedRoots;
-        for (auto it = devicesByPath.cbegin(); it != devicesByPath.cend(); ++it) {
-            const DeviceEntry& e = it.value();
-            const QString parentPath = deviceTreeParentPath(e.path);
-            const QString parentResolved = deviceTreeParentPath(e.resolvedPath);
-            QString rootPath = parentPath;
-            if (rootPath.isEmpty()) {
-                rootPath = parentResolved;
-            }
-            if (rootPath.isEmpty() || devicesByPath.contains(rootPath) || synthesizedRoots.contains(rootPath)) {
-                continue;
-            }
-            DeviceEntry root;
-            root.path = rootPath;
-            root.resolvedPath = rootPath;
-            root.size = QStringLiteral("-");
-            root.mountpoint = QStringLiteral("-");
-            root.fsType = QStringLiteral("disk");
-            root.devType = QStringLiteral("disk");
-            root.zfsSignature = e.zfsSignature;
-            root.synthesized = macSynthesizedRootPaths.contains(rootPath);
-            root.inPool = e.inPool;
-            synthesizedRoots.insert(rootPath, root);
-        }
-        for (auto it = synthesizedRoots.cbegin(); it != synthesizedRoots.cend(); ++it) {
-            devicesByPath.insert(it.key(), it.value());
-        }
-    }
-    for (auto it = devicesByPath.begin(); it != devicesByPath.end(); ++it) {
-        QString probe = it.value().resolvedPath.isEmpty() ? it.value().path : it.value().resolvedPath;
-        if (probe.isEmpty()) {
-            probe = it.value().path;
-        }
-        QString root = probe;
-        for (;;) {
-            const QString parent = deviceTreeParentPath(root);
-            if (parent.isEmpty()) {
-                break;
-            }
-            root = parent;
-        }
-        it.value().synthesized = macSynthesizedRootPaths.contains(it.value().path)
-                                 || macSynthesizedRootPaths.contains(probe)
-                                 || macSynthesizedRootPaths.contains(root);
-    }
-    {
-        bool changed = true;
-        while (changed) {
-            changed = false;
-            for (auto it = devicesByPath.begin(); it != devicesByPath.end(); ++it) {
-                if (it.value().inPool) {
-                    QString parentPath = deviceTreeParentPath(it.value().path);
-                    if (parentPath.isEmpty()) {
-                        parentPath = deviceTreeParentPath(it.value().resolvedPath);
-                    }
-                    if (parentPath.isEmpty()) {
-                        continue;
-                    }
-                    auto parentIt = devicesByPath.find(parentPath);
-                    if (parentIt != devicesByPath.end() && !parentIt->inPool) {
-                        parentIt->inPool = true;
-                        changed = true;
-                    }
-                }
-            }
+            devicesByPath.insert(e.path, e);
         }
     }
     QDialog dlg(this);

@@ -2,6 +2,8 @@
 
 #include "shell_internal.h"
 
+#include <set>
+
 namespace zfsmgr::cli::detail {
 
 // `zfs holds` NO tiene verbo tipado en el agente: se lee con una orden corriente, igual
@@ -208,7 +210,7 @@ bool cmdDevices(Estado& e, const LineaAnalizada& linea) {
     // el alias por identificador no cambia—, así que esconderlos sería cambiar un defecto
     // por otro.
     struct Fila {
-        std::string path, size, type, fstype, mountpoint;
+        std::string path, size, type, fstype, mountpoint, parent;
         bool ocupado = false;
         std::vector<std::string> alias;
     };
@@ -226,6 +228,7 @@ bool cmdDevices(Estado& e, const LineaAnalizada& linea) {
         f.type = d["type"].toString();
         f.fstype = d["fstype"].toString();
         f.mountpoint = d["mountpoint"].toString();
+        f.parent = d["parent"].toString();
         f.ocupado = d["inuse"].toBool();
         porRuta[f.path] = filas.size();
         filas.push_back(f);
@@ -281,7 +284,79 @@ bool cmdDevices(Estado& e, const LineaAnalizada& linea) {
         t.cabecerasTexto.push_back(T("t_cab_alias", "ALIAS"));
         t.campos.push_back("aliases");
         t.tipos.push_back(Tipo::Lista);
+        // json only: the disk a partition is on, and which pool claims the device —an
+        // imported one, or the label of one that is not imported (what labelclear is for)—.
+        t.campos.insert(t.campos.end(), {"parent", "pool", "pool_state", "pool_imported"});
+        t.tipos.insert(t.tipos.end(), {Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Booleano});
     }
+    struct Dueno {
+        std::string pool, estado;
+        bool importado = false;
+    };
+    std::map<std::string, Dueno> duenos;  // real path -> the pool that claims it
+    if (!paraLeer) {
+        const auto apunta = [&](const H::ImportablePoolInfo& info, bool importado) {
+            std::vector<std::string> nombres;
+            for (const H::ImportableDevice& d : info.devices) {
+                if (d.leaf) {
+                    nombres.push_back(d.name);
+                }
+            }
+            std::string resueltos;
+            if (nombres.empty()
+                || !agente(e, destino, PET::resolveDevices(nombres), resueltos, 20000)) {
+                return;
+            }
+            for (const auto& kv : clavesDe(resueltos)) {
+                for (const std::string& ruta : {kv.first, kv.second}) {
+                    if (!ruta.empty() && !duenos.count(ruta)) {
+                        duenos[ruta] = Dueno{info.pool, info.state, importado};
+                    }
+                }
+            }
+        };
+        std::set<std::string> importados;
+        std::string lista;
+        B::json::Value pools;
+        if (agente(e, destino, PET::poolList(), lista, 20000)
+            && B::json::parse(lista, pools, nullptr)) {
+            for (const auto& kv : pools["pools"].toObject()) {
+                importados.insert(kv.first);
+                std::string estado;
+                if (agente(e, destino, PET::poolStatus(kv.first), estado, 20000)) {
+                    for (const H::ImportablePoolInfo& info : H::parseZpoolImportOutput(estado)) {
+                        apunta(info, true);
+                    }
+                }
+            }
+        }
+        std::string sonda;
+        if (agente(e, destino, PET::importableProbe(), sonda, 60000)) {
+            for (const H::ImportablePoolInfo& info : H::parseZpoolImportOutput(sonda)) {
+                if (!importados.count(info.pool)) {
+                    apunta(info, false);
+                }
+            }
+        }
+        // A partition of a pool claims its disk too: the disk is not free.
+        for (const Fila& f : filas) {
+            const auto it = duenos.find(f.path);
+            if (it != duenos.end() && !f.parent.empty() && !duenos.count(f.parent)) {
+                duenos[f.parent] = it->second;
+            }
+        }
+    }
+    const auto duenoDe = [&](const Fila& f) -> Dueno {
+        if (const auto it = duenos.find(f.path); it != duenos.end()) {
+            return it->second;
+        }
+        for (const std::string& a : f.alias) {
+            if (const auto it = duenos.find(a); it != duenos.end()) {
+                return it->second;
+            }
+        }
+        return {};
+    };
     for (const Fila& f : filas) {
         if (soloLibres && f.ocupado) {
             continue;
@@ -290,6 +365,9 @@ bool cmdDevices(Estado& e, const LineaAnalizada& linea) {
                                       f.fstype, f.mountpoint, f.ocupado ? "true" : "false"};
         if (!paraLeer) {
             fila.push_back(B::join(f.alias, ","));
+            const Dueno d = duenoDe(f);
+            fila.insert(fila.end(), {f.parent, d.pool, d.estado,
+                                     d.pool.empty() ? "" : (d.importado ? "true" : "false")});
             t.filas.push_back(fila);
             continue;
         }
