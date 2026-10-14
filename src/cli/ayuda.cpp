@@ -687,6 +687,8 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
        {"t_ej_breakdown_3", "el de tres niveles, sin convertir «a» ni «b»"}},
       {"breakdown fotos fotos --wait",
        {"t_ej_breakdown_4", "espera aquí en vez de devolver el trabajo"}},
+      {"breakdown --list",
+       {"t_ej_breakdown_list", "qué directorios podrían pasar a ser datasets"}},
      }},
     {"assemble",
      {
@@ -1350,7 +1352,8 @@ const std::vector<Orden> kOrdenes = {
         "relativo a su punto de montaje."}},
       {{"t_bd_nuevo", "<dataset-nuevo>"},
        {"t_bd_nuevo_q", "El dataset hijo que va a sustituirlo, relativo al dataset actual."}},
-      {{"t_wait_flag", "--wait"}, {"t_wait_flag_q", "Espera aquí a que termine, en vez de devolver el trabajo."}}},
+      {{"t_wait_flag", "--wait"}, {"t_wait_flag_q", "Espera aquí a que termine, en vez de devolver el trabajo."}},
+      {{"t_bd_list", "--list"}, {"t_bd_list_q", "Enseña los directorios que se pueden desglosar, sin cambiar nada."}}},
      {{"t_bd_det1", "Los argumentos van en PARES: cada subdirectorio con el nombre del dataset que "
        "lo sustituye. El contenido no se mueve de sitio para quien mira desde fuera: donde "
        "había un directorio queda un dataset con lo mismo dentro, y ya con sus propiedades, "
@@ -1375,7 +1378,7 @@ const std::vector<Orden> kOrdenes = {
        "(importarlo con -N, o cachefile=none). Si una operación se corta a medias, "
        "«repair-mounts» devuelve el dataset a su sitio."}},
      Objetivo::Dataset,
-     {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::UnaOMas}}},
+     {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::CeroOMas}}},
     {"assemble", {"t_acciones_79bd0e", "Acciones"}, {"t_hijo_hijo_9a4172", "<dataset-hijo> [<dataset-hijo>...]"},
      {"t_lo_contrar_b80d3f", "Lo contrario de breakdown: devuelve un dataset hijo a ser un directorio."},
      {{{"t_wait_flag", "--wait"}, {"t_wait_flag_q", "Espera aquí a que termine, en vez de devolver el trabajo."}}},

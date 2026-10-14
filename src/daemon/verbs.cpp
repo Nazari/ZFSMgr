@@ -359,11 +359,13 @@ const TablaDeVerbos& tablaDeVerbos() {
             ExecResult r;
             if (p.params.size() < 1) {
                 r.rc = 2;
-                ponCodigo(r, "usage",
-                          {std::string(p.argv0) + " --dump-advanced-breakdown-list <dataset>"});
+                ponCodigo(
+                    r, "usage",
+                    {std::string(p.argv0) + " --dump-advanced-breakdown-list <dataset> [<root>]"});
                 return r;
             }
-            return runDumpAdvancedBreakdownListCapture(p.params[0]);
+            return runDumpAdvancedBreakdownListCapture(
+                p.params[0], p.params.size() > 1 ? p.params[1] : std::string());
         });
         t.pon({"--dump-zfs-get-prop"}, [](const Peticion& p) -> ExecResult {
             ExecResult r;

@@ -207,6 +207,7 @@ orden
  * obligar a escribir `--on` para el origen sería pedir ceremonia por nada. */
     | V_CP textos                        { astVerbo(res, $1); }
     | V_BREAKDOWN textos                 { astVerbo(res, $1); }
+    | V_BREAKDOWN                        { astVerbo(res, $1); }  /* breakdown --list */
     | V_ASSEMBLE textos                  { astVerbo(res, $1); }
 
 /* Una orden que no está en la tabla del léxico. Se acepta a propósito para que el error que

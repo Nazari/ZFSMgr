@@ -747,10 +747,6 @@ QString MainWindow::withSudo(const ConnectionProfile& p, const QString& cmd) con
     return mwhelpers::withSudoCommand(p, cmd);
 }
 
-QString MainWindow::withSudoStreamInput(const ConnectionProfile& p, const QString& cmd) const {
-    return mwhelpers::withSudoStreamInputCommand(p, cmd);
-}
-
 bool MainWindow::runSsh(const ConnectionProfile& p, const QString& remoteCmd, int timeoutMs,
                         QString& out, QString& err, int& rc,
                         const std::function<void(const QString&)>& onStdoutLine,

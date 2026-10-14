@@ -615,7 +615,6 @@ private:
     QString transportNoticeText(const zfsmgr::base::transport::WarningNote& a) const;
     void closeAllSshControlMasters();
     QString withSudo(const ConnectionProfile& p, const QString& cmd) const;
-    QString withSudoStreamInput(const ConnectionProfile& p, const QString& cmd) const;
     bool isLocalConnection(const ConnectionProfile& p) const;
     bool isLocalConnection(int connIdx) const;
     bool isWindowsConnection(const ConnectionProfile& p) const;

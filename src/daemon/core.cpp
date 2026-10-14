@@ -592,12 +592,18 @@ ExecResult runCopyTreeCapture(const std::string& srcDir, const std::string& dstD
     return r;
 }
 
-ExecResult runDumpAdvancedBreakdownListCapture(const std::string& dataset) {
-    ExecResult mpRes = getDatasetMountpointCapture(dataset);
-    if (mpRes.rc != 0) {
-        return mpRes;
+ExecResult runDumpAdvancedBreakdownListCapture(const std::string& dataset,
+                                               const std::string& rootGiven) {
+    // `rootGiven`: where the content is actually visible —a temporary read-only mount of an
+    // unmounted dataset—. Without it, the dataset's mountpoint.
+    std::string mountpoint = trim(rootGiven);
+    if (mountpoint.empty()) {
+        ExecResult mpRes = getDatasetMountpointCapture(dataset);
+        if (mpRes.rc != 0) {
+            return mpRes;
+        }
+        mountpoint = trim(mpRes.out);
     }
-    const std::string mountpoint = trim(mpRes.out);
     ExecResult r;
     r.rc = 0;
     if (mountpoint.empty()) {

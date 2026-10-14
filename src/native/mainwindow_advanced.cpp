@@ -1,4 +1,7 @@
 #include "mainwindow.h"
+
+#include <QJsonArray>
+#include <QJsonObject>
 #include "agentversion.h"
 #include "mainwindow_helpers.h"
 #include "requests.h"
@@ -14,32 +17,6 @@ using mwhelpers::isMountedValueTrue;
 using mwhelpers::oneLine;
 using mwhelpers::shSingleQuote;
 
-QString unixAlternateMountHelpersScript() {
-    return QStringLiteral(
-        "mount_alt_zfs(){ ds=\"$1\"; mp=\"$2\"; "
-        "saved_prop='org.zfsmgr:savedmountpoint'; "
-        "current_mp=$(zfs get -H -o value mountpoint \"$ds\" 2>/dev/null || true); "
-        "zfs set \"$saved_prop=$current_mp\" \"$ds\"; "
-        "zfs set mountpoint=\"$mp\" \"$ds\"; "
-        "zfs mount \"$ds\" >/dev/null 2>&1 || true; }; "
-        "umount_alt_zfs(){ ds=\"$1\"; mp=\"$2\"; "
-        "saved_prop='org.zfsmgr:savedmountpoint'; "
-        "zfs unmount \"$ds\" >/dev/null 2>&1 || zfs unmount \"$mp\" >/dev/null 2>&1 || true; "
-        "saved_mp=$(zfs get -H -o value \"$saved_prop\" \"$ds\" 2>/dev/null || true); "
-        "if [ -n \"$saved_mp\" ] && [ \"$saved_mp\" != \"-\" ]; then zfs set mountpoint=\"$saved_mp\" \"$ds\" >/dev/null 2>&1 || true; fi; "
-        "zfs inherit \"$saved_prop\" \"$ds\" >/dev/null 2>&1 || true; }; "
-        "resolve_mp(){ ds=\"$1\"; zfs mount 2>/dev/null | awk -v d=\"$ds\" '$1==d{print $2; exit}'; }; "
-        "load_key_if_needed(){ ds=\"$1\"; "
-        "ks=$(zfs get -H -o value keystatus \"$ds\" 2>/dev/null || true); "
-        "[ \"$ks\" = \"available\" ] && return 0; "
-        "kl=$(zfs get -H -o value keylocation \"$ds\" 2>/dev/null || true); "
-        "if [ \"$kl\" = \"prompt\" ]; then "
-        "  if [ \"$ZFSMGR_PASS_READ\" != 1 ]; then IFS= read -r ZFSMGR_KEY_PASS || return 1; ZFSMGR_PASS_READ=1; fi; "
-        "  printf '%s\\n' \"$ZFSMGR_KEY_PASS\" | zfs load-key \"$ds\" >/dev/null; "
-        "else "
-        "  zfs load-key \"$ds\" >/dev/null 2>&1 || true; "
-        "fi; }; ");
-}
 } // namespace
 
 void MainWindow::actionAdvancedBreakdown() {
@@ -76,229 +53,44 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
         }
     };
     const ConnectionProfile p = m_conns.profiles[ctx.connIdx];
-    QString mountedValue;
-    if (!getDatasetProperty(ctx.connIdx, ctx.datasetName, QStringLiteral("mounted"), mountedValue)) {
-        stopBusy();
-        QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
-                             trk(QStringLiteral("t_adv_chk_mnt_01"), QStringLiteral("No se pudo comprobar el estado de montaje del dataset."),
-                                 QStringLiteral("Could not verify dataset mount state.")));
-        return;
-    }
-    const bool rootMounted = isMountedValueTrue(mountedValue);
-    const bool canTempMount = supportsAlternateDatasetMount(ctx.connIdx);
-    QByteArray mountStdinPayload;
-
+    // The shell's `breakdown --list`: the directories that can become datasets —those of a
+    // child dataset already left out—, read from a temporary mount if it is not mounted.
     QStringList dirs;
-    QString resolvedMp;
-    QString listOut;
-    QString listErr;
-    int listRc = -1;
-    if (isWindowsConnection(p)) {
-        // **Por el mismo verbo que en Unix.** Aquí había 40 líneas de PowerShell que
-        // resolvían la letra de unidad subiendo por los padres y luego recorrían el árbol
-        // con Get-ChildItem. `--dump-advanced-breakdown-list` hace exactamente eso, y ya
-        // funcionaba en Windows: resuelve el punto de montaje con los montajes REALES
-        // —`Z:/sa`, no la propiedad `/winpool/sa`— y recorre con std::filesystem.
-        // Comprobado contra OldLau: contesta «__MP__=Z:/sa» y la lista de directorios.
-        //
-        // Es el mismo formato de salida que la rama de Unix, así que el análisis de abajo
-        // vale para las dos.
-        if (!requireDaemonForRead(ctx.connIdx,
-                                  QStringLiteral("listar los directorios de Desglosar"))) {
-            stopBusy();
-            return;
-        }
-        if (!runAgentCommand(p,
-                             mwhelpers::argvQt(zfsmgr::commands::requests::breakdownList(
-                                 ds.toStdString())),
-                             180000, listOut, listErr, listRc)
-            || listRc != 0) {
-            stopBusy();
-            QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
-                                 trk(QStringLiteral("t_adv_break_ls01"),
-                                     QStringLiteral("No se pudieron listar los directorios para "
-                                                    "Desglosar."),
-                                     QStringLiteral("Could not list directories for breakdown.")));
-            return;
-        }
-        const QStringList lines = listOut.split('\n', Qt::SkipEmptyParts);
-        for (const QString& raw : lines) {
-            const QString ln = raw.trimmed();
-            if (ln.startsWith(QStringLiteral("__MP__="))) {
-                resolvedMp = ln.mid(QStringLiteral("__MP__=").size()).trimmed();
-            } else if (!ln.isEmpty()) {
-                dirs << ln;
-            }
-        }
-    } else {
-        if (!rootMounted && !canTempMount) {
+    const QString resolvedMp;
+    {
+        QJsonObject r;
+        QString err;
+        if (!cliReadJson(ctx.connIdx,
+                         QStringLiteral("breakdown --list --on %1").arg(zfsmUrl(ctx.connIdx, ds)),
+                         r, &err, 240000)) {
             stopBusy();
             QMessageBox::warning(
-                this,
-                QStringLiteral("ZFSMgr"),
-                trk(QStringLiteral("t_adv_break_mnt1"), QStringLiteral("Desglosar requiere dataset montado, o un sistema que permita montaje temporal alternativo."),
-                    QStringLiteral("Break down requires the dataset mounted, or a system that supports temporary alternate mounts.")));
+                this, QStringLiteral("ZFSMgr"),
+                err.isEmpty() ? trk(QStringLiteral("t_adv_break_ls01"),
+                                    QStringLiteral("No se pudieron listar los directorios "
+                                                   "para Desglosar."),
+                                    QStringLiteral("Could not list directories for breakdown."))
+                              : err);
             return;
         }
-        QString listScript;
-        QString remoteListScriptCmd;
-        if (!isWindowsConnection(p)) {
-            remoteListScriptCmd = mwhelpers::withUnixSearchPathCommand(
-                daemonpayload::unixBinPath() + QStringLiteral(" --dump-advanced-breakdown-list %1")
-                    .arg(shSingleQuote(ds)));
-        } else {
-            listScript =
-                QStringLiteral("set -e; DATASET=%1; ZFSMGR_PASS_READ=0; ZFSMGR_KEY_PASS=''; %2"
-                               "TMP_ROOT=''; "
-                               "cleanup(){ "
-                               "if [ -n \"$TMP_ROOT\" ]; then umount_alt_zfs \"$DATASET\" \"$TMP_ROOT\" >/dev/null 2>&1 || true; fi; "
-                               "if [ -n \"$TMP_ROOT\" ]; then rmdir \"$TMP_ROOT\" >/dev/null 2>&1 || true; fi; "
-                               "}; "
-                               "trap cleanup EXIT INT TERM; "
-                               "MP=$(resolve_mp \"$DATASET\"); "
-                               "if [ -z \"$MP\" ]; then "
-                               "  load_key_if_needed \"$DATASET\"; "
-                               "  TMP_ROOT=$(mktemp -d /tmp/zfsmgr-break-root-XXXXXX); "
-                               "  mount_alt_zfs \"$DATASET\" \"$TMP_ROOT\"; "
-                               "  MP=$(resolve_mp \"$DATASET\"); "
-                               "fi; "
-                               "[ -n \"$MP\" ] || exit 0; "
-                               "[ -d \"$MP\" ] || exit 0; "
-                               "printf '__MP__=%s\\n' \"$MP\"; "
-                               "find \"$MP\" -mindepth 1 -type d -print 2>/dev/null | while IFS= read -r d; do "
-                               "  rel=\"$d\"; case \"$rel\" in \"$MP\"/*) rel=${rel#\"$MP\"/} ;; *) rel='' ;; esac; "
-                               "  [ -n \"$rel\" ] || continue; "
-                               "  case \"$rel\" in .zfs|.zfs/*) continue ;; esac; "
-                               "  printf '%s\\n' \"$rel\"; "
-                               "done | sort -u")
-                    .arg(shSingleQuote(ds), unixAlternateMountHelpersScript());
+        for (const QJsonValue& v : r.value(QStringLiteral("directories")).toArray()) {
+            dirs << v.toObject().value(QStringLiteral("dir")).toString();
         }
-        QString keyLocation;
-        getDatasetProperty(ctx.connIdx, ctx.datasetName, QStringLiteral("keylocation"), keyLocation);
-        keyLocation = keyLocation.trimmed().toLower();
-        QString keyStatus;
-        getDatasetProperty(ctx.connIdx, ctx.datasetName, QStringLiteral("keystatus"), keyStatus);
-        keyStatus = keyStatus.trimmed().toLower();
-        if (!rootMounted
-            && keyLocation == QStringLiteral("prompt")
-            && keyStatus != QStringLiteral("available")) {
-            bool ok = false;
-            const QString passphrase = QInputDialog::getText(
-                this,
-                QStringLiteral("Load key"),
-                QStringLiteral("Clave"),
-                QLineEdit::Password,
-                QString(),
-                &ok);
-            if (!ok || passphrase.isEmpty()) {
-                stopBusy();
-                return;
-            }
-            mountStdinPayload = (passphrase + QStringLiteral("\n")).toUtf8();
-        }
-        const QString effectiveListCmd = mountStdinPayload.isEmpty()
-            ? withSudo(p,
-                       remoteListScriptCmd.isEmpty()
-                           ? mwhelpers::withUnixSearchPathCommand(listScript)
-                           : remoteListScriptCmd)
-            : withSudoStreamInput(p,
-                                  remoteListScriptCmd.isEmpty()
-                                      ? mwhelpers::withUnixSearchPathCommand(listScript)
-                                      : remoteListScriptCmd);
-        if (!runSsh(p,
-                    effectiveListCmd,
-                    180000,
-                    listOut,
-                    listErr,
-                    listRc,
-                    {},
-                    {},
-                    {},
-                    mountStdinPayload)
-            || listRc != 0) {
-            stopBusy();
-            QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
-                                 trk(QStringLiteral("t_adv_break_ls01"), QStringLiteral("No se pudieron listar directorios para desglosar."),
-                                     QStringLiteral("Could not list directories for breakdown.")));
-            return;
-        }
-        const QStringList lines = listOut.split('\n', Qt::SkipEmptyParts);
-        for (const QString& raw : lines) {
-            const QString ln = raw.trimmed();
-            if (ln.startsWith(QStringLiteral("__MP__="))) {
-                resolvedMp = ln.mid(QStringLiteral("__MP__=").size()).trimmed();
-            } else if (!ln.isEmpty()) {
-                dirs << ln;
-            }
-        }
-        dirs.removeAll(QString());
     }
-
-    QString dsListOut;
-    QString dsListErr;
-    int dsListRc = -1;
+    // The children already there, from the tree's cache: their names are taken.
     QStringList datasetsDetected;
     QSet<QString> childDatasetPathsLower;
-    // El listado de descendientes, por verbo tipado y en las dos plataformas.
-    //
-    // Había dos respaldos por shell: uno para «sin daemon» y otro para Windows. El segundo
-    // no tenía motivo —el agente de Windows sirve `--dump-zfs-list-children` igual que los
-    // demás— y el primero es justo lo que ya no se hace: sin agente no se opera.
-    if (!requireDaemonForRead(ctx.connIdx, QStringLiteral("listar los datasets descendientes"))) {
-        return;
-    }
-    const QString dsListCmd =
-        mwhelpers::agentShellCommand(p, mwhelpers::argvQt(zfsmgr::commands::requests::descendantNames(ds.toStdString())));
-    if (runSsh(p, dsListCmd, 180000, dsListOut, dsListErr, dsListRc) && dsListRc == 0) {
-        datasetsDetected = dsListOut.split('\n', Qt::SkipEmptyParts);
-        for (QString& n : datasetsDetected) {
-            n = n.trimmed();
-        }
-        datasetsDetected.removeAll(QString());
+    {
         const QString prefix = ds + QStringLiteral("/");
-        for (const QString& datasetName : datasetsDetected) {
-            if (!datasetName.startsWith(prefix)) {
-                continue;
-            }
-            const QString childPath = datasetName.mid(prefix.size()).trimmed();
-            if (!childPath.isEmpty()) {
-                childDatasetPathsLower.insert(childPath.toLower());
+        const PoolDatasetCache cache =
+            m_conns.poolDatasetCache.value(datasetCacheKey(ctx.connIdx, ctx.poolName));
+        for (const DatasetRecord& rec : cache.datasets) {
+            if (rec.name.startsWith(prefix)) {
+                datasetsDetected << rec.name;
+                childDatasetPathsLower.insert(rec.name.mid(prefix.size()).toLower());
             }
         }
     }
-    if (!childDatasetPathsLower.isEmpty()) {
-        dirs.erase(std::remove_if(dirs.begin(), dirs.end(),
-                                  [&](const QString& d) {
-                                      const QString path = d.trimmed().toLower();
-                                      if (path.isEmpty()) {
-                                          return true;
-                                      }
-                                      for (const QString& dsPath : childDatasetPathsLower) {
-                                          if (path == dsPath || path.startsWith(dsPath + QStringLiteral("/"))) {
-                                              return true;
-                                          }
-                                      }
-                                      return false;
-                                  }),
-                   dirs.end());
-    }
-    // Aquí había un filtro por punto de montaje que descartaba dos cosas distintas y las
-    // dos hay que ofrecerlas:
-    //
-    //   - el directorio que YA ES el punto de montaje de un subdataset con otro nombre
-    //     —lo que deja un Ensamblar que los conservó—: desglosarlo es justo lo que le
-    //     devuelve el nombre canónico y restaura el paralelismo nombre/ruta;
-    //   - el directorio que CONTIENE uno: se descartaba por `startsWith`, así que tras
-    //     un Ensamblar el padre dejaba de poder desglosarse y el viaje de ida y vuelta
-    //     quedaba cortado a la mitad.
-    //
-    // El filtro tapaba, de paso, que el daemon borraba el original con `remove_all` sin
-    // mirar los puntos de montaje. Eso ya está resuelto allí (desmonta antes, remonta
-    // después, y el borrado se planta si cambia de dispositivo), así que el filtro
-    // sobra. Los subdatasets con nombre canónico los sigue quitando el filtro por
-    // NOMBRE de más arriba, que es donde corresponde: ahí no hay nada que hacer.
-    //
-    // Con el filtro se va también su consulta, que era un `zfs mount | awk` por shell.
     if (dirs.isEmpty()) {
         const QString dirsText = dirs.isEmpty()
                                      ? trk(QStringLiteral("t_none_txt_0001"), QStringLiteral("(ninguno)"), QStringLiteral("(none)"))
@@ -466,7 +258,6 @@ void MainWindow::actionAdvancedBreakdown(const DatasetSelectionContext& explicit
     });
 }
 
-
 void MainWindow::actionAdvancedAssemble() {
     actionAdvancedAssemble(currentConnContentSelection(m_connContentTree));
 }
@@ -500,52 +291,33 @@ void MainWindow::actionAdvancedAssemble(const DatasetSelectionContext& explicitC
             busyActive = false;
         }
     };
-    const ConnectionProfile p = m_conns.profiles[ctx.connIdx];
-    QString mountedValue;
-    if (!getDatasetProperty(ctx.connIdx, ctx.datasetName, QStringLiteral("mounted"), mountedValue)) {
-        stopBusy();
-        QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
-                             trk(QStringLiteral("t_adv_chk_mnt_01"), QStringLiteral("No se pudo comprobar el estado de montaje del dataset."),
-                                 QStringLiteral("Could not verify dataset mount state.")));
-        return;
+    // Its descendants, from the shell's `ls -r`; whether it can be done unmounted, the shell
+    // says when it runs.
+    QStringList children;
+    {
+        QJsonObject r;
+        QString err;
+        if (!cliReadJson(ctx.connIdx, QStringLiteral("ls -r %1").arg(zfsmUrl(ctx.connIdx, ds)), r,
+                         &err, 120000)) {
+            stopBusy();
+            QMessageBox::warning(
+                this, QStringLiteral("ZFSMgr"),
+                err.isEmpty()
+                    ? trk(QStringLiteral("t_adv_ass_list01"),
+                          QStringLiteral("No se pudieron listar subdatasets para ensamblar."),
+                          QStringLiteral("Could not list child datasets for assemble."))
+                    : err);
+            return;
+        }
+        for (const QJsonValue& v : r.value(QStringLiteral("entries")).toArray()) {
+            const QJsonObject o = v.toObject();
+            const QString nombre = o.value(QStringLiteral("name")).toString();
+            if (o.value(QStringLiteral("type")).toString() != QStringLiteral("snapshot")
+                && nombre != ds && !nombre.isEmpty()) {
+                children << nombre;
+            }
+        }
     }
-    const bool rootMounted = isMountedValueTrue(mountedValue);
-    const bool canTempMount = supportsAlternateDatasetMount(ctx.connIdx);
-    if (!rootMounted && !canTempMount) {
-        stopBusy();
-        QMessageBox::warning(
-            this,
-            QStringLiteral("ZFSMgr"),
-            trk(QStringLiteral("t_adv_ass_mnt01"), QStringLiteral("Ensamblar requiere dataset montado, o un sistema que permita montaje temporal alternativo."),
-                QStringLiteral("Assemble requires the dataset mounted, or a system that supports temporary alternate mounts.")));
-        return;
-    }
-
-    QString listOut;
-    QString listErr;
-    int listRc = -1;
-    QString listCmd;
-    // Igual que Desglosar: verbo tipado y en las dos plataformas. Aquí quedaban los mismos
-    // dos respaldos —«sin daemon» y «Windows»— que el comentario de arriba dice que se
-    // habían igualado; se habían igualado a medias.
-    if (!requireDaemonForRead(ctx.connIdx, QStringLiteral("listar los datasets descendientes"))) {
-        stopBusy();
-        return;
-    }
-    listCmd = mwhelpers::agentShellCommand(p, mwhelpers::argvQt(zfsmgr::commands::requests::descendantNames(ds.toStdString())));
-    if (!runSsh(p, listCmd, 180000, listOut, listErr, listRc) || listRc != 0) {
-        stopBusy();
-        QMessageBox::warning(this, QStringLiteral("ZFSMgr"),
-                             trk(QStringLiteral("t_adv_ass_list01"), QStringLiteral("No se pudieron listar subdatasets para ensamblar."),
-                                 QStringLiteral("Could not list child datasets for assemble.")));
-        return;
-    }
-    QStringList children = listOut.split('\n', Qt::SkipEmptyParts);
-    for (QString& c : children) {
-        c = c.trimmed();
-    }
-    children.removeAll(QString());
-    children.erase(std::remove(children.begin(), children.end(), ds), children.end());
     if (children.isEmpty()) {
         stopBusy();
         QMessageBox::information(this, QStringLiteral("ZFSMgr"),

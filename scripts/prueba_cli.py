@@ -2238,6 +2238,16 @@ def casos_acciones(ctx):
     prepara(ctx)   # terreno limpio: ningún grupo hereda lo que dejó otro
     sh(ctx, f"bash -c 'mkdir -p /mnt/{P}/datos/subdir && echo x > /mnt/{P}/datos/subdir/f.txt'",
        root=True)
+    sh(ctx, f"bash -c 'mkdir -p /mnt/{P}/datos/subdir/dentro && zfs create {P}/datos/hijads'",
+       root=True)
+    caso(ctx, "breakdown --list: los directorios, también los de dentro, y no los de un hijo",
+         [f"cd Local/{P}/datos", "breakdown --list"],
+         espera=[r"^subdir$", r"^subdir/dentro$"], no_espera=[r"^hijads"])
+    sh(ctx, f"zfs unmount {P}/datos/hijads", root=True)
+    sh(ctx, f"zfs unmount {P}/datos", root=True)
+    caso(ctx, "breakdown --list: sin montar, desde un montaje temporal de solo lectura",
+         [f"cd Local/{P}/datos", "breakdown --list"], espera=[r"^subdir$"])
+    sh(ctx, f"bash -c 'zfs mount {P}/datos; zfs destroy {P}/datos/hijads'", root=True)
     caso(ctx, "breakdown: un subdirectorio se convierte en dataset hijo",
          [f"cd Local/{P}/datos", "breakdown subdir hijosub --wait"],
          estado=[("el dataset hijo existe", f"zfs list -H -o name {P}/datos/hijosub",

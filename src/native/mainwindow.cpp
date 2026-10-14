@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "commands/gsa.h"
 
 #include "commands/syncing.h"
 
@@ -51,20 +52,6 @@ QString canonicalDatasetParentName(const QString& fullName) {
         return trimmed.left(slashPos);
     }
     return QString();
-}
-
-QStringList gsaPropertyKeysForModel() {
-    return {
-        QStringLiteral("org.zfsmgr:schedule-enabled"),
-        QStringLiteral("org.zfsmgr:schedule-recursive"),
-        QStringLiteral("org.zfsmgr:schedule-hourly"),
-        QStringLiteral("org.zfsmgr:schedule-daily"),
-        QStringLiteral("org.zfsmgr:schedule-weekly"),
-        QStringLiteral("org.zfsmgr:schedule-monthly"),
-        QStringLiteral("org.zfsmgr:schedule-yearly"),
-        QStringLiteral("org.zfsmgr:schedule-level"),
-        QStringLiteral("org.zfsmgr:schedule-target"),
-    };
 }
 
 QString gsaComparableValue(const QString& propName, const QString& rawValue) {
@@ -1504,65 +1491,40 @@ bool MainWindow::schedulePoolAutoSnapshotInfoLoad(int connIdx, const QString& po
     m_poolAutoSnapshotLoadsInFlight.insert(key);
     m_poolAutoSnapshotPendingLoadsByConn[connIdx] =
         m_poolAutoSnapshotPendingLoadsByConn.value(connIdx, 0) + 1;
-    const ConnectionProfile profile = m_conns.profiles[connIdx];
-    const bool daemonReadApiOk =
-        connIdx >= 0
-        && connIdx < m_conns.states.size()
-        && m_conns.states[connIdx].daemonInstalled
-        && m_conns.states[connIdx].daemonActive
-        && m_conns.states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
-    (void)QtConcurrent::run([this, profile, connIdx, trimmedPool, daemonReadApiOk]() {
+    const QString url = zfsmUrl(connIdx, trimmedPool);
+    const QString clave = cliConnName(connIdx);
+    (void)QtConcurrent::run([this, connIdx, trimmedPool, url, clave]() {
         PoolAutoSnapshotLoadResult result;
         result.connIdx = connIdx;
         result.poolName = trimmedPool;
-        const QStringList gsaProps = gsaPropertyKeysForModel();
-        QStringList propArgs;
-        for (const QString& prop : gsaProps) {
-            propArgs << mwhelpers::shSingleQuote(prop);
-        }
-        const QString cmdDaemon =
-            mwhelpers::agentShellCommand(profile, mwhelpers::argvQt(zfsmgr::commands::requests::gsaOfDataset(trimmedPool.toStdString())));
-        QString out;
-        QString err;
-        int rc = -1;
-        const bool scanOk =
-            daemonReadApiOk
-            && runAgentCommand(profile, mwhelpers::argvQt(zfsmgr::commands::requests::gsaOfDataset(trimmedPool.toStdString())),
-                               20000, out, err, rc)
-            && rc == 0;
-        if (!scanOk) {
-            result.errorText = err.trimmed();
+        // The shell's `schedule --on <pool>`: every schedule below it. Each comes back as
+        // the properties `schedule` writes —it always writes the whole set—.
+        const CliService::Result r =
+            m_cliReader->read(clave, QStringLiteral("schedule --on %1").arg(url), 30000);
+        if (r.rc != 0) {
+            result.errorText = r.err.trimmed();
         } else {
-            auto isLocallyConfiguredGsaSource = [](const QString& source) {
-                const QString src = source.trimmed().toLower();
-                if (src.isEmpty() || src == QStringLiteral("-")) {
-                    return false;
-                }
-                if (src.startsWith(QStringLiteral("inherited")) || src == QStringLiteral("default")) {
-                    return false;
-                }
-                return true;
-            };
-            for (const QString& line : out.split(QLatin1Char('\n'))) {
-                const QString trimmed = line.trimmed();
-                if (trimmed.isEmpty()) {
-                    continue;
-                }
-                const QStringList cols = trimmed.split(QRegularExpression(QStringLiteral("\\s+")),
-                                                       Qt::SkipEmptyParts);
-                if (cols.size() < 4) {
-                    continue;
-                }
-                const QString dsName = cols.at(0).trimmed();
-                const QString prop = cols.at(1).trimmed();
-                const QString value = cols.at(2).trimmed();
-                const QString source = cols.mid(3).join(QStringLiteral(" ")).trimmed();
-                if (dsName.isEmpty() || dsName.contains(QLatin1Char('@'))) {
-                    continue;
-                }
-                if (prop.startsWith(QStringLiteral("org.zfsmgr:schedule-"), Qt::CaseInsensitive)
-                    && isLocallyConfiguredGsaSource(source)) {
-                    result.loaded[dsName].insert(prop, value);
+            const QJsonArray filas = QJsonDocument::fromJson(r.out.toUtf8())
+                                         .object()
+                                         .value(QStringLiteral("schedules"))
+                                         .toArray();
+            for (const QJsonValue& v : filas) {
+                const QJsonObject o = v.toObject();
+                zfsmgr::base::gsa::Schedule s;
+                s.enabled = o.value(QStringLiteral("enabled")).toBool();
+                s.recursive = o.value(QStringLiteral("recursive")).toBool();
+                s.level = o.value(QStringLiteral("level")).toBool();
+                s.hourly = o.value(QStringLiteral("hourly")).toInt();
+                s.daily = o.value(QStringLiteral("daily")).toInt();
+                s.weekly = o.value(QStringLiteral("weekly")).toInt();
+                s.monthly = o.value(QStringLiteral("monthly")).toInt();
+                s.yearly = o.value(QStringLiteral("yearly")).toInt();
+                const QString destino = o.value(QStringLiteral("destination")).toString();
+                s.target = destino == QStringLiteral("-") ? std::string() : destino.toStdString();
+                const QString ds = o.value(QStringLiteral("dataset")).toString();
+                for (const auto& kv : zfsmgr::base::gsa::toProperties(s)) {
+                    result.loaded[ds].insert(QString::fromStdString(kv.first),
+                                             QString::fromStdString(kv.second));
                 }
             }
             result.ok = true;

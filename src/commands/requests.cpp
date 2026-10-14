@@ -71,8 +71,11 @@ std::vector<std::string> descendantNames(const std::string& objeto) {
     return withOne("--dump-zfs-list-children", objeto);
 }
 
-std::vector<std::string> breakdownList(const std::string& dataset) {
-    return withOne("--dump-advanced-breakdown-list", dataset);
+std::vector<std::string> breakdownList(const std::string& dataset, const std::string& root) {
+    if (root.empty()) {
+        return withOne("--dump-advanced-breakdown-list", dataset);
+    }
+    return {"--dump-advanced-breakdown-list", dataset, root};
 }
 
 std::vector<std::string> datasetProperties(const std::string& objeto) {

@@ -3,6 +3,8 @@
 
 #include "shell_internal.h"
 
+#include <set>
+
 namespace zfsmgr::cli::detail {
 
 bool cmdClaves(Estado& e, const LineaAnalizada& linea, const char* op) {
@@ -242,12 +244,70 @@ std::string preparaMontajeTemporal(Estado& e, const ZfsmUrl& d, bool creaHijos, 
     return texto;
 }
 
+// `breakdown --list`: the directories of a dataset that can become datasets —every one under
+// it, except those that already are a child dataset or lie inside one—. Unmounted, it is
+// read from a temporary read-only mount, as `ls #content` does.
+static bool listaParaDesglosar(Estado& e, const ZfsmUrl& destino) {
+    if (!exigeDataset(destino)) {
+        return false;
+    }
+    ZfsmUrl contenido = destino;
+    contenido.snapshot.clear();
+    contenido.section = B::zfsmSection::kContent;
+    contenido.detail.clear();
+    std::string raiz;
+    if (!rutaDeFicheros(e, contenido, raiz, /*callado=*/false)) {
+        return false;
+    }
+    std::string out;
+    if (!agente(e, destino, PET::breakdownList(destino.dataset, raiz), out, 180000)) {
+        return false;
+    }
+    std::string hijos;
+    std::set<std::string> deHijos;  // paths, relative to the dataset, of its child datasets
+    if (agente(e, destino, PET::descendantNames(destino.dataset), hijos, 60000)) {
+        const std::string prefijo = destino.dataset + "/";
+        for (const std::string& n : B::split(hijos, "\n", true)) {
+            const std::string nombre = B::trim(n);
+            if (B::startsWith(nombre, prefijo)) {
+                deHijos.insert(nombre.substr(prefijo.size()));
+            }
+        }
+    }
+    Tabla t;
+    t.nombreJson = "directories";
+    t.cabecerasTexto = {T("t_cab_directorio", "DIRECTORIO")};
+    t.campos = {"dir"};
+    t.tipos = {Tipo::Cadena};
+    for (const std::string& l : B::split(out, "\n", true)) {
+        const std::string dir = B::trim(l);
+        if (dir.empty() || B::startsWith(dir, "__MP__=")) {
+            continue;
+        }
+        bool deUnHijo = false;
+        for (const std::string& h : deHijos) {
+            deUnHijo = deUnHijo || dir == h || B::startsWith(dir, h + "/");
+        }
+        if (!deUnHijo) {
+            t.filas.push_back({dir});
+        }
+    }
+    if (!aplicaFiltro(e, t)) {
+        return false;
+    }
+    t.imprime(e.formato);
+    return true;
+}
+
 bool cmdBreakdown(Estado& e, const LineaAnalizada& linea) {
     Peticion pet;
     if (!prepara(e, linea, pet)) {
         return false;
     }
     const ZfsmUrl& destino = pet.objetivo;
+    if (pet.tiene("--list")) {
+        return listaParaDesglosar(e, destino);
+    }
     if (pet.lista("texto").size() < 2 || pet.lista("texto").size() % 2 != 0) {
         std::fputs(TC("t_uso_breakd_14be27",
                       "uso: breakdown <directorio> <nombre-hijo> [<directorio> <nombre-hijo>...]\n"

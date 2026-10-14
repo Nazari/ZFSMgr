@@ -431,7 +431,8 @@ std::vector<std::string> conExclusionesDelSistema(std::vector<std::string> exclu
 ExecResult runCopyTreeCapture(const std::string& srcDir, const std::string& dstDir,
                               const std::vector<std::string>& excludes = {},
                               bool oneFileSystem = false);
-ExecResult runDumpAdvancedBreakdownListCapture(const std::string& dataset);
+ExecResult runDumpAdvancedBreakdownListCapture(const std::string& dataset,
+                                               const std::string& rootGiven = {});
 int countPendingCopyTransfers(const std::string& srcDir, const std::string& dstDir,
                               const std::vector<std::string>& excludes = {},
                               bool oneFileSystem = false);
