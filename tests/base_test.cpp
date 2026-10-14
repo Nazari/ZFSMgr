@@ -4014,6 +4014,17 @@ void caso49() {
         {
             // --- What `destroy ds#content/<rel>` may delete.
             namespace AV = zfsmgr::commands::advanced;
+            // The source of `fromdir --delete-source`: absolute, clean, and not the root
+            // or a first-level directory.
+            igual(AV::treeRemovalRefusal("/srv/fotos"), std::string(),
+                  "un directorio de segundo nivel");
+            igual(AV::treeRemovalRefusal("/srv"), std::string("remove_tree_too_high"), "/srv no");
+            igual(AV::treeRemovalRefusal("/"), std::string("remove_tree_too_high"), "la raiz no");
+            igual(AV::treeRemovalRefusal("/srv/../etc"), std::string("remove_tree_not_absolute"),
+                  "con .. no");
+            igual(AV::treeRemovalRefusal("srv/fotos"), std::string("remove_tree_not_absolute"),
+                  "relativa no");
+            comprobar(AV::argvRemoveTree("/home").empty(), "sin argv para lo que se rechaza");
             igual(AV::contentRemovalRefusal("fotos/a.jpg"), std::string(),
                   "content removal: a file inside");
             igual(AV::contentRemovalRefusal("dir/"), std::string(),

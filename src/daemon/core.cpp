@@ -382,6 +382,7 @@ std::string agentCapabilityList() {
     caps.push_back("--mutate-prepare-dir");
 #ifndef _WIN32
     caps.push_back("--mutate-remove-content");
+    caps.push_back("--mutate-remove-tree");
 #endif
     caps.push_back("--tree-recv-listen");
     caps.push_back("--tree-send-to-peer");

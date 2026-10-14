@@ -628,6 +628,7 @@ std::string motivoParaNoCambiarClave(const std::string& dataset, const std::stri
 ExecResult runGenericMutationCapture(const std::string& tool, const std::string& payloadB64);
 ExecResult runPrepareDirCapture(const std::vector<std::string>& params);
 ExecResult runRemoveContentCapture(const std::vector<std::string>& params);
+ExecResult runRemoveTreeCapture(const std::vector<std::string>& params);
 ExecResult runMutateAdvancedFromDirPrepareCapture(const std::vector<std::string>& params);
 #ifndef _WIN32
 extern std::atomic<pid_t> g_streamChildPid;

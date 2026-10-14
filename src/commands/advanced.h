@@ -162,6 +162,16 @@ std::vector<std::string> argvRemoveContent(const std::string& dataset,
                                            const std::string& mountpoint, const std::string& rel,
                                            bool recursive);
 
+// --- Deleting the SOURCE directory of `fromdir --delete-source`, outside ZFS.
+//
+// Why `path` cannot be deleted whole, as an agent message code; empty if it can. Refused:
+// anything not absolute or with «..», the root, and a first-level directory —`/home`,
+// `/srv`—: a typing slip there costs a machine. The agent applies this same rule, and also
+// refuses a path inside a ZFS dataset (that is `breakdown`) and a symbolic link.
+std::string treeRemovalRefusal(const std::string& path);
+// The argv of `--mutate-remove-tree <path>`. Empty if the rule above refuses `path`.
+std::vector<std::string> argvRemoveTree(const std::string& path);
+
 // Can this pair do FromDir over the daemon-to-daemon tree, with no pipeline?
 //
 // BOTH ends need a daemon: the target to prepare and listen, the source to send. The tar

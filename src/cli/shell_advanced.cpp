@@ -518,8 +518,39 @@ bool cmdFromDir(Estado& e, const LineaAnalizada& linea) {
                      rel.c_str());
         return false;
     }
-    if (!confirma(e, B::format(T("t_conf_fromdir",
-                                 "Se va a volcar %1 de %2 dentro de %3 en %4. ¿Continuar?"),
+    // `--delete-source`: the source goes once the copy is VERIFIED. Everything that would
+    // refuse the deletion is checked now, before copying: finding out after an hour of copy
+    // that the source cannot be deleted helps nobody.
+    const bool borraOrigen = pet.tiene("--delete-source");
+    if (borraOrigen) {
+        std::string no = AV::treeRemovalRefusal(dir);
+        if (no.empty() && T::isWindowsConnection(*pSrc)) {
+            no = "remove_tree_not_on_windows";
+        }
+        if (no.empty()) {
+            ZfsmUrl comoRuta;
+            comoRuta.kind = ZfsmKind::Connection;
+            comoRuta.connection = origen.connection;
+            comoRuta.section = B::zfsmSection::kPath;
+            comoRuta.detail = B::split(dir, "/", true);
+            Ubicacion ub;
+            if (ubicacionDe(e, comoRuta, ub) && !ub.dataset.empty()) {
+                no = "remove_tree_in_zfs";
+            }
+        }
+        if (!no.empty()) {
+            std::fprintf(stderr, "%s\n", B::agentmsg::render(no, {dir}).c_str());
+            e.ultimoRc = 2;
+            return false;
+        }
+    }
+    if (!confirma(e, B::format(borraOrigen
+                                   ? T("t_conf_fromdir_borra",
+                                       "Se va a volcar %1 de %2 dentro de %3 en %4 y, si la copia "
+                                       "se verifica sin una sola diferencia, se BORRARÁ %1 de %2. "
+                                       "¿Continuar?")
+                                   : T("t_conf_fromdir",
+                                       "Se va a volcar %1 de %2 dentro de %3 en %4. ¿Continuar?"),
                                {dir, origen.connection, destino.dataset, destino.connection}))) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
@@ -564,6 +595,41 @@ bool cmdFromDir(Estado& e, const LineaAnalizada& linea) {
             if (hecho.failure == TR::JobFailure::None_) {
                 std::fputs(salidaEnvio.c_str(), stdout);
                 avisaSinMetadatos(salidaEnvio);
+                if (!borraOrigen) {
+                    return true;
+                }
+                // The verification: the same tree again, dry. What it would still send is
+                // what the target does not have, or has different.
+                std::string informe;
+                const auto comprobado = TR::launchTreeJob(
+                    e.ses->transporte, llama, src, dst, dir, dirDestino,
+                    origen.connection == destino.connection, e.ses->verboso,
+                    /*comoTrabajo=*/false, /*borrarEnDestino=*/false, /*enSeco=*/true, &informe);
+                long long pendientes = -1;
+                for (const std::string& l : B::split(informe, "\n", true)) {
+                    if (B::startsWith(l, "PENDIENTES=")) {
+                        pendientes = std::atoll(l.substr(11).c_str());
+                    }
+                }
+                if (comprobado.failure != TR::JobFailure::None_ || pendientes != 0) {
+                    std::fputs(informe.c_str(), stderr);
+                    std::fprintf(stderr,
+                                 TC("t_fromdir_no_verificado",
+                                    "la copia no se ha podido verificar (%s): NO se borra %s\n"),
+                                 pendientes > 0 ? std::to_string(pendientes).c_str()
+                                                : TR::labelOf(comprobado.failure).c_str(),
+                                 dir.c_str());
+                    e.ultimoRc = 1;
+                    return false;
+                }
+                std::fprintf(stderr,
+                             TC("t_fromdir_verificado", "copia verificada: ninguna diferencia\n"));
+                std::string borrado;
+                if (!agente(e, origen, AV::argvRemoveTree(dir), borrado, 600000)) {
+                    return false;
+                }
+                std::fprintf(stderr, TC("t_fromdir_borrado", "borrado %s de %s\n"), dir.c_str(),
+                             origen.connection.c_str());
                 return true;
             }
             // Que no se pueda por aquí no es un error de la orden: se sigue por la tubería,
@@ -619,6 +685,16 @@ bool cmdFromDir(Estado& e, const LineaAnalizada& linea) {
         || rc != 0) {
         std::fprintf(stderr, TC("t_fromdir_fa_67991a", "fromdir falló (código %d)\n"), rc);
         e.ultimoRc = rc == 0 ? 1 : rc;
+        return false;
+    }
+    if (borraOrigen) {
+        // Through the pipe there is no tree to compare against: what was not verified is
+        // not deleted.
+        std::fprintf(stderr,
+                     TC("t_fromdir_tuberia_no_borra",
+                        "copiado por la tubería, donde no se puede verificar: NO se borra %s\n"),
+                     dir.c_str());
+        e.ultimoRc = 1;
         return false;
     }
     return true;

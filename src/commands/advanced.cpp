@@ -277,6 +277,31 @@ std::vector<std::string> argvRemoveContent(const std::string& dataset,
             zfsmgr::base::trim(rel), recursive ? "1" : "0"};
 }
 
+std::string treeRemovalRefusal(const std::string& ruta) {
+    const std::string r = zfsmgr::base::trim(ruta);
+    if (r.empty() || r.front() != '/') {
+        return "remove_tree_not_absolute";
+    }
+    int tramos = 0;
+    for (const std::string& c : zfsmgr::base::split(r, "/", false)) {
+        if (c.empty()) {
+            continue;
+        }
+        if (c == ".." || c == ".") {
+            return "remove_tree_not_absolute";
+        }
+        ++tramos;
+    }
+    return tramos < 2 ? "remove_tree_too_high" : std::string();
+}
+
+std::vector<std::string> argvRemoveTree(const std::string& ruta) {
+    if (!treeRemovalRefusal(ruta).empty()) {
+        return {};
+    }
+    return {"--mutate-remove-tree", zfsmgr::base::trim(ruta)};
+}
+
 std::string preparedPath(const std::string& salida) {
     // Se busca la línea, no el principio de la salida: por SSH puede venir precedida de un
     // aviso del propio shell, y quedarse con lo primero que llega daría una ruta que no es.

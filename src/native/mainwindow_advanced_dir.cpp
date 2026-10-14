@@ -465,6 +465,15 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
         dirsGroup);
     dirsHint->setWordWrap(true);
     dirsLay->addWidget(dirsHint);
+    // The shell's `fromdir --delete-source`: the source goes only if the copy verifies with
+    // no difference at all, and never a directory inside ZFS (that is Breakdown).
+    QCheckBox* deleteSourceDirChk =
+        new QCheckBox(trk(QStringLiteral("t_advdir_del_src02"),
+                          QStringLiteral("Borrar los directorios fuente si la copia se verifica"),
+                          QStringLiteral("Delete the source directories if the copy verifies")),
+                      dirsGroup);
+    deleteSourceDirChk->setChecked(false);
+    dirsLay->addWidget(deleteSourceDirChk);
 
     QTabWidget* dirTabsWidget = new QTabWidget(dirsGroup);
     dirsLay->addWidget(dirTabsWidget, 1);
@@ -760,6 +769,9 @@ void MainWindow::actionAdvancedCreateFromDir(const DatasetSelectionContext& expl
                                 : QString();
         if (!sub.isEmpty()) {
             linea += QStringLiteral(" --subdir ") + cliQuote(sub);
+        }
+        if (deleteSourceDirChk->isChecked()) {
+            linea += QStringLiteral(" --delete-source");
         }
         linea += QStringLiteral(" --on ") + destino;
         runCli(linea, [this, ctx](const CliService::Result& r) {

@@ -716,6 +716,8 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
        {"t_ej_fromdir_2", "el directorio sale de otra máquina"}},
       {"fromdir /mnt/entrada --subdir importado/2024",
        {"t_ej_fromdir_3", "dónde dejarlo dentro del dataset"}},
+      {"fromdir /srv/fotos --from zfsm://nas --delete-source",
+       {"t_ej_fromdir_delete", "lo mueve: copia, verifica y borra el original"}},
      }},
     {"send",
      {
@@ -1398,7 +1400,8 @@ const std::vector<Orden> kOrdenes = {
     {"fromdir", {"t_acciones_79bd0e", "Acciones"}, {"t_directorio_09a389", "<directorio-origen>"},
      {"t_vuelca_un__c2bd33", "Vuelca un directorio DENTRO del dataset actual. El origen puede estar en otra máquina."},
      {{{"t_from_url_325aa2", "--from <url>"}, {"t_la_m_quina_cdb6da", "La máquina de la que sale el directorio."}},
-      {{"t_subdir_rel_363111", "--subdir <rel>"}, {"t_d_nde_deja_f3173a", "Dónde dejarlo dentro del dataset."}}},
+      {{"t_subdir_rel_363111", "--subdir <rel>"}, {"t_d_nde_deja_f3173a", "Dónde dejarlo dentro del dataset."}},
+      {{"t_fromdir_delete_source", "--delete-source"}, {"t_fromdir_delete_source_q", "Borra el directorio de origen, solo si la copia se verifica sin ninguna diferencia."}}},
      {{"t_no_es_la_i_ace907", "NO es la inversa de todir, aunque el nombre lo sugiera: la inversa de todir es "
       "assemble. Esto crea el contenido de un dataset A PARTIR de un directorio."},
       {"t_va_como_un_682722", "Va como una tubería tar entre las dos máquinas, no por RPC: el verbo del agente lee "

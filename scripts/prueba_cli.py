@@ -2334,6 +2334,28 @@ def casos_acciones(ctx):
                       f"zfs get -H -o value canmount {P}/datos", r"^off$")])
     sh(ctx, f"zfs set canmount=on {P}/datos", root=True)
     sh(ctx, f"zfs mount {P}/datos", root=True)
+    # --- `fromdir --delete-source`: moving a directory into a dataset, verified first.
+    mover = f"{IMG_DIR}/fdmover"
+    sh(ctx, f"bash -c 'rm -rf {mover} && mkdir -p {mover}/sub && echo uno > {mover}/a.txt && "
+            f"echo dos > {mover}/sub/b.txt'", root=True)
+    caso(ctx, "fromdir --delete-source: copia, verifica sin diferencias y borra el origen",
+         [f"fromdir {mover} --from zfsm://local --subdir movido --delete-source "
+          f"--on Local/{P}/datos"], rc=0, idioma="es",
+         espera=[r"copia verificada", rf"borrado {mover}"],
+         estado=[("el contenido está en el dataset", f"cat /mnt/{P}/datos/movido/sub/b.txt", r"^dos$"),
+                 ("y el origen ya no", f"bash -c 'test -e {mover} && echo SIGUE || echo NO'", r"^NO$")])
+    sh(ctx, f"bash -c 'mkdir -p /mnt/{P}/datos/dentrozfs && echo x > /mnt/{P}/datos/dentrozfs/x'",
+       root=True)
+    caso(ctx, "fromdir --delete-source: un origen dentro de ZFS no, que eso es breakdown",
+         [f"fromdir /mnt/{P}/datos/dentrozfs --from zfsm://local --subdir otra --delete-source "
+          f"--on Local/{P}/datos"], rc=2, idioma="es", espera=[r"breakdown"],
+         estado=[("no se ha copiado nada",
+                  f"bash -c 'test -e /mnt/{P}/datos/otra && echo COPIADO || echo NO'", r"^NO$"),
+                 ("ni borrado", f"cat /mnt/{P}/datos/dentrozfs/x", r"^x$")])
+    caso(ctx, "fromdir --delete-source: un directorio de primer nivel no se borra entero",
+         ["fromdir /var --from zfsm://local --subdir v --delete-source "
+          f"--on Local/{P}/datos"], rc=2, idioma="es", espera=[r"demasiado arriba"])
+
     # --- `cp`: copiar de donde sea a donde sea.
     #
     # Lo que no hacía ninguna de las tres órdenes que ya copian: `rsync` exige datasets en

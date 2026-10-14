@@ -2800,7 +2800,53 @@ ExecResult runRemoveContentCapture(const std::vector<std::string>& params) {
     r.out = "REMOVED=" + target.string() + "\n";
     return r;
 }
+
+// --mutate-remove-tree <path>: the source directory of `fromdir --delete-source`, once the
+// client has verified the copy. Outside ZFS only —inside a dataset the tool is `breakdown`,
+// which moves nothing—, never the root or a first-level directory, never through a link
+// and never into another filesystem mounted below.
+ExecResult runRemoveTreeCapture(const std::vector<std::string>& params) {
+    ExecResult r;
+    const std::string ruta = params.empty() ? std::string() : trim(params[0]);
+    if (const std::string no = zfsmgr::commands::advanced::treeRemovalRefusal(ruta); !no.empty()) {
+        r.rc = 2;
+        ponCodigo(r, no, {ruta});
+        return r;
+    }
+    struct stat st{};
+    if (::lstat(ruta.c_str(), &st) != 0) {
+        r.rc = 1;
+        ponCodigo(r, "remove_not_found", {ruta});
+        return r;
+    }
+    if (!S_ISDIR(st.st_mode)) {
+        r.rc = 2;
+        ponCodigo(r, "remove_tree_not_dir", {ruta});
+        return r;
+    }
+    if (runExecCapture("zfs", {"list", "-H", "-o", "name", ruta}).rc == 0) {
+        r.rc = 2;
+        ponCodigo(r, "remove_tree_in_zfs", {ruta});
+        return r;
+    }
+    std::string err;
+    if (!removeTreeWithoutCrossingMounts(std::filesystem::path(ruta), st.st_dev, err)) {
+        r.rc = 1;
+        ponCodigo(r, "remove_failed", {err});
+        return r;
+    }
+    daemonLog("INFO", "removed source tree " + ruta);
+    r.rc = 0;
+    r.out = "REMOVED=" + ruta + "\n";
+    return r;
+}
 #else
+ExecResult runRemoveTreeCapture(const std::vector<std::string>&) {
+    ExecResult r;
+    r.rc = 2;
+    ponCodigo(r, "remove_tree_not_on_windows", {});
+    return r;
+}
 ExecResult runRemoveContentCapture(const std::vector<std::string>&) {
     ExecResult r;
     r.rc = 2;
