@@ -869,27 +869,17 @@ bool MainWindow::getDatasetProperty(int connIdx, const QString& dataset, const Q
     if (connIdx < 0 || connIdx >= m_conns.profiles.size() || dataset.isEmpty() || prop.isEmpty()) {
         return false;
     }
-    const ConnectionProfile p = m_conns.profiles[connIdx];
-    const bool daemonReadApiOk =
-        connIdx >= 0
-        && connIdx < m_conns.states.size()
-        && m_conns.states[connIdx].daemonInstalled
-        && m_conns.states[connIdx].daemonActive
-        && m_conns.states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
-    if (!daemonReadApiOk
-        && !requireDaemonForRead(connIdx, QStringLiteral("leer una propiedad de dataset"))) {
+    // The shell's `ls <url>#properties/<prop>`: one property answers its bare value.
+    const QString ds = dataset.section(QLatin1Char('@'), 0, 0);
+    const QString snap =
+        dataset.contains(QLatin1Char('@')) ? dataset.section(QLatin1Char('@'), 1) : QString();
+    const QString clave = cliConnName(connIdx);
+    const CliService::Result r = m_cliReader->read(
+        clave, QStringLiteral("ls %1#properties/%2").arg(zfsmUrl(connIdx, ds, snap), prop), 15000);
+    if (r.rc != 0) {
         return false;
     }
-    QString out;
-    QString err;
-    int rc = -1;
-    const bool ok =
-        runAgentCommand(p, mwhelpers::argvQt(zfsmgr::commands::requests::datasetProperty(prop.toStdString(), dataset.toStdString())), 15000, out, err, rc)
-        && rc == 0;
-    if (!ok) {
-        return false;
-    }
-    valueOut = out.trimmed();
+    valueOut = r.out.trimmed();
     return true;
 }
 

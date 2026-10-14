@@ -80,109 +80,86 @@ private Q_SLOTS:
     // que dejó de usar el daemon, y datos que dejaron de rellenarse— compilaban y
     // pasaban todos los tests.
 
-    // Una lectura debe pedirle al agente el verbo y los argumentos exactos, y NO debe
-    // salir nada por shell.
-    void datasetPropertyReadGoesToTheAgentByArgv() {
+    // A read is the shell's line —here `ls …#properties/<prop>`—, never an agent call or a
+    // shell string of the window's own.
+    void datasetPropertyReadIsTheShellsLs() {
         MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
         ConnectionProfile profile;
         profile.id = QStringLiteral("local");
         profile.name = QStringLiteral("Local");
         profile.connType = QStringLiteral("Local");
         window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank")}, {});
-        window.setConnectionDaemonStateForTest(0, true, true);
         window.setAgentTransportForTest(
-            [](const std::vector<std::string>&, std::string& out, std::string& err, int& rc) {
-                out = "filesystem";
-                err.clear();
+            [](const std::vector<std::string>&, std::string&, std::string&, int& rc) {
                 rc = 0;
                 return true;
             });
-
+        window.setCliReadFakeForTest([](const QString&) {
+            CliService::Result r;
+            r.rc = 0;
+            r.out = QStringLiteral("filesystem\n");
+            return r;
+        });
         QString value;
         QVERIFY(window.getDatasetPropertyForTest(0, QStringLiteral("tank/ds"),
                                                  QStringLiteral("type"), value));
         QCOMPARE(value, QStringLiteral("filesystem"));
-
-        const auto calls = window.agentCallsForTest();
-        QCOMPARE(calls.size(), 1);
-        QCOMPARE(calls.at(0).argv,
-                 (std::vector<std::string>{"--dump-zfs-get-prop", "type", "tank/ds"}));
-        QVERIFY2(calls.at(0).shellCommand.empty(),
-                 "la lectura no debe construirse como cadena de shell");
+        QVERIFY(window.cliReadLinesForTest().contains(
+            QStringLiteral("ls zfsm://local/tank/ds#properties/type")));
+        QVERIFY(window.agentCallsForTest().isEmpty());
     }
 
-    // Sin daemon no hay camino alternativo: la lectura falla y no se intenta nada.
-    // Antes esto caía a un "zfs get" por shell y el fallo del agente quedaba oculto.
-    void readWithoutDaemonFailsInsteadOfFallingBackToShell() {
+    // When the shell's read fails, the read fails: nothing else is tried.
+    void failingShellReadFailsWithoutAnotherWay() {
         MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
         ConnectionProfile profile;
         profile.id = QStringLiteral("local");
         profile.name = QStringLiteral("Local");
         profile.connType = QStringLiteral("Local");
         window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank")}, {});
-        window.setConnectionDaemonStateForTest(0, false, false);
         window.setAgentTransportForTest(
-            [](const std::vector<std::string>&, std::string&, std::string&, int& rc) { rc = 0; return true; });
-
-        QString value;
-        QVERIFY(!window.getDatasetPropertyForTest(0, QStringLiteral("tank/ds"),
-                                                  QStringLiteral("type"), value));
-        QVERIFY2(window.agentCallsForTest().isEmpty(),
-                 "sin daemon no debe salir ninguna orden, ni al agente ni por shell");
-    }
-
-    // Si el agente responde con error, NO debe intentarse nada por shell. Es el
-    // escenario exacto en el que reaparecería un respaldo, y el que hace que un fallo
-    // del daemon quede oculto: la operación "funciona" y nadie se entera.
-    void failingAgentCallDoesNotFallBackToShell() {
-        MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
-        ConnectionProfile profile;
-        profile.id = QStringLiteral("local");
-        profile.name = QStringLiteral("Local");
-        profile.connType = QStringLiteral("Local");
-        window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank")}, {});
-        window.setConnectionDaemonStateForTest(0, true, true);
-        window.setAgentTransportForTest(
-            [](const std::vector<std::string>&, std::string& out, std::string& err, int& rc) {
-                out.clear();
-                err = "el agente falla a propósito";
-                rc = 1;
-                return true;
-            });
-
-        QString value;
-        QVERIFY(!window.getDatasetPropertyForTest(0, QStringLiteral("tank/ds"),
-                                                  QStringLiteral("type"), value));
-        const auto calls = window.agentCallsForTest();
-        QCOMPARE(calls.size(), 1);
-        QVERIFY2(calls.at(0).shellCommand.empty(),
-                 "tras fallar el agente no debe intentarse el comando clásico por shell");
-    }
-
-    // Un argumento con '&' llega entero. Es el caso que truncaba la orden y hacía
-    // perder el destino y el indicador de borrar el origen en Hacia Dir.
-    void argumentsWithShellSeparatorsSurviveIntact() {
-        MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
-        ConnectionProfile profile;
-        profile.id = QStringLiteral("local");
-        profile.name = QStringLiteral("Local");
-        profile.connType = QStringLiteral("Local");
-        window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank")}, {});
-        window.setConnectionDaemonStateForTest(0, true, true);
-        window.setAgentTransportForTest(
-            [](const std::vector<std::string>&, std::string& out, std::string&, int& rc) {
-                out = "on";
+            [](const std::vector<std::string>&, std::string&, std::string&, int& rc) {
                 rc = 0;
                 return true;
             });
-
+        window.setCliReadFakeForTest([](const QString&) {
+            CliService::Result r;
+            r.rc = 1;
+            r.err = QStringLiteral("fails on purpose");
+            return r;
+        });
         QString value;
-        const QString hostile = QStringLiteral("tank/Copias & Backups; rm -rf /");
-        QVERIFY(window.getDatasetPropertyForTest(0, hostile, QStringLiteral("mounted"), value));
-        const auto calls = window.agentCallsForTest();
-        QCOMPARE(calls.size(), 1);
-        QCOMPARE(calls.at(0).argv.size(), std::size_t(3));
-        QCOMPARE(QString::fromStdString(calls.at(0).argv.at(2)), hostile);
+        QVERIFY(!window.getDatasetPropertyForTest(0, QStringLiteral("tank/ds"),
+                                                  QStringLiteral("type"), value));
+        QCOMPARE(window.cliReadLinesForTest().filter(QStringLiteral("#properties/type")).size(), 1);
+        QVERIFY(window.agentCallsForTest().isEmpty());
+    }
+
+    // A name with '&', ';' and spaces travels percent-encoded inside the URL: one token for
+    // the shell, which decodes it back.
+    void namesWithShellSeparatorsTravelEncoded() {
+        MainWindow window(QStringLiteral("test"), QStringLiteral("en"));
+        ConnectionProfile profile;
+        profile.id = QStringLiteral("local");
+        profile.name = QStringLiteral("Local");
+        profile.connType = QStringLiteral("Local");
+        window.configureSingleConnectionUiTestState(profile, {QStringLiteral("tank")}, {});
+        window.setCliReadFakeForTest([](const QString&) {
+            CliService::Result r;
+            r.rc = 0;
+            r.out = QStringLiteral("on");
+            return r;
+        });
+        QString value;
+        QVERIFY(window.getDatasetPropertyForTest(0,
+                                                 QStringLiteral("tank/Copias & Backups; rm -rf x"),
+                                                 QStringLiteral("mounted"), value));
+        const QString linea =
+            window.cliReadLinesForTest().filter(QStringLiteral("#properties/mounted")).value(0);
+        QVERIFY2(!linea.contains(QStringLiteral(" & ")) && !linea.contains(QLatin1Char(';')),
+                 qPrintable(linea));
+        QVERIFY2(linea.contains(QStringLiteral("Copias%20%26%20Backups%3B%20rm%20-rf%20x")),
+                 qPrintable(linea));
     }
 
     void createsMainWindowWithStableObjectNames() {

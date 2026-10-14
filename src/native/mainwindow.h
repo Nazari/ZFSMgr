@@ -1000,6 +1000,8 @@ private:
                                                          const QString& poolName,
                                                          const QString& objectName,
                                                          const QStringList& propNames) const;
+    bool readObjectProperties(int connIdx, const QString& object,
+                              QVector<DatasetPropCacheRow>& rows, QString* error = nullptr);
     bool ensureDatasetAllPropertiesLoaded(int connIdx, const QString& poolName, const QString& objectName);
     bool ensureDatasetPropertySubsetLoaded(int connIdx,
                                            const QString& poolName,

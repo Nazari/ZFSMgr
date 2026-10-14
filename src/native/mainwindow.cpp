@@ -853,6 +853,29 @@ QMap<QString, QString> MainWindow::datasetPropertyValuesForNames(int connIdx,
     return values;
 }
 
+// The properties of a dataset, snapshot or pool root as the shell's `ls #properties` lists
+// them: name, value and source.
+bool MainWindow::readObjectProperties(int connIdx, const QString& object,
+                                      QVector<DatasetPropCacheRow>& rows, QString* error) {
+    rows.clear();
+    const QString ds = object.section(QLatin1Char('@'), 0, 0);
+    const QString snap =
+        object.contains(QLatin1Char('@')) ? object.section(QLatin1Char('@'), 1) : QString();
+    QJsonObject r;
+    if (!cliReadJson(connIdx, QStringLiteral("ls %1#properties").arg(zfsmUrl(connIdx, ds, snap)), r,
+                     error, 30000)) {
+        return false;
+    }
+    for (const QJsonValue& v : r.value(QStringLiteral("properties")).toArray()) {
+        const QJsonObject o = v.toObject();
+        rows.push_back(DatasetPropCacheRow{o.value(QStringLiteral("property")).toString(),
+                                           o.value(QStringLiteral("value")).toString().trimmed(),
+                                           o.value(QStringLiteral("source")).toString().trimmed(),
+                                           QString()});
+    }
+    return true;
+}
+
 bool MainWindow::ensureDatasetAllPropertiesLoaded(int connIdx,
                                                   const QString& poolName,
                                                   const QString& objectName) {
@@ -866,46 +889,13 @@ bool MainWindow::ensureDatasetAllPropertiesLoaded(int connIdx,
         return true;
     }
 
-    // Copy, not a reference: m_conns.profiles is reassigned wholesale by loadConnections(),
-    // which a queued event can trigger while runSsh() pumps the event loop.
-    const ConnectionProfile p = m_conns.profiles[connIdx];
-    const bool daemonReadApiOk =
-        connIdx >= 0
-        && connIdx < m_conns.states.size()
-        && m_conns.states[connIdx].daemonInstalled
-        && m_conns.states[connIdx].daemonActive
-        && m_conns.states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
     QString datasetType = trimmedObject.contains(QLatin1Char('@')) ? QStringLiteral("snapshot") : QStringLiteral("filesystem");
     if (dsInfo && !dsInfo->runtime.datasetType.trimmed().isEmpty()) {
         datasetType = dsInfo->runtime.datasetType.trimmed();
     }
-
-    if (datasetType.trimmed().isEmpty()) {
-        QString tOut, tErr;
-        int tRc = -1;
-        const bool typeOk =
-            daemonReadApiOk
-            && runAgentCommand(p, mwhelpers::argvQt(zfsmgr::commands::requests::datasetProperty("type", trimmedObject.toStdString())),
-                               12000, tOut, tErr, tRc)
-            && tRc == 0;
-        if (typeOk) {
-            const QString t = tOut.trimmed().toLower();
-            if (!t.isEmpty()) {
-                datasetType = t;
-            }
-        }
-    }
-
-    QString out;
+    QVector<DatasetPropCacheRow> leidas;
     QString err;
-    int rc = -1;
-    // Solo por argv al agente: el respaldo por shell se retiró y la orden que se
-    // construía aquí no la usaba nadie. Era, además, la que justificaba la rama TSV de
-    // más abajo, que se comía las propiedades en Windows.
-    const QStringList propsCmdDaemonArgv = mwhelpers::argvQt(zfsmgr::commands::requests::datasetProperties(trimmedObject.toStdString()));
-    bool propsOk = daemonReadApiOk
-          && runAgentCommand(p, propsCmdDaemonArgv, 20000, out, err, rc)
-          && rc == 0;
+    const bool propsOk = readObjectProperties(connIdx, trimmedObject, leidas, &err);
     if (!propsOk) {
         // Re-look up after the yield: rebuildConnInfoFor() replaces the whole ConnInfo,
         // destroying the nested maps that dsInfo points into.
@@ -915,33 +905,9 @@ bool MainWindow::ensureDatasetAllPropertiesLoaded(int connIdx,
         }
         return false;
     }
-
     QVector<DatasetPropCacheRow> rows;
     rows.push_back(DatasetPropCacheRow{QStringLiteral("dataset"), trimmedObject, QString(), QStringLiteral("true")});
-    // JSON SIEMPRE, también en Windows.
-    //
-    // El agente responde a --dump-zfs-get-all con `zfs get -j all`, o sea JSON, en todas
-    // las plataformas. Aquí había una rama que en Windows lo parseaba como TSV, resto de
-    // cuando esa consulta iba por shell con `-o property,value,source`. Al retirarse el
-    // respaldo por shell quedó dándole JSON a un parser de tabulaciones: de 83
-    // propiedades no salvaba ninguna, y el dataset se quedaba con 2 filas.
-    //
-    // Efectos vistos en un Windows real: `canmount` no constaba, así que Montar salía
-    // deshabilitado para siempre, y las propiedades en línea mostraban una etiqueta y un
-    // valor sin sentido, que era lo poco que el parser conseguía sacar.
-    {
-        const QJsonDocument doc = QJsonDocument::fromJson(mwhelpers::stripToJson(out).toUtf8());
-        const QJsonObject datasets = doc.object().value(QStringLiteral("datasets")).toObject();
-        const QJsonObject dsObj = datasets.value(trimmedObject).toObject();
-        const QJsonObject properties = dsObj.value(QStringLiteral("properties")).toObject();
-        for (auto it = properties.constBegin(); it != properties.constEnd(); ++it) {
-            const QJsonObject propObj = it.value().toObject();
-            const QString val = propObj.value(QStringLiteral("value")).toString().trimmed();
-            const QJsonObject sourceObj = propObj.value(QStringLiteral("source")).toObject();
-            const QString source = sourceObj.value(QStringLiteral("type")).toString().trimmed();
-            rows.push_back(DatasetPropCacheRow{it.key(), val, source, QString()});
-        }
-    }
+    rows += leidas;
 
     storeDatasetPropertyRows(connIdx, trimmedPool, trimmedObject, datasetType, rows);
     if (DSInfo* refreshed = findDsInfo(connIdx, trimmedPool, trimmedObject)) {
@@ -993,45 +959,15 @@ bool MainWindow::ensureDatasetPropertySubsetLoaded(int connIdx,
         return true;
     }
 
-    // Copy, not a reference: m_conns.profiles is reassigned wholesale by loadConnections(),
-    // which a queued event can trigger while runSsh() pumps the event loop.
-    const ConnectionProfile p = m_conns.profiles[connIdx];
-    const bool daemonReadApiOk =
-        connIdx >= 0
-        && connIdx < m_conns.states.size()
-        && m_conns.states[connIdx].daemonInstalled
-        && m_conns.states[connIdx].daemonActive
-        && m_conns.states[connIdx].daemonApiVersion.trimmed() == agentversion::expectedApiVersion().trimmed();
     QString datasetType = dsInfo->runtime.datasetType.trimmed();
     if (datasetType.isEmpty()) {
         datasetType = trimmedObject.contains(QLatin1Char('@')) ? QStringLiteral("snapshot")
                                                                : QStringLiteral("filesystem");
     }
-    QString out;
+    // The shell's `ls #properties`, and the wanted ones taken from it: one `zfs get all`.
+    QVector<DatasetPropCacheRow> leidas;
     QString err;
-    int rc = -1;
-    QStringList quotedProps;
-    for (const QString& propName : wantedProps) {
-        quotedProps.push_back(mwhelpers::shSingleQuote(propName.trimmed()));
-    }
-    // Solo por argv al agente: el respaldo por shell se retiró.
-    if (!daemonReadApiOk) {
-        requireDaemonForRead(connIdx, QStringLiteral("leer las propiedades de un dataset"));
-    }
-    const bool propsOk =
-        daemonReadApiOk
-        && runAgentCommand(p,
-                           mwhelpers::argvQt(zfsmgr::commands::requests::specificProperties(
-                               [&wantedProps]() {
-                                   std::vector<std::string> v;
-                                   for (const QString& w : wantedProps) {
-                                       v.push_back(w.toStdString());
-                                   }
-                                   return v;
-                               }(),
-                               trimmedObject.toStdString())),
-                           20000, out, err, rc)
-        && rc == 0;
+    const bool propsOk = readObjectProperties(connIdx, trimmedObject, leidas, &err);
     // Re-look up after the yield: rebuildConnInfoFor() replaces the whole ConnInfo,
     // destroying the nested maps dsInfo points into. Every use below is after this.
     dsInfo = findDsInfo(connIdx, trimmedPool, trimmedObject);
@@ -1043,6 +979,10 @@ bool MainWindow::ensureDatasetPropertySubsetLoaded(int connIdx,
         dsInfo->runtime.errorText = err.trimmed();
         return false;
     }
+    QSet<QString> queridas;
+    for (const QString& w : std::as_const(wantedProps)) {
+        queridas.insert(normalizedPropKey(w));
+    }
 
     QMap<QString, DatasetPropCacheRow> mergedByKey;
     for (const DatasetPropCacheRow& row : dsInfo->runtime.propertyRows) {
@@ -1052,21 +992,19 @@ bool MainWindow::ensureDatasetPropertySubsetLoaded(int connIdx,
     // La rama TSV para Windows era el mismo resto del respaldo por shell que dejaba sin
     // propiedades a los datasets y a los pools en esa plataforma.
     {
-        const QJsonDocument doc = QJsonDocument::fromJson(mwhelpers::stripToJson(out).toUtf8());
-        const QJsonObject datasets = doc.object().value(QStringLiteral("datasets")).toObject();
-        const QJsonObject dsObj = datasets.value(trimmedObject).toObject();
-        const QJsonObject properties = dsObj.value(QStringLiteral("properties")).toObject();
-        for (auto it = properties.constBegin(); it != properties.constEnd(); ++it) {
-            const QJsonObject propObj = it.value().toObject();
-            QString val = propObj.value(QStringLiteral("value")).toString().trimmed();
-            const QJsonObject sourceObj = propObj.value(QStringLiteral("source")).toObject();
-            QString source = sourceObj.value(QStringLiteral("type")).toString().trimmed();
-            val = gsaComparableValue(it.key(), val);
-            if (source == QStringLiteral("-")) { source.clear(); }
-            DatasetPropCacheRow newRow{it.key(), val, source, QString()};
-            mergedByKey.insert(normalizedPropKey(it.key()), newRow);
-            dsInfo->runtime.properties.insert(it.key(), val);
-            dsInfo->runtime.loadedPropertyNames.insert(normalizedPropKey(it.key()));
+        for (const DatasetPropCacheRow& leida : std::as_const(leidas)) {
+            const QString clave = normalizedPropKey(leida.prop);
+            if (!queridas.contains(clave)) {
+                continue;
+            }
+            const QString val = gsaComparableValue(leida.prop, leida.value);
+            QString source = leida.source;
+            if (source == QStringLiteral("-")) {
+                source.clear();
+            }
+            mergedByKey.insert(clave, DatasetPropCacheRow{leida.prop, val, source, QString()});
+            dsInfo->runtime.properties.insert(leida.prop, val);
+            dsInfo->runtime.loadedPropertyNames.insert(clave);
         }
     }
 
