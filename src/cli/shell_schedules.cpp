@@ -244,6 +244,10 @@ bool cmdScheduleStatus(Estado& e, const LineaAnalizada& linea) {
     }
     if (t.filas.empty() && motivos.empty()) {
         std::fputs(TC("t_sch_ninguna_prog", "No hay programaciones\n"), stderr);
+        // For a program, «none» is an empty table, not no answer at all.
+        if (e.formato != Formato::Texto) {
+            t.imprime(e.formato);
+        }
         return true;
     }
     if (!t.filas.empty()) {
@@ -413,6 +417,9 @@ bool cmdSchedule(Estado& e, const LineaAnalizada& linea) {
         if (filas.empty()) {
             std::fprintf(stderr, TC("t_sch_ninguna", "%s no tiene programación\n"),
                          destino.dataset.c_str());
+            if (e.formato != Formato::Texto) {
+                tablaDeProgramaciones(filas).imprime(e.formato);
+            }
             return true;
         }
         tablaDeProgramaciones(filas).imprime(e.formato);

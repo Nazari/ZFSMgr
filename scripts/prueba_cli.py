@@ -2234,6 +2234,9 @@ def casos_gsa(ctx):
     caso(ctx, "gsa: --clear la quita",
          [f"cd Local/{O}", "schedule --clear"], rc=0,
          estado=[("sin destino", f"zfs get -H -o value org.zfsmgr:schedule-target {O}", r"^-$")])
+    caso(ctx, "gsa: sin programación, en json sale la tabla vacía y no nada",
+         [f"cd Local/{O}", "format json", "schedule"], rc=0,
+         espera=[r'"schedules": \['], no_espera=[r'"dataset"'])
 
 
 def casos_acciones(ctx):

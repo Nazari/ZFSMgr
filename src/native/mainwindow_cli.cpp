@@ -127,6 +127,11 @@ bool MainWindow::cliReadJson(int connIdx, const QString& line, QJsonObject& out,
                  : r.err.trimmed().isEmpty() ? QStringLiteral("rc=%1").arg(r.rc)
                                              : r.err.trimmed();
     }
+    // Nothing on stdout and no failure: the line had nothing to list.
+    if (r.rc == 0 && r.out.trimmed().isEmpty()) {
+        out = QJsonObject();
+        return true;
+    }
     QJsonParseError pe;
     const QJsonDocument doc = QJsonDocument::fromJson(r.out.toUtf8(), &pe);
     if (!doc.isObject()) {
