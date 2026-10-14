@@ -1,5 +1,7 @@
 # Propuesta: las instantáneas programadas (GSA) en el intérprete
 
+> **Histórico.** Describe el GSA anterior (guion `zfsmgr-gsa.sh`, temporizadores y propiedades con nombres en castellano), retirado. El funcionamiento actual está en [diseno_y_funcionamiento_gsa.md](./diseno_y_funcionamiento_gsa.md).
+
 Escrita el 2026-08-18. **Hechas las fases 1, 2 y 3** y **la 4 a medias**: ver «Corrección:
 la fusión ya estaba hecha», al final. Queda la pata de NIVELAR.
 

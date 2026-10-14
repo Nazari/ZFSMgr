@@ -1121,10 +1121,12 @@ const std::vector<Orden> kOrdenes = {
       {"t_sch_det2", "La programación no es un fichero de este programa: son PROPIEDADES del dataset "
        "—`org.zfsmgr:schedule-*`—, así que sobrevive a reinstalar el cliente y viaja con el pool "
        "si se exporta. Se pueden ver con «ls #properties»."},
-      {"t_sch_det3", "Quien hace los snapshots es el agente GSA de esa máquina, no este programa: "
-       "si no está instalado, la programación queda escrita y no pasa nada. Las reglas se "
-       "comprueban ANTES de escribir nada: una activada sin ninguna retención mayor que 0 "
-       "haría snapshots y los borraría."},
+      {"t_sch_det3", "Quien hace los snapshots es el daemon de esa máquina (zfsmgr-agent), que repasa "
+       "las programaciones cada cinco minutos, no este programa: si no está instalado "
+       "(«install-daemon»), la programación queda escrita y no pasa nada. Para nivelar, ese "
+       "daemon tiene que llegar por su cuenta al del destino: «peers --listen» en el destino y "
+       "«peers --push» en el origen. Las reglas se comprueban ANTES de escribir nada: una "
+       "activada sin ninguna retención mayor que 0 haría snapshots y los borraría."},
       {"t_sch_det4", "«schedule status» dice qué pasó en la última pasada de cada programación: el "
        "snapshot, la poda, la nivelación y la poda del destino, y si algo falló, cuándo y por qué. "
        "Sin argumento, la conexión en la que se está; con -a, todas; o una por su nombre. Al "

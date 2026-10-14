@@ -1,5 +1,7 @@
 # Pruebas manuales de GSA en FreeBSD
 
+> **Histórico.** Describe el GSA anterior (guion `zfsmgr-gsa.sh`, temporizadores y propiedades con nombres en castellano), retirado. El funcionamiento actual está en [diseno_y_funcionamiento_gsa.md](./diseno_y_funcionamiento_gsa.md).
+
 ## Objetivo
 
 Verificar que una conexión FreeBSD soporta instalación, activación, ejecución, observabilidad y desinstalación del GSA.

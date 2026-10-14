@@ -1,5 +1,7 @@
 # Diseño técnico de endurecimiento del GSA
 
+> **Histórico.** Describe el GSA anterior (guion `zfsmgr-gsa.sh`, temporizadores y propiedades con nombres en castellano), retirado. El funcionamiento actual está en [diseno_y_funcionamiento_gsa.md](./diseno_y_funcionamiento_gsa.md).
+
 ## Objetivo
 
 Rediseñar el despliegue del `Gestor de snapshots` (GSA) para:

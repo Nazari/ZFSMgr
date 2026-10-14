@@ -399,7 +399,7 @@ Repara datasets que quedaron con el mountpoint relocalizado por un sync tar
 interrumpido de forma irrecuperable (SIGKILL, corte de luz, sustitución del daemon
 a mitad de transferencia). Esos casos no los cubre ni el `trap` del shell antiguo ni
 el guard RAII del agente, pero el dataset conserva la propiedad
-`org.fc16.zfsmgr:savedmountpoint`, que es la miga de pan necesaria para deshacerlo.
+`org.zfsmgr:savedmountpoint`, que es la miga de pan necesaria para deshacerlo.
 
 Localiza los datasets con esa propiedad puesta explícitamente (`zfs get -s local`) y,
 para cada uno, informa del mountpoint guardado y del actual.

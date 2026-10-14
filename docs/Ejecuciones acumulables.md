@@ -17,7 +17,7 @@ Regla práctica:
 ### Propiedades y programación
 
 - cambios de propiedades inline de dataset/pool
-- cambios de `Programar snapshots` (`org.fc16.gsa:*`)
+- cambios de `Programar snapshots` (`org.zfsmgr:schedule-*`)
 - `Borrar programación`
 
 ### Permisos

@@ -1971,7 +1971,7 @@ void caso36() {
         comprobar(ZP::isUserProperty("org.zfsmgr:schedule-daily"), "zfsprops: llevan dos puntos");
         comprobar(!ZP::isUserProperty("compression"), "zfsprops: y las de ZFS no");
         // Y SI se escriben en una instantánea, aunque las de ZFS no. No es un descuido de
-        // la regla: se le preguntó a ZFS. `zfs set org.fc16.prueba:x=1 pool@s1` la acepta y
+        // la regla: se le preguntó a ZFS. `zfs set org.example.test:x=1 pool@s1` la acepta y
         // se lee de vuelta; `zfs set compression=zstd pool@s1` contesta «this property can
         // not be modified for snapshots». La regla dice exactamente eso.
         comprobar(ZP::isInlineEditable("org.zfsmgr:schedule-daily", "snapshot", "local", "off", lin),

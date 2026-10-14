@@ -1,5 +1,7 @@
 # Diseño técnico de soporte GSA en FreeBSD
 
+> **Histórico.** Describe el GSA anterior (guion `zfsmgr-gsa.sh`, temporizadores y propiedades con nombres en castellano), retirado. El funcionamiento actual está en [diseno_y_funcionamiento_gsa.md](./diseno_y_funcionamiento_gsa.md).
+
 ## Objetivo
 
 Añadir soporte explícito para instalar y ejecutar el `Gestor de snapshots` (GSA) en conexiones FreeBSD.
