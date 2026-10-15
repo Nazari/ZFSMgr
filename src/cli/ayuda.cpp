@@ -993,7 +993,10 @@ const std::vector<Orden> kOrdenes = {
       "pool viejo, por ejemplo—."},
       {"t_devices_det2", "OCUPADO es una comodidad, no un veredicto: dice que el dispositivo o "
       "alguno de sus hijos tiene sistema de ficheros o está montado. Quien vaya a escribir "
-      "en él decide."}},
+      "en él decide."},
+      {"t_devices_det3", "ID es el nombre estable del dispositivo, el que no cambia entre arranques "
+       "y conviene usar al crear un pool (en Linux, el de /dev/disk/by-id/ con modelo y número de "
+       "serie). Todos sus alias salen con «format json» o «format tsv»."}},
      Objetivo::Conexion,
      {}},
     {"labelclear", {"t_pools_2fd96d", "Pools"}, {"t_labelclear_uso", "<dispositivo> [-f]"},

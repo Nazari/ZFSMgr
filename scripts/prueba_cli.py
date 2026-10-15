@@ -2808,7 +2808,7 @@ def casos_identidad(ctx):
 
 
 def casos_devices(ctx):
-    """`devices`: un dispositivo real por línea y sus alias colgando.
+    """`devices`: un dispositivo real por línea, con su nombre estable en la columna ID.
 
     El agente manda los `/dev/disk/by-id/...` como entradas aparte con `resolved` apuntando
     al dispositivo de verdad, y el cliente tiraba ese campo: en fc16 salían 36 filas de las
@@ -2824,9 +2824,11 @@ def casos_devices(ctx):
 
     rc, salida = cli(ctx, ["devices --on zfsm://local"], idioma="es")
     lineas = [l for l in salida.splitlines() if l.strip()]
-    # Las filas de dispositivo son las que NO van sangradas; la cabecera, la primera.
+    # One row per device; the header is the first. The ID column —the last one— carries the
+    # readable by-id name, without the /dev/disk/by-id/ prefix.
     filas = [l for l in lineas[1:] if not l.startswith(" ")]
-    alias = [l.strip() for l in lineas if l.startswith("    /dev/")]
+    alias = [l.split()[-1] for l in filas if l.split()[-1] not in ("-", "")
+             and not l.split()[-1].startswith("/dev/")]
 
     nombre = "devices: una línea por dispositivo real, sin repetir por los alias"
     problemas = []

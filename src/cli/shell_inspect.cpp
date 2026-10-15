@@ -166,6 +166,25 @@ bool cmdDiff(Estado& e, const LineaAnalizada& lineaOriginal) {
     return true;
 }
 
+// The alias to SHOW for a device: the one a person can read. On Linux a disk has several
+// by-id names; the model-and-serial one (`ata-…`, `nvme-Samsung…`, `mmc-…`) says which disk
+// it is, the `wwn-…` and `nvme-eui.…` ones only a number. Without the /dev/disk/by-id/
+// prefix, which is the same in all of them and only widens the column.
+static std::string readableAlias(const std::vector<std::string>& aliases) {
+    static const std::string kById = "/dev/disk/by-id/";
+    const auto bare = [](const std::string& a) {
+        return a.rfind(kById, 0) == 0 ? a.substr(kById.size()) : a;
+    };
+    for (const std::string& a : aliases) {
+        const std::string n = bare(a);
+        if (n.rfind("wwn-", 0) != 0 && n.rfind("nvme-eui.", 0) != 0
+            && n.rfind("nvme-nvme.", 0) != 0) {
+            return n;
+        }
+    }
+    return aliases.empty() ? std::string() : bare(aliases.front());
+}
+
 // --- Información suelta.
 
 bool cmdDevices(Estado& e, const LineaAnalizada& linea) {
@@ -275,12 +294,15 @@ bool cmdDevices(Estado& e, const LineaAnalizada& linea) {
     t.campos = {"path", "size", "type", "fstype", "mountpoint", "inuse"};
     t.tipos = {Tipo::Cadena, Tipo::Bytes, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Booleano};
 
-    // Para LEER, los alias van debajo y sangrados. Para un GUION van en una columna: una
-    // sangría no se puede cortar por tabuladores ni meter en un array de JSON, y quien
-    // llama a esto desde un guion quiere los alias de un disco juntos, no repartidos en
-    // líneas que hay que volver a coser.
+    // To READ, one row per device and an ID column with ONE stable name: the aliases used
+    // to go below, one line each, and in the boxed table each one crossed the whole width
+    // —two or three by-id lines per disk buried the six columns that matter—. For a SCRIPT
+    // every alias goes in a column, which tsv can cut and json turns into an array.
     const bool paraLeer = (e.formato == Formato::Texto);
-    if (!paraLeer) {
+    if (paraLeer) {
+        t.cabecerasTexto.push_back(T("t_cab_id", "ID"));
+        t.campos.push_back("id");
+    } else {
         t.cabecerasTexto.push_back(T("t_cab_alias", "ALIAS"));
         t.campos.push_back("aliases");
         t.tipos.push_back(Tipo::Lista);
@@ -371,13 +393,8 @@ bool cmdDevices(Estado& e, const LineaAnalizada& linea) {
             t.filas.push_back(fila);
             continue;
         }
+        fila.push_back(readableAlias(f.alias));
         t.filas.push_back(fila);
-        for (const std::string& a : f.alias) {
-            // UNA sola celda, no seis vacías. `Tabla` recorre la fila que le dan, así que
-            // una fila corta imprime solo lo que lleva; con seis celdas vacías salía un «-»
-            // en cada columna, que es cambiar un ruido por otro.
-            t.filas.push_back({"    " + a});
-        }
     }
     t.imprime(e.formato);
     return true;

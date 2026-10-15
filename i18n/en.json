@@ -382,6 +382,7 @@
     "t_destruye_l_77f9b5": "Destroy what is WHERE YOU ARE. Always asks for confirmation.",
     "t_devices_det": "They all come out, with the IN USE column, not only the free ones: hiding the busy ones would hide exactly the disk you mean to reuse — an old pool's, for instance.",
     "t_devices_det2": "IN USE is a convenience, not a verdict: it says the device or one of its children has a filesystem or is mounted. Whoever writes to it decides.",
+    "t_devices_det3": "ID is the device's stable name, the one that does not change between boots and the one to use when creating a pool (on Linux, the /dev/disk/by-id/ one with model and serial number). All its aliases come out with «format json» or «format tsv».",
     "t_devices_free": "--free",
     "t_devices_free_q": "Only the ones not in use.",
     "t_devices_res": "The machine's disks, to choose where to create a pool.",

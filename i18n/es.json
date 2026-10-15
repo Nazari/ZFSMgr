@@ -387,6 +387,7 @@
     "t_destruye_l_77f9b5": "Destruye lo que hay DONDE ESTÁS. Pide confirmación siempre.",
     "t_devices_det": "Salen todos, con la columna OCUPADO, y no solo los libres: esconder los ocupados escondería justo el disco que uno va a reutilizar a propósito —el de un pool viejo, por ejemplo—.",
     "t_devices_det2": "OCUPADO es una comodidad, no un veredicto: dice que el dispositivo o alguno de sus hijos tiene sistema de ficheros o está montado. Quien vaya a escribir en él decide.",
+    "t_devices_det3": "ID es el nombre estable del dispositivo, el que no cambia entre arranques y conviene usar al crear un pool (en Linux, el de /dev/disk/by-id/ con modelo y número de serie). Todos sus alias salen con «format json» o «format tsv».",
     "t_devices_free": "--free",
     "t_devices_free_q": "Solo los que no están en uso.",
     "t_devices_res": "Los discos de la máquina, para elegir dónde crear un pool.",
