@@ -1478,7 +1478,15 @@ bool cmdCd(Estado& e, const LineaAnalizada& linea) {
 bool zfsGeneric(Estado& e, const ZfsmUrl& destino, const std::vector<std::string>& argv) {
     // El empaquetado lo hace la capa base: es cómo espera el daemon los argumentos.
     std::string out;
-    return agente(e, destino, PET::zfsGeneric(B::helpers::agentArgv(argv)), out);
+    if (!agente(e, destino, PET::zfsGeneric(B::helpers::agentArgv(argv)), out)) {
+        return false;
+    }
+    // zfs is silent when all goes well, except when asked with -v or -n: then what it says
+    // is the answer —«create back/x» on a dry run— and it was being dropped.
+    if (!B::trim(out).empty()) {
+        std::fprintf(stdout, "%s%s", out.c_str(), out.back() == '\n' ? "" : "\n");
+    }
+    return true;
 }
 
 bool exigeDataset(const ZfsmUrl& u) {

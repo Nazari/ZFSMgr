@@ -754,7 +754,10 @@ bool cmdCreate(Estado& e, const LineaAnalizada& linea) {
     } else if (!zfsGeneric(e, destino, argv)) {
         return false;
     }
-    std::fprintf(stderr, TC("t_creado_s_ea96d0", "creado %s\n"), argv.back().c_str());
+    // With `-n`/`-P` zfs only says what it would do: «created» there would be false.
+    if (!pet.tiene("-n") && !pet.tiene("-P")) {
+        std::fprintf(stderr, TC("t_creado_s_ea96d0", "creado %s\n"), argv.back().c_str());
+    }
     return true;
 }
 

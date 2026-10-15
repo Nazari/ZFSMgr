@@ -167,6 +167,22 @@ void imprimeOrden(const Orden& o, int ancho, bool conDetalle) {
                 std::fprintf(stderr, "  %s\n", t.c_str());
             }
         }
+        // How a place is NAMED, generated like `--on`: every command that acts on a place
+        // takes it in the three forms, and a help page showing only the relative one reads
+        // as «this only works from where you are».
+        if (o.objetivo != Objetivo::None_) {
+            std::fprintf(stderr, "\n");
+            for (const std::string& t :
+                 parte(T("t_ayuda_tres_formas",
+                         "Los nombres y destinos se escriben de tres formas: relativos al sitio "
+                         "actual («tank/datos», «..»), absolutos desde la raíz "
+                         "(«/conexión/tank/datos») o como URL completa "
+                         "(«zfsm://conexión/tank/datos»). Las dos últimas valen estés donde "
+                         "estés."),
+                       static_cast<std::size_t>(ancho > 24 ? ancho - 4 : 60))) {
+                std::fprintf(stderr, "  %s\n", t.c_str());
+            }
+        }
         // Los ejemplos van los ÚLTIMOS, y a propósito: quien ya sabe qué hace la orden baja
         // hasta aquí y copia una línea; quien no, ha leído antes el porqué. Al revés, el
         // detalle quedaría detrás de un bloque que invita a dejar de leer.
@@ -276,6 +292,12 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
        {"t_ej_create_4", "y de todos sus descendientes"}},
       {"create tank sda sdb",
        {"t_ej_create_5", "un pool sobre dos discos"}},
+      {"create /nas/tank /dev/sda /dev/sdb",
+       {"t_ej_create_abs", "el mismo pool en nas, desde cualquier sitio"}},
+      {"create zfsm://nas/tank mirror /dev/disk/by-id/ata-A /dev/disk/by-id/ata-B",
+       {"t_ej_create_url", "con la URL completa, en espejo y con los nombres estables de los discos"}},
+      {"create /nas/tank/datos compression=zstd",
+       {"t_ej_create_abs_ds", "un dataset en otra máquina, por su ruta absoluta"}},
       {"create tank mirror sda sdb -o ashift=12 -O compression=zstd",
        {"t_ej_create_6", "en espejo, con propiedades del pool y de su raíz"}},
       {"create tank sda --mountpoint /mnt/tank",
@@ -1141,7 +1163,7 @@ const std::vector<Orden> kOrdenes = {
        "(«install-daemon»), la programación queda escrita y no pasa nada. Para nivelar, ese "
        "daemon tiene que llegar por su cuenta al del destino: «peers --listen» en el destino y "
        "«peers --push» en el origen. Las reglas se comprueban ANTES de escribir nada: una "
-       "activada sin ninguna retención mayor que 0 haría snapshots y los borraría."},
+       "activada que no guarde ninguno —todas las clases a 0— haría snapshots y los borraría."},
       {"t_sch_det4", "«schedule status» dice qué pasó en la última pasada de cada programación: el "
        "snapshot, la poda, la nivelación y la poda del destino, y si algo falló, cuándo y por qué. "
        "Sin argumento, la conexión en la que se está; con -a, todas; o una por su nombre. Al "

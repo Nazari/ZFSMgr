@@ -2825,10 +2825,9 @@ def casos_devices(ctx):
     rc, salida = cli(ctx, ["devices --on zfsm://local"], idioma="es")
     lineas = [l for l in salida.splitlines() if l.strip()]
     # One row per device; the header is the first. The ID column —the last one— carries the
-    # readable by-id name, without the /dev/disk/by-id/ prefix.
+    # readable by-id path, whole.
     filas = [l for l in lineas[1:] if not l.startswith(" ")]
-    alias = [l.split()[-1] for l in filas if l.split()[-1] not in ("-", "")
-             and not l.split()[-1].startswith("/dev/")]
+    alias = [l.split()[-1] for l in filas if l.split()[-1].startswith("/dev/disk/by-")]
 
     nombre = "devices: una línea por dispositivo real, sin repetir por los alias"
     problemas = []

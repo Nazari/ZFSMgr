@@ -648,6 +648,20 @@ int main(int argc, char** argv) {
         comprueba(dec(CR::Nivel::Dataset, "tank/otro").ruta.empty(),
                   "dataset + barra: no se resuelve ninguna máquina");
 
+        // An absolute name starts at the root wherever one is, with «/» or as a full URL.
+        for (const CR::Nivel n : {CR::Nivel::Raiz, CR::Nivel::Conexion, CR::Nivel::Dataset}) {
+            for (const char* t : {"/local/tank", "zfsm://local/tank"}) {
+                const auto d = dec(n, t);
+                comprueba(d.que == CR::Objeto::Pool, std::string("absolute: a pool, ") + t);
+                igual(d.ruta, std::string("/local"), std::string("absolute: from the root, ") + t);
+                igual(d.nombre, std::string("tank"),
+                      std::string("absolute: the pool's name, ") + t);
+            }
+            const auto d = dec(n, "zfsm://local/tank/a/b");
+            comprueba(d.que == CR::Objeto::Dataset, "absolute URL with more segments: a dataset");
+            igual(d.nombre, std::string("tank/a/b"), "absolute URL: the full ZFS name");
+        }
+
         // El marcador `@` gana en los tres niveles.
         for (const CR::Nivel n : {CR::Nivel::Raiz, CR::Nivel::Conexion, CR::Nivel::Dataset}) {
             comprueba(dec(n, "@ayer").que == CR::Objeto::Snapshot,

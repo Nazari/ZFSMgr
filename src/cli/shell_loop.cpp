@@ -2,6 +2,8 @@
 
 #include "shell_internal.h"
 
+#include <algorithm>
+
 namespace zfsmgr::cli {
 
 bool ejecutaConPatrones(Estado& e, const std::string& orden, const LineaAnalizada& original,
@@ -551,6 +553,19 @@ bool ejecutaLinea(Estado& e, const std::string& linea, LectorDeLinea* lector) {
     // conviviendo; de ahí salían los argumentos ignorados en silencio.
     if (lector) {
         lector->recuerda(recortada);
+    }
+    // `<command> --help` is what everyone types out of habit, and it used to fail: the line
+    // was analysed as the command, `--help` was an unknown option and what came out was
+    // «missing <text>». It shows the command's help, as `help <command>` does, and runs
+    // nothing.
+    {
+        const std::vector<std::string> palabras = B::split(recortada, " ", false);
+        if (palabras.size() > 1 && B::toLowerAscii(palabras.front()) != "help"
+            && std::find(palabras.begin() + 1, palabras.end(), "--help") != palabras.end()
+            && imprimeAyudaDe(palabras.front(), anchoTerminal())) {
+            e.ultimoRc = 0;
+            return false;
+        }
     }
     e.lineaEnCurso = recortada;
     e.puedeProponer = lector != nullptr && LectorDeLinea::editaEnTerminal();

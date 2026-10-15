@@ -168,21 +168,18 @@ bool cmdDiff(Estado& e, const LineaAnalizada& lineaOriginal) {
 
 // The alias to SHOW for a device: the one a person can read. On Linux a disk has several
 // by-id names; the model-and-serial one (`ata-…`, `nvme-Samsung…`, `mmc-…`) says which disk
-// it is, the `wwn-…` and `nvme-eui.…` ones only a number. Without the /dev/disk/by-id/
-// prefix, which is the same in all of them and only widens the column.
+// it is, the `wwn-…` and `nvme-eui.…` ones only a number. Whole, as a path: it is what gets
+// copied into `create <pool> …`.
 static std::string readableAlias(const std::vector<std::string>& aliases) {
-    static const std::string kById = "/dev/disk/by-id/";
-    const auto bare = [](const std::string& a) {
-        return a.rfind(kById, 0) == 0 ? a.substr(kById.size()) : a;
-    };
     for (const std::string& a : aliases) {
-        const std::string n = bare(a);
+        const std::size_t barra = a.rfind('/');
+        const std::string n = barra == std::string::npos ? a : a.substr(barra + 1);
         if (n.rfind("wwn-", 0) != 0 && n.rfind("nvme-eui.", 0) != 0
             && n.rfind("nvme-nvme.", 0) != 0) {
-            return n;
+            return a;
         }
     }
-    return aliases.empty() ? std::string() : bare(aliases.front());
+    return aliases.empty() ? std::string() : aliases.front();
 }
 
 // --- Información suelta.
@@ -294,10 +291,11 @@ bool cmdDevices(Estado& e, const LineaAnalizada& linea) {
     t.campos = {"path", "size", "type", "fstype", "mountpoint", "inuse"};
     t.tipos = {Tipo::Cadena, Tipo::Bytes, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Booleano};
 
-    // To READ, one row per device and an ID column with ONE stable name: the aliases used
-    // to go below, one line each, and in the boxed table each one crossed the whole width
-    // —two or three by-id lines per disk buried the six columns that matter—. For a SCRIPT
-    // every alias goes in a column, which tsv can cut and json turns into an array.
+    // To READ, one row per device and an ID column with ONE stable name, as a full path: the
+    // aliases used to go below, one line each, and in the boxed table each one crossed the
+    // whole width —two or three by-id lines per disk buried the six columns that matter—.
+    // For a SCRIPT every alias goes in a column, which tsv can cut and json turns into an
+    // array.
     const bool paraLeer = (e.formato == Formato::Texto);
     if (paraLeer) {
         t.cabecerasTexto.push_back(T("t_cab_id", "ID"));

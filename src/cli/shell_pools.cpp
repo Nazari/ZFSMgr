@@ -352,6 +352,7 @@ bool cmdCrearPool(Estado& e, const Peticion& pet, const ZfsmUrl& destino,
         std::fputs(TC("t_uso_create_63b88e",
                       "uso: create <pool> <dispositivo> [<dispositivo>...] [-f]\n"
                       "            [-o prop=valor] [-O prop-fs=valor] [--mountpoint <ruta>]\n"
+                      "            [--opts-as zfsm://conexión/pool]\n"
                       "  Los dispositivos se ESCRIBEN: lo que hubiera en ellos se pierde.\n"),
                    stderr);
         return false;
