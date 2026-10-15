@@ -194,6 +194,13 @@ struct Estado {
     std::function<bool(const std::string&, std::string&)> pideSecretoServicio;
     bool salir{false};
     int ultimoRc{0};
+    // The line being run, as typed, and whether there is a terminal to offer another one in.
+    // A command that would rather show the user what it is going to do —`create …
+    // --opts-as`— leaves in `lineaPropuesta` the line to run instead, and the loop writes it
+    // at the next prompt.
+    std::string lineaEnCurso;
+    bool puedeProponer{false};
+    std::string lineaPropuesta;
 };
 
 Nodo nodoDe(const ZfsmUrl& u);

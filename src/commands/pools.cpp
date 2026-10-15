@@ -1,6 +1,8 @@
 #include "pools.h"
 
 #include <cctype>
+#include <map>
+#include <set>
 
 #include "strutil.h"
 
@@ -142,6 +144,181 @@ bool isValidPoolName(const std::string& nombre) {
     return n.find_first_not_of("abcdefghijklmnopqrstuvwxyz"
                                "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
                                "0123456789_-.:") == std::string::npos;
+}
+
+namespace {
+
+bool startsWith(const std::string& s, const std::string& p) {
+    return s.rfind(p, 0) == 0;
+}
+
+// A value as the shell's grammar reads it back: bare when it is one word, in double quotes
+// otherwise.
+std::string quoted(const std::string& v) {
+    if (!v.empty() && v.find_first_of(" \t\"'\\") == std::string::npos) {
+        return v;
+    }
+    std::string out = "\"";
+    for (const char c : v) {
+        if (c == '"' || c == '\\') {
+            out += '\\';
+        }
+        out += c;
+    }
+    return out + "\"";
+}
+
+}  // namespace
+
+CopiedOptions optionsToCopy(const std::vector<SourcedProperty>& poolProps,
+                            const std::vector<SourcedProperty>& rootProps,
+                            const std::function<bool(const std::string&)>& rootSupported) {
+    // A property set by hand to the value it would have anyway adds nothing to the line:
+    // `-o failmode=wait` creates the same pool as without it. Measured, not taken from
+    // memory: what `zpool get`/`zfs get` report with source «default» on Linux and on
+    // FreeBSD (OpenZFS 2.4, 2026-10-15), keeping only the values both agree on. The ones
+    // that differ by platform —acltype, xattr, dnodesize, relatime— are never «the default»
+    // here, and neither is `compression`, whose default no machine at hand showed.
+    static const std::map<std::string, std::string> kPoolDefaults = {
+        {"ashift", "0"},          {"autoexpand", "off"},         {"autoreplace", "off"},
+        {"autotrim", "off"},      {"compatibility", "off"},      {"comment", "-"},
+        {"delegation", "on"},     {"dedup_table_quota", "auto"}, {"failmode", "wait"},
+        {"listsnapshots", "off"}, {"multihost", "off"}};
+    static const std::map<std::string, std::string> kRootDefaults = {{"aclinherit", "restricted"},
+                                                                     {"aclmode", "discard"},
+                                                                     {"atime", "on"},
+                                                                     {"canmount", "on"},
+                                                                     {"checksum", "on"},
+                                                                     {"context", "none"},
+                                                                     {"copies", "1"},
+                                                                     {"dedup", "off"},
+                                                                     {"defcontext", "none"},
+                                                                     {"devices", "on"},
+                                                                     {"direct", "standard"},
+                                                                     {"exec", "on"},
+                                                                     {"filesystem_limit", "none"},
+                                                                     {"fscontext", "none"},
+                                                                     {"logbias", "latency"},
+                                                                     {"longname", "off"},
+                                                                     {"mlslabel", "none"},
+                                                                     {"nbmand", "off"},
+                                                                     {"overlay", "on"},
+                                                                     {"prefetch", "all"},
+                                                                     {"primarycache", "all"},
+                                                                     {"quota", "none"},
+                                                                     {"readonly", "off"},
+                                                                     {"recordsize", "128K"},
+                                                                     {"redundant_metadata", "all"},
+                                                                     {"refquota", "none"},
+                                                                     {"refreservation", "none"},
+                                                                     {"reservation", "none"},
+                                                                     {"rootcontext", "none"},
+                                                                     {"secondarycache", "all"},
+                                                                     {"setuid", "on"},
+                                                                     {"sharenfs", "off"},
+                                                                     {"sharesmb", "off"},
+                                                                     {"snapdev", "hidden"},
+                                                                     {"snapdir", "hidden"},
+                                                                     {"snapshot_limit", "none"},
+                                                                     {"special_small_blocks", "0"},
+                                                                     {"sync", "standard"},
+                                                                     {"volmode", "default"},
+                                                                     {"vscan", "off"}};
+    const auto esPorDefecto = [](const std::map<std::string, std::string>& tabla,
+                                 const SourcedProperty& p) {
+        const auto it = tabla.find(p.name);
+        return it != tabla.end()
+               && (it->second == p.value || (it->second == "-" && p.value.empty()));
+    };
+    static const std::set<std::string> kPoolImportTime = {"altroot", "cachefile", "readonly"};
+    static const std::set<std::string> kRootNever = {"mountpoint", "encryption", "keyformat",
+                                                     "keylocation", "pbkdf2iters"};
+    CopiedOptions out;
+    for (const SourcedProperty& p : poolProps) {
+        if (zfsmgr::base::toLowerAscii(p.source) != "local" || startsWith(p.name, "feature@")) {
+            continue;
+        }
+        if (kPoolImportTime.count(p.name)) {
+            out.skipped.push_back(p.name + "=" + p.value);
+            continue;
+        }
+        if (!esPorDefecto(kPoolDefaults, p)) {
+            out.pool.emplace_back(p.name, p.value);
+        }
+    }
+    for (const SourcedProperty& p : rootProps) {
+        if (zfsmgr::base::toLowerAscii(p.source) != "local") {
+            continue;
+        }
+        if (kRootNever.count(p.name) || p.name.find(':') != std::string::npos
+            || (rootSupported && !rootSupported(p.name))) {
+            out.skipped.push_back(p.name + "=" + p.value);
+            continue;
+        }
+        if (!esPorDefecto(kRootDefaults, p)) {
+            out.rootFs.emplace_back(p.name, p.value);
+        }
+    }
+    return out;
+}
+
+std::string rewriteWithOptions(const std::string& line, const CopiedOptions& opts,
+                               const std::vector<std::pair<std::string, std::string>>& given) {
+    // Split into words keeping each one as typed —quotes included—, so what is not touched
+    // comes back exactly as it was written.
+    std::vector<std::string> words;
+    std::string cur;
+    char quote = 0;
+    for (std::size_t i = 0; i < line.size(); ++i) {
+        const char c = line[i];
+        if (quote) {
+            cur += c;
+            if (c == '\\' && i + 1 < line.size()) {
+                cur += line[++i];
+            } else if (c == quote) {
+                quote = 0;
+            }
+            continue;
+        }
+        if (c == ' ' || c == '\t') {
+            if (!cur.empty()) {
+                words.push_back(cur);
+                cur.clear();
+            }
+            continue;
+        }
+        if (c == '"' || c == '\'') {
+            quote = c;
+        }
+        cur += c;
+    }
+    if (!cur.empty()) {
+        words.push_back(cur);
+    }
+    std::string out;
+    for (std::size_t i = 0; i < words.size(); ++i) {
+        if (words[i] == "--opts-as") {
+            ++i;  // and its value
+            continue;
+        }
+        out += (out.empty() ? "" : " ") + words[i];
+    }
+    std::set<std::string> already;  // «-o:ashift», «-O:compression»
+    for (const auto& g : given) {
+        const std::size_t eq = g.second.find('=');
+        already.insert((g.first == "-o" ? "-o:" : "-O:") + g.second.substr(0, eq));
+    }
+    for (const auto& kv : opts.pool) {
+        if (!already.count("-o:" + kv.first)) {
+            out += " -o " + quoted(kv.first + "=" + kv.second);
+        }
+    }
+    for (const auto& kv : opts.rootFs) {
+        if (!already.count("-O:" + kv.first)) {
+            out += " -O " + quoted(kv.first + "=" + kv.second);
+        }
+    }
+    return out;
 }
 
 }  // namespace zfsmgr::commands::pools

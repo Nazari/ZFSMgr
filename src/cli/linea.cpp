@@ -393,9 +393,14 @@ void encolaAviso(const std::string& texto) {
     g_avisos.push_back(texto);
 }
 
+bool LectorDeLinea::editaEnTerminal() {
+    return hayTerminal();
+}
+
 bool LectorDeLinea::lee(const std::string& indicador, std::string& out) {
     out.clear();
     if (!hayTerminal()) {
+        m_propuesta.clear();
         // Sin terminal no hay nada que editar: se lee la línea y ya.
         //
         // Salvo el BOM de UTF-8 al principio de la entrada. PowerShell lo antepone a lo que
@@ -416,8 +421,9 @@ bool LectorDeLinea::lee(const std::string& indicador, std::string& out) {
         return static_cast<bool>(std::getline(std::cin, out));
     }
 
-    std::string linea;
-    std::size_t cursor = 0;
+    std::string linea = m_propuesta;
+    m_propuesta.clear();
+    std::size_t cursor = linea.size();
     std::size_t enHistorial = m_historial.size();  // uno más allá = la línea que se escribe
     std::string enCurso;
     std::size_t anchoPintado = 0;

@@ -552,6 +552,8 @@ bool ejecutaLinea(Estado& e, const std::string& linea, LectorDeLinea* lector) {
     if (lector) {
         lector->recuerda(recortada);
     }
+    e.lineaEnCurso = recortada;
+    e.puedeProponer = lector != nullptr && LectorDeLinea::editaEnTerminal();
     const LineaAnalizada an = analizaLinea(recortada);
     if (!an.error.empty()) {
         std::fprintf(stderr, "%s\n", an.error.c_str());
@@ -894,6 +896,10 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
         }
         if (ejecutaLinea(e, linea, &lector) && !interactivo) {
             return e.ultimoRc;
+        }
+        if (!e.lineaPropuesta.empty()) {
+            lector.propone(e.lineaPropuesta);
+            e.lineaPropuesta.clear();
         }
     }
     return 0;

@@ -2,6 +2,7 @@
 // pool.
 
 #include "shell_internal.h"
+#include "zfsprops.h"
 
 namespace zfsmgr::cli::detail {
 
@@ -280,6 +281,69 @@ bool cmdImport(Estado& e, const LineaAnalizada& linea) {
     return true;
 }
 
+// The options of the pool `modelo` names, for `create … --opts-as`: what was chosen for
+// that pool and its root dataset, minus what makes no sense on a new one (see
+// PL::optionsToCopy), and minus what the platform of `destino` does not have.
+bool opcionesDePool(Estado& e, const std::string& modelo, const ZfsmUrl& destino,
+                    PL::CopiedOptions& opts) {
+    ZfsmUrl u;
+    std::string error;
+    if (!resuelve(e, modelo, u, error)) {
+        std::fprintf(stderr, "%s\n", error.c_str());
+        return false;
+    }
+    if (u.pool.empty() || (!u.dataset.empty() && u.dataset != u.pool) || !u.snapshot.empty()
+        || !u.section.empty()) {
+        std::fprintf(stderr,
+                     TC("t_opts_as_no_pool",
+                        "--opts-as quiere un pool, como zfsm://conexión/pool "
+                        "(ahora: %s)\n"),
+                     textoDe(u).c_str());
+        return false;
+    }
+    const auto leer = [&](const std::vector<std::string>& peticion, const char* clave,
+                          std::vector<PL::SourcedProperty>& out) {
+        std::string json;
+        if (!agente(e, u, peticion, json)) {
+            return false;
+        }
+        B::json::Value raiz;
+        std::string err;
+        if (!B::json::parse(json, raiz, &err)) {
+            std::fprintf(stderr, TC("t_respuesta__6a8a80", "respuesta ilegible de zfs get: %s\n"),
+                         err.c_str());
+            return false;
+        }
+        for (const auto& obj : raiz[clave].toObject()) {
+            for (const auto& pr : obj.second["properties"].toObject()) {
+                out.push_back({pr.first, pr.second["value"].toString(),
+                               pr.second["source"]["type"].toString()});
+            }
+        }
+        return true;
+    };
+    std::vector<PL::SourcedProperty> delPool;
+    std::vector<PL::SourcedProperty> deLaRaiz;
+    if (!leer(PET::poolProperties(u.pool), "pools", delPool)
+        || !leer(PET::datasetProperties(u.pool), "datasets", deLaRaiz)) {
+        return false;
+    }
+    const auto* perfil = buscarConexion(e.conns, destino.connection);
+    const B::zfsprops::Platform plataforma =
+        B::zfsprops::platformOf(perfil ? perfil->osType : std::string(), std::string());
+    opts = PL::optionsToCopy(delPool, deLaRaiz, [plataforma](const std::string& prop) {
+        return B::zfsprops::isSupportedOn(prop, plataforma);
+    });
+    if (!opts.skipped.empty()) {
+        std::fprintf(stderr,
+                     TC("t_opts_as_fuera",
+                        "de %s se dejan fuera (de la importación, del cifrado, del montaje o "
+                        "propias de sus datos): %s\n"),
+                     textoDe(u).c_str(), B::join(opts.skipped, ", ").c_str());
+    }
+    return true;
+}
+
 // Crear un pool. Es la orden MÁS destructiva de todas: escribe en los dispositivos que se
 // le den, y si alguno tenía datos, desaparecen. La confirmación los enumera uno a uno.
 bool cmdCrearPool(Estado& e, const Peticion& pet, const ZfsmUrl& destino,
@@ -306,6 +370,29 @@ bool cmdCrearPool(Estado& e, const Peticion& pet, const ZfsmUrl& destino,
                   vdevs)) {
         return false;
     }
+    // `--opts-as`: in the shell nothing is created yet. The line comes back at the prompt
+    // with the copied options written out, so what will be created is read —and can be
+    // edited— before Enter. Without a terminal to offer it in, the equivalent line is shown
+    // and the creation goes on with those options.
+    PL::CopiedOptions copiadas;
+    const std::string modelo = pet.valor("opts-as");
+    if (!modelo.empty()) {
+        if (!opcionesDePool(e, modelo, destino, copiadas)) {
+            return false;
+        }
+        const std::string nueva =
+            PL::rewriteWithOptions(e.lineaEnCurso, copiadas, pet.l->repetidas);
+        if (e.puedeProponer) {
+            std::fprintf(stderr,
+                         TC("t_opts_as_propuesta",
+                            "con las opciones de %s, la orden queda así: revísala y pulsa Intro "
+                            "para crear el pool\n"),
+                         modelo.c_str());
+            e.lineaPropuesta = nueva;
+            return true;
+        }
+        std::fprintf(stderr, TC("t_opts_as_equivale", "equivale a: %s\n"), nueva.c_str());
+    }
     if (!confirma(e, B::format(T("t_conf_create_pool",
                                  "Se va a crear el pool %1 en %2 ESCRIBIENDO en: %3.\nLo que "
                                  "hubiera en esos dispositivos SE PIERDE. ¿Continuar?"),
@@ -327,9 +414,21 @@ bool cmdCrearPool(Estado& e, const Peticion& pet, const ZfsmUrl& destino,
         argv.push_back("-m");
         argv.push_back(pet.valor("mountpoint"));
     }
+    std::set<std::string> dadas;  // «-o:ashift»: what the line sets wins over a copied one
     for (const auto& kv : pet.l->repetidas) {
         argv.push_back(kv.first == "-o" ? "-o" : "-O");
         argv.push_back(kv.second);
+        dadas.insert(argv[argv.size() - 2] + ":" + kv.second.substr(0, kv.second.find('=')));
+    }
+    for (const auto& kv : copiadas.pool) {
+        if (!dadas.count("-o:" + kv.first)) {
+            argv.insert(argv.end(), {"-o", kv.first + "=" + kv.second});
+        }
+    }
+    for (const auto& kv : copiadas.rootFs) {
+        if (!dadas.count("-O:" + kv.first)) {
+            argv.insert(argv.end(), {"-O", kv.first + "=" + kv.second});
+        }
     }
     argv.push_back(pool);
     for (const auto& v : vdevs) {

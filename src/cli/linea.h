@@ -45,6 +45,12 @@ public:
 
     void setCompletador(Completador c) { m_completa = std::move(c); }
     void recuerda(const std::string& linea);
+    // The next `lee` starts with this already typed and the cursor at the end: a command
+    // offers the line it would run instead —`create … --opts-as` writes out the options it
+    // copied— and the user reads it, edits it if needed and presses Enter.
+    void propone(const std::string& linea) { m_propuesta = linea; }
+    // Whether there is a terminal to offer a line in: without one, `propone` means nothing.
+    static bool editaEnTerminal();
 
 private:
     // `anchoPintado` entra con lo que ocupaba el repintado anterior y sale con lo que
@@ -56,6 +62,7 @@ private:
 
     std::vector<std::string> m_historial;
     Completador m_completa;
+    std::string m_propuesta;
 };
 
 }  // namespace zfsmgr::cli

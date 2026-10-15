@@ -4909,6 +4909,52 @@ struct Caso {
     const char* nombre;
     void (*correr)();
 };
+// `create … --opts-as`: which options of another pool are copied, and the line offered back.
+void caso57() {
+    namespace PL = zfsmgr::commands::pools;
+    const std::vector<PL::SourcedProperty> pool = {
+        {"ashift", "12", "local"},
+        {"autotrim", "on", "LOCAL"},
+        {"compatibility", "openzfs-2.4-linux", "local"},
+        {"feature@zstd_compress", "active", "local"},
+        {"altroot", "/mnt", "local"},
+        {"cachefile", "none", "local"},
+        {"failmode", "wait", "default"},
+        {"autoexpand", "off", "local"},
+    };
+    const std::vector<PL::SourcedProperty> raiz = {
+        {"compression", "zstd-19", "local"},
+        {"mountpoint", "/srv/old", "local"},
+        {"encryption", "aes-256-gcm", "local"},
+        {"org.zfsmgr:schedule-daily", "7", "local"},
+        {"acltype", "posix", "local"},
+        {"atime", "on", "default"},
+        {"comment", "two words", "local"},
+        {"atime", "on", "local"},
+        {"xattr", "sa", "local"},
+    };
+    const PL::CopiedOptions o =
+        PL::optionsToCopy(pool, raiz, [](const std::string& p) { return p != "acltype"; });
+    using KV = std::vector<std::pair<std::string, std::string>>;
+    comprobar(
+        o.pool == KV{{"ashift", "12"}, {"autotrim", "on"}, {"compatibility", "openzfs-2.4-linux"}},
+        "opts-as: the pool's local properties, without features or import-time ones");
+    // xattr=sa stays: its default differs by platform, so it is never assumed.
+    comprobar(o.rootFs == KV{{"compression", "zstd-19"}, {"comment", "two words"}, {"xattr", "sa"}},
+              "opts-as: root properties, without mountpoint, encryption, user ones or unsupported");
+    comprobar(o.skipped.size() == 6, "opts-as: what is left out is said",
+              std::to_string(o.skipped.size()));
+
+    const std::string linea =
+        "create tank2 mirror sda \"sdb x\" --opts-as zfsm://nas/tank -o ashift=9";
+    const std::string nueva = PL::rewriteWithOptions(linea, o, {{"-o", "ashift=9"}});
+    igual(nueva,
+          std::string("create tank2 mirror sda \"sdb x\" -o ashift=9 -o autotrim=on "
+                      "-o compatibility=openzfs-2.4-linux -O compression=zstd-19 "
+                      "-O \"comment=two words\" -O xattr=sa"),
+          "opts-as: the line drops --opts-as, keeps what was typed and adds the rest");
+}
+
 const Caso kCasos[] = {
     {"trim", caso01},
     {"replaceAll", caso02},
@@ -4966,6 +5012,7 @@ const Caso kCasos[] = {
     {"SIGPIPE", caso54},
     {"Patrones de las URL", caso55},
     {"compresión de los ficheros de `send`", caso56},
+    {"create --opts-as", caso57},
 };
 
 }  // namespace

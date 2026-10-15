@@ -282,6 +282,8 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
        {"t_ej_create_7", "el pool montado donde uno diga"}},
       {"create tank sda -f",
        {"t_ej_create_8", "aunque el disco parezca en uso"}},
+      {"create tank mirror sda sdb --opts-as zfsm://nas/tank",
+       {"t_ej_create_opts_as", "con las opciones de otro pool: antes de crearlo, deja la orden escrita con ellas"}},
       {"create server --name Servidor --type SSH --host server.local --port 22 --user admin --key ~/.ssh/id_ed25519 --os linux",
        {"t_ej_create_9", "todo lo que define una conexión SSH"}},
       {"create laptop --type SSH --host laptop.local --user admin --sudo --password-fd 3",
@@ -943,6 +945,7 @@ const std::vector<Orden> kOrdenes = {
       {{"t_dispositiv_538150", "<dispositivo>..."}, {"t_pool_en_cu_472c48", "Pool: en cuáles se crea. SE ESCRIBEN."}},
       {{"t_o_p_v_o_p__3f8555", "-o p=v / -O p=v / --mountpoint <ruta>"}, {"t_pool_propi_383914", "Pool: propiedades y punto de montaje."}},
       {{"t_f_0abbcb", "-f"}, {"t_pool_fuerz_68fe4a", "Pool: fuerza aunque parezcan en uso."}},
+      {{"t_create_opts_as", "--opts-as <zfsm://conexión/pool>"}, {"t_create_opts_as_q", "Pool: con las mismas opciones que ese otro pool."}},
       {{"t_prop_valor_4ef240", "prop=valor"}, {"t_dataset_pr_545aca", "Dataset: propiedades del hijo."}},
       {{"t_create_arroba", "@<nombre>"}, {"t_create_arroba_q", "Snapshot del dataset donde está."}},
       {{"t_r_90cdb7", "-r"}, {"t_tambi_n_de_5714fd", "Snapshot: también de los descendientes."}}},
@@ -952,6 +955,15 @@ const std::vector<Orden> kOrdenes = {
       {"t_crear_un_p_9b7a8c", "Crear un POOL es la orden más destructiva de todas: escribe en los dispositivos que "
       "se le den y lo que hubiera en ellos se pierde. La confirmación los enumera uno a "
       "uno."},
+      {"t_create_opts_as_det", "«--opts-as» copia lo que se ELIGIÓ para ese pool —sus propiedades con "
+      "origen local: ashift, autotrim, compatibility…, y las de su dataset raíz: compression, "
+      "atime…—. No copia las de la importación (altroot, cachefile, readonly), el cifrado, el "
+      "punto de montaje —montaría el pool nuevo encima del viejo—, las propiedades de usuario "
+      "—entre ellas la programación de snapshots—, las que no existen en la máquina de destino "
+      "ni las que valen lo mismo que tendrían por defecto. "
+      "En el intérprete no crea nada todavía: escribe en el indicador la orden con esas opciones "
+      "puestas, para leerla, cambiarla si hace falta y pulsar Intro. Lo que ya lleve la línea "
+      "(«-o ashift=9») gana a lo copiado."},
       {"t_create_arroba_det", "Un nombre con « @ » delante crea un snapshot y no un hijo: `create @ayer` "
       "sobre `tank/datos` deja `tank/datos@ayer`. Es el mismo marcador que distingue un "
       "snapshot en la URL, así que no hay una regla nueva que recordar."}},
