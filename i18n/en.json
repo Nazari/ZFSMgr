@@ -1300,6 +1300,7 @@
     "t_openzfs_sin_modulo": "that machine has OpenZFS installed but its module is NOT loaded, so its version cannot be checked and installing here would be useless: without the module there is not a single pool to see. Load it and try again",
     "t_openzfs_no_hay": "that machine has no OpenZFS, and %1 or later is needed. An agent there would start and answer that all is well without seeing a single pool, which is the worst way of not working.",
     "t_openzfs_sin_respuesta": "that machine could not be asked whether it has OpenZFS",
+    "t_win_agente_bateria": "warning: the daemon's task could not be told to keep running on battery; on a laptop, Windows will stop it when unplugged",
     "t_rpc_sin_respuesta": "The command was sent to the daemon but no answer came back (%1).\nIt may still be running on the remote machine, so ZFSMgr does not retry it automatically.\nCheck the state before repeating it.",
     "t_conexion_sin_nombre": "(no name)",
     "t_rsync_det6": "It does not use the system's `rsync`: it is the agent's own copy, within one machine and between machines. It keeps owner (by name), mode, timestamps to the nanosecond, symbolic and hard links, special files, holes, ACLs and extended attributes, and treats as unchanged what matches in size and timestamp. If the target is a different system, it warns about what does not fit there (a Linux ACL on FreeBSD, any ACL on Windows). `--check` lists one change per line: `+` new, `!` changes type, `>` contents, `.` metadata only, `-` deleted.",

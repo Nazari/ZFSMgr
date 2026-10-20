@@ -608,6 +608,15 @@ ExecResult runExecStream(const std::string& program,
     }
 
     std::string porEscribir = stdinData;
+    // Nothing to send: the input is closed NOW. It used to be closed only after writing, so
+    // with nothing to write it stayed open until the child ended. A command that does not
+    // read it did not care on Linux, but an SSH session to Windows does not end until its
+    // input does: `zfs version` on a1278 answered in 4 s and the probe still timed out at
+    // 20 (2026-10-20).
+    if (porEscribir.empty()) {
+        close(inPipe[1]);
+        inPipe[1] = -1;
+    }
     std::string pendOut;
     std::string pendErr;
     bool outAbierto = true;
@@ -777,6 +786,11 @@ ExecResult runExecStream(const std::string& program,
     CloseHandle(errW);
 
     std::string porEscribir = stdinData;
+    // Nothing to send: the input is closed now (see the POSIX version).
+    if (porEscribir.empty()) {
+        CloseHandle(inW);
+        inW = nullptr;
+    }
     std::string pendOut;
     std::string pendErr;
     bool cancelado = false;

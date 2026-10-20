@@ -97,6 +97,19 @@ std::string windowsNativeInstallCommand() {
             "$q=[char]34; $action=$q + $bin + $q + ' --serve'; "
             "schtasks /Create /SC ONSTART /RL HIGHEST /RU SYSTEM /TN $task /TR $action /F | "
             "Out-Null; "
+            // A task's default settings are for a chore, not a service: Windows STOPS it when
+            // a laptop goes on battery and does not start it on battery, stops it after 72
+            // hours, and never restarts it. a1278 —a MacBook Pro— lost its daemon on a power
+            // source change on 2026-10-20, and it stayed down until started by hand.
+            // schtasks cannot set any of that; Set-ScheduledTask can. A failure here does not
+            // stop the installation: it is said, and the daemon still runs.
+            "$st = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries "
+            "-DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit "
+            "([TimeSpan]::Zero) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1); "
+            "Set-ScheduledTask -TaskName $task -Settings $st -ErrorAction SilentlyContinue | "
+            "Out-Null; "
+            "if ((Get-ScheduledTask -TaskName $task).Settings.StopIfGoingOnBatteries) { "
+            "Write-Output 'ZFSMGR_WIN_AGENT_POWER_WARN' } "
             "schtasks /Run /TN $task | Out-Null; "
             "Write-Output 'ZFSMGR_WIN_AGENT_OK'; exit 0"),
         {windowsDirPath(), windowsBinPath(), windowsTaskName(), windowsUploadPath()});

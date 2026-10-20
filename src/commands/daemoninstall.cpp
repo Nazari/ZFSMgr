@@ -337,6 +337,11 @@ Result install(TransportSession& ses, const ConnectionProfile& perfil,
             r.detail = trim(err.empty() ? out : err);
             return r;
         }
+        if (traza && out.find("ZFSMGR_WIN_AGENT_POWER_WARN") != std::string::npos) {
+            traza(i18n::tr("t_win_agente_bateria",
+                           "aviso: no se pudo quitar a la tarea del daemon la parada al pasar "
+                           "a batería; en un portátil, Windows lo detendrá al desenchufarlo"));
+        }
         return r;
     }
 

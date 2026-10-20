@@ -262,6 +262,12 @@ std::string shPrintfOctalEscaped(const std::string& s) {
     return out;
 }
 
+// The socket of the shared SSH connections. Every place that multiplexes also passes
+// `ServerAliveInterval=15 ServerAliveCountMax=3` and `ControlPersist=30m`. With
+// `ControlPersist=yes` and no keepalive, a master whose network went away —a1278 lost
+// Tailscale for an hour on 2026-10-20— stayed «running» for ever, and every later command
+// to that machine went into a dead connection and waited out its whole timeout. Now it
+// notices in under a minute and exits, and the next command opens a fresh one.
 std::string sshControlPath() {
 #ifdef __APPLE__
     // Ruta corta a propósito: el socket de dominio Unix tiene un límite de ~104 bytes
@@ -309,9 +315,12 @@ std::string sshBaseCommand(const ConnectionProfile& p) {
     std::string cmd = "ssh -o BatchMode=yes -o LogLevel=ERROR"
                       " -o StrictHostKeyChecking=accept-new";
 #else
-    std::string cmd = format("ssh -o BatchMode=yes -o LogLevel=ERROR -o StrictHostKeyChecking=accept-new"
-                             " -o ControlMaster=auto -o ControlPersist=yes -o ControlPath=%1",
-                             {shSingleQuote(sshControlPath())});
+    std::string cmd = format(
+        "ssh -o BatchMode=yes -o LogLevel=ERROR -o StrictHostKeyChecking=accept-new"
+        " -o ControlMaster=auto -o ControlPersist=30m"
+        " -o ServerAliveInterval=15 -o ServerAliveCountMax=3"
+        " -o ControlPath=%1",
+        {shSingleQuote(sshControlPath())});
 #endif
     const std::string familyOpt = sshAddressFamilyOption(p);
     if (!familyOpt.empty()) {
@@ -347,7 +356,9 @@ std::string buildSshPreviewCommandText(const ConnectionProfile& p, const std::st
     // Ver la nota en sshBaseCommand: se verifica contra ~/.ssh/known_hosts.
     parts.push_back("-o StrictHostKeyChecking=accept-new");
     parts.push_back("-o ControlMaster=auto");
-    parts.push_back("-o ControlPersist=yes");
+    parts.push_back("-o ControlPersist=30m");
+    parts.push_back("-o ServerAliveInterval=15");
+    parts.push_back("-o ServerAliveCountMax=3");
     parts.push_back(format("-o ControlPath=%1", {shSingleQuote(sshControlPath())}));
     if (p.port > 0) {
         parts.push_back(format("-p %1", {std::to_string(p.port)}));
@@ -462,7 +473,11 @@ std::vector<std::string> scpUploadArgs(const ConnectionProfile& p,
         args.push_back("-o");
         args.push_back("ControlMaster=auto");
         args.push_back("-o");
-        args.push_back("ControlPersist=yes");
+        args.push_back("ControlPersist=30m");
+        args.push_back("-o");
+        args.push_back("ServerAliveInterval=15");
+        args.push_back("-o");
+        args.push_back("ServerAliveCountMax=3");
         args.push_back("-o");
         args.push_back("ControlPath=" + sshControlPath());
     }

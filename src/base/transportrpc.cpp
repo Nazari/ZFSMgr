@@ -972,7 +972,13 @@ bool runSsh(TransportSession& ses,
         args.push_back("-o"); args.push_back("StrictHostKeyChecking=accept-new");
         if (conMultiplexado) {
             args.push_back("-o"); args.push_back("ControlMaster=auto");
-            args.push_back("-o"); args.push_back("ControlPersist=yes");
+            args.push_back("-o");
+            args.push_back("ControlPersist=30m");
+            // See H::sshControlPath: a master whose network died must notice and go.
+            args.push_back("-o");
+            args.push_back("ServerAliveInterval=15");
+            args.push_back("-o");
+            args.push_back("ServerAliveCountMax=3");
             args.push_back("-o"); args.push_back("ControlPath=" + H::sshControlPath());
         }
         if (conSshpass) {
