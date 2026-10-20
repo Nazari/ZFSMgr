@@ -94,14 +94,27 @@ helpers::OpenZfsLectura remoteOpenZfs(TransportSession& ses, const ConnectionPro
     std::string out;
     std::string err;
     int rc = -1;
-    if (T::isWindowsConnection(p)) {
-        // En Windows el reparto es otro y la comprobación de versión todavía no está
-        // escrita; no se bloquea por algo que no se sabe mirar.
+    // On Windows the same probe in PowerShell: the transport already puts the OpenZFS On
+    // Windows folders on $env:Path. It used to answer «Ok» without looking —«the check is not
+    // written yet»—, and a1278, reinstalled with Windows and no OpenZFS, got an agent that
+    // answered without a single pool to see (2026-10-20). `zfs version` there says
+    // «zfswin-2.4.1rc14», which leeSoporteOpenZfs reads as 2.4.
+    const std::string sonda = T::isWindowsConnection(p)
+                                  ? std::string(
+                                        "$z = Get-Command zfs -ErrorAction SilentlyContinue; "
+                                        "if ($z) { & $z.Source version 2>&1 | Out-String } "
+                                        "else { '__ZFSMGR_SIN_ZFS__' }")
+                                  : orden;
+    const bool llego =
+        T::runSsh(ses, p, sonda, 20000, out, err, rc, {}, {}, {}, {}, false, verboso);
+    // ssh's own failure (rc 255) or no answer at all is «could not ask», not «there is no
+    // OpenZFS»: the probe prints the marker or a version whenever it runs.
+    if (!llego || rc == 255) {
         helpers::OpenZfsLectura r;
-        r.soporte = helpers::OpenZfsSoporte::Ok;
+        r.soporte = helpers::OpenZfsSoporte::SinRespuesta;
+        r.detalle = trim(helpers::oneLine(err));
         return r;
     }
-    T::runSsh(ses, p, orden, 20000, out, err, rc, {}, {}, {}, {}, false, verboso);
     return readOpenZfsProbe(out + "\n" + err);
 }
 

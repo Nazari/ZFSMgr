@@ -793,6 +793,8 @@
     "t_instala_accion_delante": "va por delante del cliente: no se toca",
     "t_instala_accion_desconectada": "desconectada: se salta",
     "t_instala_accion_instalar": "instalar",
+    "t_instala_check_no": "no se instalaría: %1",
+    "t_instala_check_uno": "%s: daemon %s → %s; zfsmgr-cli: %s\n",
     "t_instala_hay_trabajos": "%s tiene %zu trabajos en curso, y reinstalar el daemon los cortaría a medias:\n",
     "t_instala_hay_trabajos_2": "Espere a que terminen («jobs»), o repita con --force para cortarlos.\n",
     "t_instala_nada": "nada que hacer: todas al día (%s)\n",

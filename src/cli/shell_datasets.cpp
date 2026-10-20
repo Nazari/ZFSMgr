@@ -593,10 +593,20 @@ bool cmdEditarConexion(Estado& e, const Peticion& pet, const ZfsmUrl& destino) {
         const auto* vivo = buscarConexion(e.conns, id);
         if (vivo) {
             const B::ConnectionProfile perfil = conSudo(e, *vivo);
-            if (T::runSsh(e.ses->transporte, perfil, H::withSudoCommand(perfil, "id -u"), 15000,
-                          out, err, rc, {}, {}, {}, {}, /*allowAgentRpc=*/false,
-                          /*echoOutputToLog=*/false)
-                && rc == 0 && B::trim(out) == "0") {
+            // On Windows there is no sudo nor `id`: «elevating» means the SSH user is an
+            // administrator, which OpenSSH turns into an elevated session. Asked with `id -u`
+            // it always said «they do NOT elevate» (a1278 and w11, 2026-10-20).
+            const bool windows = T::isWindowsConnection(perfil);
+            const std::string prueba =
+                windows ? std::string(
+                              "([Security.Principal.WindowsPrincipal]"
+                              "[Security.Principal.WindowsIdentity]::GetCurrent())"
+                              ".IsInRole([Security.Principal.WindowsBuiltInRole]::"
+                              "Administrator)")
+                        : H::withSudoCommand(perfil, "id -u");
+            if (T::runSsh(e.ses->transporte, perfil, prueba, 15000, out, err, rc, {}, {}, {}, {},
+                          /*allowAgentRpc=*/false, /*echoOutputToLog=*/false)
+                && rc == 0 && B::trim(out) == (windows ? "True" : "0")) {
                 std::fputs(TC("t_sudo_ok", "las credenciales de sudo elevan correctamente\n"),
                            stderr);
             } else {

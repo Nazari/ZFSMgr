@@ -666,9 +666,17 @@ void caso24() {
                 case S::DemasiadoAntigua: return std::string("demasiado-antigua");
                 case S::SinCargar:        return std::string("sin-cargar");
                 case S::NoHay:            return std::string("no-hay");
+                case S::SinRespuesta:
+                    return std::string("sin-respuesta");
             }
             return std::string("?");
         };
+
+        // What `zfs version` says on Windows (OldLau, 2026-08-13): read as 2.4, so it passes.
+        igual(soporte("zfswin-2.4.1rc14\nzfs-kmod-zfswin-2.4.1rc14"), "ok",
+              "OpenZFS on Windows: zfswin-2.4.1rc14 is enough");
+        igual(H::leeSoporteOpenZfs("zfswin-2.4.1rc14").version, "2.4",
+              "OpenZFS on Windows: the version read is 2.4");
 
         igual(soporte("zfs-2.4.4-1"), "ok",
               "2.4.4 vale");

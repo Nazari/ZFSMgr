@@ -300,6 +300,10 @@ enum class OpenZfsSoporte {
     DemasiadoAntigua,
     SinCargar,
     NoHay,
+    // The machine could not be asked: ssh did not get there (switched off, host key changed,
+    // wrong password). It used to fall into `NoHay` —the probe's output was empty—, so a VM
+    // that was simply off was reported as «that machine has no OpenZFS».
+    SinRespuesta,
 };
 
 struct OpenZfsLectura {

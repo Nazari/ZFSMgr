@@ -1307,6 +1307,10 @@ std::string textoDeSoporteOpenZfs(const OpenZfsLectura& l) {
                          "Un agente ahí arrancaría y contestaría que todo va bien sin ver "
                          "un solo pool, que es la peor forma de no funcionar."),
                 {minima});
+        case OpenZfsSoporte::SinRespuesta:
+            return i18n::tr("t_openzfs_sin_respuesta",
+                            "no se pudo preguntar a esa máquina si tiene OpenZFS")
+                   + (l.detalle.empty() ? std::string() : ": " + l.detalle);
     }
     return {};
 }

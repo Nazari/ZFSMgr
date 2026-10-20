@@ -127,6 +127,50 @@ bool cmdInstalarDaemon(Estado& e, const LineaAnalizada& linea) {
     }
     const std::string quien = p->name.empty() ? p->id : p->name;
 
+    // `--check`: what it would do, touching nothing. It was only honoured with `-a` and with
+    // patterns; on ONE machine it was ignored and the daemon got installed —on a1278, asked
+    // precisely to see whether it could be (2026-10-20)—. Same questions as the `-a` plan:
+    // the daemon's version, OpenZFS there, and the CLI.
+    if (pet.tiene("check")) {
+        namespace DI = B::daemoninstall;
+        const B::ConnectionProfile perfil = conSudo(e, *p);
+        olvidaEstadoDeConexion(e, *p);
+        ZfsmUrl u;
+        u.kind = ZfsmKind::Connection;
+        u.connection = p->id.empty() ? p->name : p->id;
+        std::string salida;
+        std::string version;
+        if (agente(e, u, {"--health"}, salida, 8000)) {
+            version = clavesDe(salida)["VERSION"];
+        }
+        const auto zfs = DI::remoteOpenZfs(e.ses->transporte, perfil, e.ses->verboso);
+        std::string accion;
+        if (zfs.soporte != B::helpers::OpenZfsSoporte::Ok) {
+            accion = B::format(T("t_instala_check_no", "no se instalaría: %1"),
+                               {B::helpers::textoDeSoporteOpenZfs(zfs)});
+        } else if (version.empty()) {
+            accion = T("t_instala_accion_instalar", "instalar");
+        } else {
+            switch (B::agentversion::verdictFor(version, B::agentversion::expected())) {
+                case B::agentversion::Verdict::UpToDate:
+                    accion = T("t_instala_accion_al_dia", "al día: no se toca");
+                    break;
+                case B::agentversion::Verdict::Update:
+                    accion = T("t_instala_accion_actualizar", "actualizar");
+                    break;
+                case B::agentversion::Verdict::Ahead:
+                    accion =
+                        T("t_instala_accion_delante", "va por delante del cliente: no se toca");
+                    break;
+            }
+        }
+        std::fprintf(stderr, TC("t_instala_check_uno", "%s: daemon %s → %s; zfsmgr-cli: %s\n"),
+                     quien.c_str(), version.empty() ? "-" : version.c_str(), accion.c_str(),
+                     textoDePlanCli(planDelCli(e, perfil)).c_str());
+        std::fputs(TC("t_patron_check", "--check: no se ha tocado nada\n"), stderr);
+        return true;
+    }
+
     // **Con trabajos en curso no se reinstala.** Reinstalar reinicia el servicio, y lo que
     // estuviera copiando muere a medias: dos copias de 16 y 50 GB quedaron por la mitad en
     // fc16 el 2026-10-10 por una reinstalación. Se dice cuáles y se para; `--force` lo hace
