@@ -2268,6 +2268,32 @@ def casos_gsa(ctx):
     caso(ctx, "gsa: --wait solo vale con run",
          [f"cd Local/{O}", "schedule --wait"], rc=1, idioma="es", espera=[r"sobra"])
 
+    # RECURSIVE levelling past the retention (2026-10-20, `srvs` on unib): `send -R` with
+    # `recv -F` already removes on the target what the source pruned, and the planned target
+    # prune then failed on «could not find any snapshots to destroy» and went red.
+    R = f"{P}/rdatos"
+    RC = f"{P}/rcopia"
+    sh(ctx, f"zfs create -o atime=off {R}", root=True)
+    sh(ctx, f"zfs create {R}/hijo", root=True)
+    envejeceR = (f"bash -c 'u=$({snaps(R)} | grep @GSA-daily- | tail -1); "
+                 f"[ -n \"$u\" ] && zfs rename -r \"$u\" {R}@GSA-daily-$1-000000' _ ")
+    caso(ctx, "gsa recursiva: la primera pasada nivela el árbol",
+         [f"cd Local/{R}", f"schedule --daily 2 --recursive --to zfsm://local/{RC} --level",
+          "schedule run --wait"], rc=0,
+         estado=[("el hijo en el destino", snaps(f"{RC}/hijo"), r"@GSA-daily-")])
+    for dia in ("20200201", "20200202"):
+        sh(ctx, f"bash -c 'echo {dia} >> /mnt/{R}/hijo/f.txt'", root=True)
+        sh(ctx, envejeceR + dia, root=True)
+        cli(ctx, [f"cd Local/{R}", "schedule run --wait"])
+    caso(ctx, "gsa recursiva: pasada la retención, el destino se poda sin ponerse en rojo",
+         [f"cd Local/{R}", "schedule status"], rc=0, idioma="es",
+         espera=[r"\bverde\b"], no_espera=[r"\brojo\b", r"could not find"],
+         estado=[("dos diarios en el origen", f"bash -c '{snaps(R)} | grep -c @GSA-daily-'", r"^2$"),
+                 ("dos diarios en el destino", f"bash -c '{snaps(RC)} | grep -c @GSA-daily-'", r"^2$"),
+                 ("y en el hijo del destino",
+                  f"bash -c '{snaps(RC + '/hijo')} | grep -c @GSA-daily-'", r"^2$")])
+    caso(ctx, "gsa recursiva: --clear", [f"cd Local/{R}", "schedule --clear"], rc=0)
+
     caso(ctx, "gsa: schedule status sin conexión desde la raíz lo pide",
          ["schedule status"], rc=1, idioma="es", espera=[r"hace falta estar en una conexión"])
     caso(ctx, "gsa: schedule status de una conexión por su nombre",

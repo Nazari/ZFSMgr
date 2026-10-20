@@ -1561,8 +1561,50 @@ GsaNivelado gsaNivela(const std::string& ds, bool recursive, const std::string& 
         log("INFO", "GSA level done for " + ds + " -> " + dstUrl + " @" + ultimo);
     }
 
-    // 3) La poda del destino.
-    for (const std::string& n : plan.pruneOnTarget) {
+    // 3) La poda del destino, over what is LEFT after receiving: a recursive levelling
+    //    receives with `recv -F` and a replication stream already destroys there what the
+    //    source no longer has (see G::stillToPrune). Read again; if that read fails, prune as
+    //    planned, which is what was done before.
+    std::vector<std::string> aPodar = plan.pruneOnTarget;
+    if (!aPodar.empty() && plan.kind != G::LevelPlan::Kind::UpToDate) {
+        std::vector<std::string> presentes;
+        bool leido = false;
+        if (isLocal) {
+            std::vector<G::SnapRef> lista;
+            std::string e;
+            if (gsaSnapshotsDe(dstDataset, lista, e)) {
+                leido = true;
+                for (const G::SnapRef& x : lista) {
+                    presentes.push_back(x.name);
+                }
+            }
+        } else {
+            std::string salida;
+            std::string errPeer;
+            if (gsaPeerRpc(peer, "--dump-zfs-list-all", {dstDataset}, salida, errPeer)
+                == GsaRpc::Ok) {
+                leido = true;
+                const std::string prefijo = dstDataset + "@";
+                for (const std::string& l : splitLines(salida)) {
+                    const std::string nombre = l.substr(0, l.find('\t'));
+                    if (nombre.rfind(prefijo, 0) == 0) {
+                        presentes.push_back(nombre.substr(prefijo.size()));
+                    }
+                }
+            }
+        }
+        if (leido) {
+            const std::vector<std::string> quedan = G::stillToPrune(aPodar, presentes);
+            for (const std::string& n : aPodar) {
+                if (std::find(quedan.begin(), quedan.end(), n) == quedan.end()) {
+                    log("INFO", "GSA level " + dstDataset + "@" + n
+                                    + " was already removed by the receive");
+                }
+            }
+            aPodar = quedan;
+        }
+    }
+    for (const std::string& n : aPodar) {
         res.podaDestino.hecho = true;
         std::vector<std::string> local = {"destroy"};
         if (recursive) {

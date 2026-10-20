@@ -4955,6 +4955,20 @@ void caso57() {
           "opts-as: the line drops --opts-as, keeps what was typed and adds the rest");
 }
 
+// GSA: the target prune after a recursive receive, which already removed what the source
+// no longer has.
+void caso58() {
+    namespace G = zfsmgr::base::gsa;
+    const std::vector<std::string> plan = {"GSA-daily-20261013-093056",
+                                           "GSA-daily-20261012-000000"};
+    comprobar(G::stillToPrune(plan, {"GSA-daily-20261014-000418", "GSA-daily-20261012-000000"})
+                  == std::vector<std::string>{"GSA-daily-20261012-000000"},
+              "stillToPrune: only what is still on the target");
+    comprobar(G::stillToPrune(plan, {}).empty(), "stillToPrune: nothing left, nothing to prune");
+    comprobar(G::stillToPrune({}, {"GSA-daily-20261014-000418"}).empty(),
+              "stillToPrune: nothing planned, nothing pruned");
+}
+
 const Caso kCasos[] = {
     {"trim", caso01},
     {"replaceAll", caso02},
@@ -5013,6 +5027,7 @@ const Caso kCasos[] = {
     {"Patrones de las URL", caso55},
     {"compresión de los ficheros de `send`", caso56},
     {"create --opts-as", caso57},
+    {"GSA stillToPrune", caso58},
 };
 
 }  // namespace

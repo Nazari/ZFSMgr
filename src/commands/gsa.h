@@ -172,6 +172,15 @@ struct LevelPlan {
 LevelPlan planLevel(const std::vector<SnapRef>& source, const std::vector<SnapRef>& target,
                     bool targetExists);
 
+// What is left to prune on the target AFTER the send. A recursive levelling sends with
+// `send -R` and receives with `recv -F`, and with a replication stream `recv -F` itself
+// destroys the target snapshots the source no longer has: the planned prune then failed on
+// «could not find any snapshots to destroy» and the schedule went red although the target
+// was exactly as it should be (2026-10-20, the first daily of `srvs` past its retention).
+// `present` is what the target has after receiving; the ones no longer there are gone.
+std::vector<std::string> stillToPrune(const std::vector<std::string>& planned,
+                                      const std::vector<std::string>& present);
+
 // The «name\tguid» lines of `zfs list -t snapshot -o name,guid -d 1 <dataset>` as SnapRefs,
 // in the order given. Lines of other datasets are skipped.
 std::vector<SnapRef> parseSnapRefs(const std::string& zfsList, const std::string& dataset);

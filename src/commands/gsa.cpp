@@ -363,6 +363,17 @@ std::vector<SnapRef> parseSnapRefs(const std::string& salida, const std::string&
     return out;
 }
 
+std::vector<std::string> stillToPrune(const std::vector<std::string>& planned,
+                                      const std::vector<std::string>& present) {
+    std::vector<std::string> out;
+    for (const std::string& n : planned) {
+        if (std::find(present.begin(), present.end(), n) != present.end()) {
+            out.push_back(n);
+        }
+    }
+    return out;
+}
+
 LevelPlan planLevel(const std::vector<SnapRef>& origen, const std::vector<SnapRef>& destino,
                     bool destinoExiste) {
     LevelPlan plan;
