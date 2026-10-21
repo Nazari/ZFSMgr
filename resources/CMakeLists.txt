@@ -23,7 +23,7 @@ else()
     add_compile_options(-Werror=switch)
 endif()
 
-set(ZFSMGR_APP_VERSION_STRING "1.3.0")
+set(ZFSMGR_APP_VERSION_STRING "1.3.1")
 set(ZFSMGR_LINUX_DESKTOP_FILE "${CMAKE_CURRENT_BINARY_DIR}/zfsmgr.desktop")
 file(SHA256 "${CMAKE_CURRENT_SOURCE_DIR}/../src/native/mainwindow_connections.cpp" ZFSMGR_GSA_SOURCE_SHA)
 string(SUBSTRING "${ZFSMGR_GSA_SOURCE_SHA}" 0 9 ZFSMGR_GSA_VERSION_SUFFIX)
