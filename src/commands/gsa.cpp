@@ -70,6 +70,12 @@ const char* const kAnual = "org.zfsmgr:schedule-yearly";
 
 const char* const kPropertyPrefix = "org.zfsmgr:schedule-";
 
+const std::vector<std::string>& scheduleProperties() {
+    static const std::vector<std::string> todas = {
+        kActivado, kRecursivo, kNivelar, kDestino, kHorario, kDiario, kSemanal, kMensual, kAnual};
+    return todas;
+}
+
 bool fromProperties(const std::map<std::string, std::string>& props, Schedule& out,
                       Reason& porQue) {
     porQue = Reason{};
@@ -489,8 +495,11 @@ std::map<std::string, std::map<std::string, std::string>> groupProperties(const 
         if (campos.size() < 3) {
             continue;
         }
-        const std::string origen = campos.size() > 3 ? toLowerAscii(trim(campos[3])) : "";
-        if (startsWith(origen, "inherited")) {
+        // Only what was SET on that dataset, the same rule as the daemon's scheduler: an
+        // inherited value belongs to the parent, and a received one came inside a `send -R`
+        // and never runs.
+        const std::string origen = campos.size() > 3 ? toLowerAscii(trim(campos[3])) : "local";
+        if (origen != "local") {
             continue;
         }
         const std::string valor = trim(campos[2]);

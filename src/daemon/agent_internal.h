@@ -1031,7 +1031,8 @@ long readSpawnedStdout(SpawnedStdout& s, char* buf, std::size_t len);
 void matarSpawnedStdout(SpawnedStdout& s);
 int waitSpawnedStdout(SpawnedStdout& s, std::string* errOut = nullptr);
 void runTransferReceiveSession(TransferSocket listenFd, const std::string& token,
-                               const std::string& dataset, bool force);
+                               const std::string& dataset, bool force,
+                               bool sinProgramacion = false);
 bool abrePuertoDeTransferencia(TransferSocket& listenFd, int& puerto, std::string& error);
 // ---------------------------------------------------------------------------
 // Sincronizar un ÁRBOL DE FICHEROS entre dos daemons.
@@ -1055,7 +1056,10 @@ void runTreeReceiveSession(TransferSocket listenFd, const std::string& token,
                            const std::string& raiz);
 ExecResult runTreeRecvListenCapture(const std::string& raiz, bool waitInline = false);
 ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& params);
-ExecResult runZfsRecvListenCapture(const std::string& dataset, bool force, bool waitInline = false);
+// `sinProgramacion`: receive with `-x` for every schedule property (a levelling; see
+// gsa::scheduleProperties).
+ExecResult runZfsRecvListenCapture(const std::string& dataset, bool force, bool waitInline = false,
+                                   bool sinProgramacion = false);
 void runFileReceiveSession(TransferSocket listenFd, const std::string& token,
                            const std::string& ruta, const zfsmgr::compresion::Eleccion& comp);
 ExecResult runFileRecvListenCapture(const std::string& ruta, bool sobrescribir,

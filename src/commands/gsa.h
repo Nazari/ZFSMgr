@@ -34,6 +34,13 @@ namespace zfsmgr::base::gsa {
 // The property prefix: `org.zfsmgr:schedule-enabled`, `-recursive`, `-hourly`… `-target`.
 extern const char* const kPropertyPrefix;
 
+// Every property a schedule is made of, full names. A levelling receives with
+// `zfs recv -x` for each of them: a recursive levelling sends with `send -R`, which carries
+// the dataset's properties, and the target ended up with a copy of the source's schedule
+// —shown as a schedule of the target, though its daemon never runs received ones—
+// (back/user/srvs on fc16, 2026-10-22).
+const std::vector<std::string>& scheduleProperties();
+
 struct Schedule {
     bool enabled{false};
     bool recursive{false};
@@ -91,8 +98,9 @@ struct Entry {
 bool isValidSet(const std::vector<Entry>& fromTheSamePool, Reason& why);
 
 // The agent's raw schedule properties («dataset<TAB>property<TAB>value[<TAB>source]», one line
-// per property) grouped by dataset. INHERITED ones are left out: an inherited schedule belongs
-// to the parent, and showing it as the child's would make it look like there are two.
+// per property) grouped by dataset. Only those whose source is LOCAL, as the daemon's
+// scheduler: an inherited schedule belongs to the parent, and showing it as the child's would
+// make it look like there are two; a RECEIVED one came with a `send -R` and never runs.
 std::map<std::string, std::map<std::string, std::string>> groupProperties(const std::string& raw);
 
 // Is `dataset` the same as `ancestor`, or does it hang from it?

@@ -3978,6 +3978,15 @@ void caso49() {
             comprobar(g.count("tank/a/b") == 0,
                       "group properties: an inherited one is the parent's");
             comprobar(g.count("tank/c") == 0, "group properties: «-» is no value");
+            // A RECEIVED schedule came inside a `send -R` and the daemon never runs it
+            // (back/user/srvs on fc16, 2026-10-22).
+            const auto r = G::groupProperties(
+                "back/srvs\torg.zfsmgr:schedule-enabled\ton\treceived\n"
+                "back/srvs\torg.zfsmgr:schedule-daily\t7\treceived\n");
+            comprobar(r.empty(), "group properties: a received schedule is not one");
+            comprobar(G::scheduleProperties().size() == 9
+                          && G::scheduleProperties().front() == "org.zfsmgr:schedule-enabled",
+                      "schedule properties: the nine, full names");
         }
 
         {

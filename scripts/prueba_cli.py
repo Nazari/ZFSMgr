@@ -2280,7 +2280,11 @@ def casos_gsa(ctx):
     caso(ctx, "gsa recursiva: la primera pasada nivela el árbol",
          [f"cd Local/{R}", f"schedule --daily 2 --recursive --to zfsm://local/{RC} --level",
           "schedule run --wait"], rc=0,
-         estado=[("el hijo en el destino", snaps(f"{RC}/hijo"), r"@GSA-daily-")])
+         estado=[("el hijo en el destino", snaps(f"{RC}/hijo"), r"@GSA-daily-"),
+                 # `send -R` carries the properties; the schedule must not travel with them.
+                 ("sin la programación del origen en el destino",
+                  f"zfs get -H -s local,received -o name -r org.zfsmgr:schedule-enabled {RC}",
+                  r"\A\s*\Z")])
     for dia in ("20200201", "20200202"):
         sh(ctx, f"bash -c 'echo {dia} >> /mnt/{R}/hijo/f.txt'", root=True)
         sh(ctx, envejeceR + dia, root=True)
@@ -3142,7 +3146,26 @@ LOCALES = [casos_arranque, casos_identidad, casos_devices, casos_ayuda, casos_ve
            casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_send_level, casos_recepcion_a_medias, casos_send_fichero, casos_send_comprimido, casos_gsa, casos_sin_montar, casos_cp_destino, casos_load_key, casos_editor_ancho, casos_tab_continua, casos_pantalla, casos_monitor_conexiones, casos_path, casos_info_labelclear, casos_servicio, casos_servicio_conexiones, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
-ENTRE_MAQUINAS = [casos_entre_maquinas]
+def casos_gsa_remota(ctx):
+    """A recursive levelling fc16 -> unib, the path `srvs` takes: the tree arrives, the
+    source's schedule does not (2026-10-22: `send -R` copied it to the target)."""
+    L, R = POOL_LOCAL, POOL_REMOTO
+    S = f"{L}/grdatos"
+    T = f"{R}/grcopia"
+    sh(ctx, f"zfs create -o atime=off {S}", root=True)
+    sh(ctx, f"zfs create {S}/hijo", root=True)
+    caso(ctx, "gsa remota recursiva: nivela el árbol en unib sin llevarse la programación",
+         [f"cd Local/{S}", f"schedule --daily 2 --recursive --to zfsm://unib/{T} --level",
+          "schedule run --wait"], rc=0,
+         estado=[("el hijo en unib",
+                  f"zfs list -H -o name -t snapshot -d 1 {T}/hijo", r"@GSA-daily-", True),
+                 ("sin la programación en unib",
+                  f"zfs get -H -s local,received -o name -r org.zfsmgr:schedule-enabled {T}",
+                  r"\A\s*\Z", True)])
+    caso(ctx, "gsa remota recursiva: --clear", [f"cd Local/{S}", "schedule --clear"], rc=0)
+
+
+ENTRE_MAQUINAS = [casos_entre_maquinas, casos_gsa_remota]
 
 
 def main():

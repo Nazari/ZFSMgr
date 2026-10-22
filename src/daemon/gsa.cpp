@@ -1276,13 +1276,19 @@ ExecResult gsaEnviaFlujo(bool isLocal, const GsaPeer& peer, const std::string& c
         if (incremental) {
             recvArgv.push_back("-F");
         }
+        // The source's schedule does not travel to the target (gsa::scheduleProperties).
+        for (const std::string& prop : zfsmgr::base::gsa::scheduleProperties()) {
+            recvArgv.push_back("-x");
+            recvArgv.push_back(prop);
+        }
         recvArgv.push_back(recvEn);
         return ejecutaTuberiaZfsLocalConAvance(sendArgv, recvArgv, avance);
     }
     ExecResult r;
     std::string respuesta;
     std::string errPeer;
-    if (gsaPeerRpc(peer, "--zfs-recv-listen", {recvEn, incremental ? "1" : "0"}, respuesta, errPeer)
+    if (gsaPeerRpc(peer, "--zfs-recv-listen", {recvEn, incremental ? "1" : "0", "noschedule"},
+                   respuesta, errPeer)
         != GsaRpc::Ok) {
         return fallo(1, "peer_cannot_listen", {conexion, errPeer});
     }

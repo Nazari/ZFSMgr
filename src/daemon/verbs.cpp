@@ -1177,16 +1177,18 @@ const TablaDeVerbos& tablaDeVerbos() {
 
         t.pon({"--zfs-recv-listen"}, [](const Peticion& p) -> ExecResult {
             ExecResult r;
-            // p.params: dataset [force=0|1]
+            // p.params: dataset [force=0|1 [noschedule]]
             if (p.params.empty()) {
                 r.rc = 2;
-                ponCodigo(r, "usage",
-                          {std::string(p.argv0) + " --zfs-recv-listen <dataset> [force=1]"});
+                ponCodigo(
+                    r, "usage",
+                    {std::string(p.argv0) + " --zfs-recv-listen <dataset> [force=1 [noschedule]]"});
                 return r;
             }
             const bool force =
                 p.params.size() > 1 && (p.params[1] == "1" || toLower(p.params[1]) == "true");
-            return runZfsRecvListenCapture(p.params[0], force);
+            const bool sinProgramacion = p.params.size() > 2 && p.params[2] == "noschedule";
+            return runZfsRecvListenCapture(p.params[0], force, false, sinProgramacion);
         });
         t.pon({"--file-recv-listen"}, [](const Peticion& p) -> ExecResult {
             ExecResult r;

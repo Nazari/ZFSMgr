@@ -519,7 +519,7 @@ int waitSpawnedStdout(SpawnedStdout& s, std::string* errOut) {
 // Se ejecuta en un hilo suelto y no informa a nadie: quien quiera saber si la recepción
 // fue bien lo consulta después por el estado del dataset.
 void runTransferReceiveSession(TransferSocket listenFd, const std::string& token,
-                               const std::string& dataset, bool force) {
+                               const std::string& dataset, bool force, bool sinProgramacion) {
     // Hasta 300 s esperando a que el emisor se conecte. Sin plazo, un emisor que nunca
     // llega deja el puerto abierto y el hilo vivo para siempre.
     struct timeval tv{};
@@ -571,6 +571,12 @@ void runTransferReceiveSession(TransferSocket listenFd, const std::string& token
     }
     args.push_back("-u");
     args.push_back("-s");
+    if (sinProgramacion) {
+        for (const std::string& prop : zfsmgr::base::gsa::scheduleProperties()) {
+            args.push_back("-x");
+            args.push_back(prop);
+        }
+    }
     args.push_back(dataset);
 
 #ifndef _WIN32
@@ -2043,7 +2049,8 @@ ExecResult runTreeSendToPeerCapture(const std::vector<std::string>& params) {
     return r;
 }
 
-ExecResult runZfsRecvListenCapture(const std::string& dataset, bool force, bool waitInline) {
+ExecResult runZfsRecvListenCapture(const std::string& dataset, bool force, bool waitInline,
+                                   bool sinProgramacion) {
     ExecResult r;
     if (trim(dataset).empty()) {
         r.rc = 2;
@@ -2072,13 +2079,13 @@ ExecResult runZfsRecvListenCapture(const std::string& dataset, bool force, bool 
         // El emisor necesita el puerto ANTES de que empiece la espera, así que se emite
         // y se vacía el búfer aquí mismo.
         std::cout << "PORT=" << assignedPort << "\nTOKEN=" << token << "\n" << std::flush;
-        runTransferReceiveSession(listenFd, token, dataset, force);
+        runTransferReceiveSession(listenFd, token, dataset, force, sinProgramacion);
         r.rc = 0;
         return r;
     }
 
-    std::thread([listenFd, token, dataset, force]() {
-        runTransferReceiveSession(listenFd, token, dataset, force);
+    std::thread([listenFd, token, dataset, force, sinProgramacion]() {
+        runTransferReceiveSession(listenFd, token, dataset, force, sinProgramacion);
     }).detach();
 
     r.rc = 0;
