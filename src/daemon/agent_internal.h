@@ -929,9 +929,16 @@ struct GsaProgramacion {
     int hourly{0}, daily{0}, weekly{0}, monthly{0}, yearly{0};
     bool levelOn{false};
     std::string dstSpec;
+    std::string origin;  // a dataset that PULLS from there (gsa::Schedule::origin)
 };
 
 GsaProgramacion gsaLeeProgramacion(const std::string& ds);
+// PULL into `ds` from its origin: every dataset of the origin's tree with GSA snapshots, one
+// by one and without -R, holding the base on the source, then pruning here with this
+// dataset's own retentions. `soloMirar` plans without sending: `paso.hecho` says whether
+// anything is due.
+GsaNivelado gsaTrae(const std::string& ds, const GsaProgramacion& p, bool soloMirar,
+                    const TransferProgressFn& avance, const GsaLog& log);
 // Seconds between two passes of the scheduler.
 constexpr long long kGsaPasadaSegs = 300;
 std::string gsaAncestroRecursivo(const std::string& ds);

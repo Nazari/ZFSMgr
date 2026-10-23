@@ -117,7 +117,11 @@ std::string motivoDeFallo(const std::string& conexion, const B::gsa::DatasetStat
                          {url, horaLocal(ultimaPasada)});
     }
     std::string que;
-    if (d.failedStep == "level") {
+    if (d.failedStep == "level" && d.pull) {
+        que = B::format(T("t_sch_mal_traer", "traer de %1"), {d.destination});
+    } else if (d.failedStep == "target-prune" && d.pull) {
+        que = T("t_sch_mal_poda_propia", "la poda de lo traído");
+    } else if (d.failedStep == "level") {
         que = B::format(T("t_sch_mal_nivel", "la nivelación a %1"), {d.destination});
     } else if (d.failedStep == "snapshot") {
         que = T("t_sch_mal_snap", "el snapshot");
@@ -193,10 +197,10 @@ bool cmdScheduleStatus(Estado& e, const LineaAnalizada& linea) {
     t.campos = {"connection", "dataset", "last_snapshot", "level", "destination", "state",
                 // json only:
                 "last_snapshot_time", "levels", "has_level", "level_ok", "last_level_time", "next",
-                "failed_step", "error"};
+                "failed_step", "error", "pull"};
     t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Cadena,   Tipo::Cadena,   Tipo::Cadena,
                Tipo::Cadena, Tipo::Entero, Tipo::Booleano, Tipo::Booleano, Tipo::Booleano,
-               Tipo::Entero, Tipo::Entero, Tipo::Cadena,   Tipo::Cadena};
+               Tipo::Entero, Tipo::Entero, Tipo::Cadena,   Tipo::Cadena,   Tipo::Booleano};
     std::vector<std::string> motivos;
     bool algunFallo = false;
     for (const auto* p : maquinas) {
@@ -217,8 +221,9 @@ bool cmdScheduleStatus(Estado& e, const LineaAnalizada& linea) {
                                     {B::humanSize(std::to_string(d.levelJobBytes)), d.levelJob});
             } else if (d.level) {
                 nivel = !d.hasLevel ? T("t_sch_nivel_nunca", "aún no")
-                        : d.levelOk ? T("t_sch_nivel_ok", "ok") + std::string(" ")
-                                          + horaLocal(d.lastLevelTime)
+                        : d.levelOk ? (d.pull ? T("t_sch_traido_ok", "traído ok")
+                                              : T("t_sch_nivel_ok", "ok"))
+                                          + std::string(" ") + horaLocal(d.lastLevelTime)
                                     : T("t_sch_nivel_mal", "error");
             }
             std::string estado = T("t_sch_verde", "verde");
@@ -239,7 +244,7 @@ bool cmdScheduleStatus(Estado& e, const LineaAnalizada& linea) {
                 {c.connection, d.dataset, d.lastSnapshot.empty() ? "-" : d.lastSnapshot, nivel,
                  d.destination.empty() ? "-" : d.destination, estado, n(d.lastSnapshotTime),
                  b(d.level), b(d.hasLevel), b(d.levelOk), n(d.lastLevelTime), n(d.next),
-                 c.stale ? std::string("scheduler") : d.failedStep, d.error});
+                 c.stale ? std::string("scheduler") : d.failedStep, d.error, b(d.pull)});
         }
     }
     if (t.filas.empty() && motivos.empty()) {
@@ -399,9 +404,11 @@ bool cmdSchedule(Estado& e, const LineaAnalizada& linea) {
     }
 
     // ¿Se pide algún cambio? Sin ninguno, esta orden solo ENSEÑA.
-    const char* const kOpciones[] = {"hourly", "daily", "weekly", "monthly", "yearly", "to"};
+    const char* const kOpciones[] = {"hourly", "daily", "weekly", "monthly",
+                                     "yearly", "to",    "origin"};
     bool cambia = pet.tiene("--off") || pet.tiene("--recursive") || pet.tiene("--no-recursive")
-                  || pet.tiene("--level") || pet.tiene("--no-level") || pet.tiene("--no-to");
+                  || pet.tiene("--level") || pet.tiene("--no-level") || pet.tiene("--no-to")
+                  || pet.tiene("--no-origin");
     for (const char* o : kOpciones) {
         if (!pet.valor(o).empty()) {
             cambia = true;
@@ -465,6 +472,18 @@ bool cmdSchedule(Estado& e, const LineaAnalizada& linea) {
     }
     if (pet.tiene("--no-to")) {
         nueva.target.clear();
+    }
+    if (pet.tiene("--no-origin")) {
+        nueva.origin.clear();
+    }
+    if (!pet.valor("origin").empty()) {
+        // PULL: this dataset keeps a copy of that one, pulled by this machine's daemon.
+        B::gsa::Reason m;
+        if (!B::gsa::targetFromUrl(pet.valor("origin"), nueva.origin, m)) {
+            std::fprintf(stderr, "--origin %s: %s\n", pet.valor("origin").c_str(),
+                         B::gsa::labelOf(B::gsa::Failure::MalformedOrigin).c_str());
+            return false;
+        }
     }
     if (!pet.valor("to").empty()) {
         // La URL de un dataset: así se escribe, se guarda y la lee el daemon.

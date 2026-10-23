@@ -66,14 +66,16 @@ const char* const kDiario = "org.zfsmgr:schedule-daily";
 const char* const kSemanal = "org.zfsmgr:schedule-weekly";
 const char* const kMensual = "org.zfsmgr:schedule-monthly";
 const char* const kAnual = "org.zfsmgr:schedule-yearly";
+const char* const kOrigen = "org.zfsmgr:schedule-origin";
 
 }  // namespace
 
 const char* const kPropertyPrefix = "org.zfsmgr:schedule-";
 
 const std::vector<std::string>& scheduleProperties() {
-    static const std::vector<std::string> todas = {
-        kActivado, kRecursivo, kNivelar, kDestino, kHorario, kDiario, kSemanal, kMensual, kAnual};
+    static const std::vector<std::string> todas = {kActivado, kRecursivo, kNivelar, kDestino,
+                                                   kHorario,  kDiario,    kSemanal, kMensual,
+                                                   kAnual,    kOrigen};
     return todas;
 }
 
@@ -87,6 +89,10 @@ bool fromProperties(const std::map<std::string, std::string>& props, Schedule& o
     p.target = trim(valorDe(props, kDestino));
     if (p.target == "-") {
         p.target.clear();
+    }
+    p.origin = trim(valorDe(props, kOrigen));
+    if (p.origin == "-") {
+        p.origin.clear();
     }
     const std::pair<const char*, int*> retenciones[] = {
         {kHorario, &p.hourly}, {kDiario, &p.daily},   {kSemanal, &p.weekly},
@@ -105,15 +111,11 @@ bool fromProperties(const std::map<std::string, std::string>& props, Schedule& o
 
 std::map<std::string, std::string> toProperties(const Schedule& p) {
     return {
-        {kActivado, p.enabled ? "on" : "off"},
-        {kRecursivo, p.recursive ? "on" : "off"},
-        {kNivelar, p.level ? "on" : "off"},
-        {kDestino, p.target},
-        {kHorario, std::to_string(p.hourly)},
-        {kDiario, std::to_string(p.daily)},
-        {kSemanal, std::to_string(p.weekly)},
-        {kMensual, std::to_string(p.monthly)},
-        {kAnual, std::to_string(p.yearly)},
+        {kActivado, p.enabled ? "on" : "off"}, {kRecursivo, p.recursive ? "on" : "off"},
+        {kNivelar, p.level ? "on" : "off"},    {kDestino, p.target},
+        {kHorario, std::to_string(p.hourly)},  {kDiario, std::to_string(p.daily)},
+        {kSemanal, std::to_string(p.weekly)},  {kMensual, std::to_string(p.monthly)},
+        {kAnual, std::to_string(p.yearly)},    {kOrigen, p.origin},
     };
 }
 
@@ -141,6 +143,30 @@ bool isValid(const std::string& dataset, const Schedule& p,
         if (conexionExiste && !conexionExiste(conexion)) {
             porQue.failure = Failure::TargetHasNoConnection;
             porQue.detail = conexion;
+            return false;
+        }
+    }
+    // A dataset that PULLS: a valid origin, which neither pushes nor marks itself recursive
+    // —what comes follows the source's tree—.
+    if (!p.origin.empty()) {
+        std::string conexion;
+        std::string dsOrigen;
+        if (!splitTarget(p.origin, conexion, dsOrigen)) {
+            porQue.failure = Failure::MalformedOrigin;
+            porQue.detail = p.origin;
+            return false;
+        }
+        if (conexionExiste && !conexionExiste(conexion)) {
+            porQue.failure = Failure::OriginHasNoConnection;
+            porQue.detail = conexion;
+            return false;
+        }
+        if (p.level || !p.target.empty()) {
+            porQue.failure = Failure::OriginWithPush;
+            return false;
+        }
+        if (p.recursive) {
+            porQue.failure = Failure::OriginRecursive;
             return false;
         }
     }
@@ -190,9 +216,36 @@ bool isValidSet(const std::vector<Entry>& delMismoPool, Reason& porQue) {
                 porQue.detail = b.dataset;
                 return false;
             }
+            // A dataset that pulls owns its whole tree: what arrives fills it, and any
+            // snapshot taken here —by a schedule inside it, or by a recursive one above it,
+            // already caught just above— would sit after the pulled base and stop the next
+            // receive.
+            for (const auto& [traer, otra] : {std::pair<const Entry*, const Entry*>{&a, &b},
+                                              std::pair<const Entry*, const Entry*>{&b, &a}}) {
+                if (!traer->schedule.origin.empty()
+                    && isSameOrDescendant(otra->dataset, traer->dataset)) {
+                    porQue.failure = Failure::ClashesWithPull;
+                    porQue.dataset = otra->dataset;
+                    porQue.detail = traer->dataset;
+                    return false;
+                }
+            }
         }
     }
     return true;
+}
+
+std::string pullTargetFor(const std::string& origin, const std::string& sourceDataset,
+                          const std::string& here) {
+    const std::string o = trim(origin);
+    const std::string s = trim(sourceDataset);
+    if (s == o) {
+        return trim(here);
+    }
+    if (startsWith(s, o + "/")) {
+        return trim(here) + s.substr(o.size());
+    }
+    return {};
 }
 
 std::string labelOf(Failure f) {
@@ -211,6 +264,25 @@ std::string labelOf(Failure f) {
             return i18n::tr("t_cmd_gsa_destino_nombra_conexion_existe", "el destino nombra una conexión que no existe");
         case Failure::ClashesWithRecursive:
             return i18n::tr("t_cmd_gsa_ya_hay_programacion_recursiva", "ya hay una programación recursiva que lo cubre");
+        case Failure::MalformedOrigin:
+            return i18n::tr(
+                "t_cmd_gsa_origen_url",
+                "el origen tiene que ser la URL de un dataset: zfsm://<conexión>/<pool>/<dataset>");
+        case Failure::OriginHasNoConnection:
+            return i18n::tr("t_cmd_gsa_origen_sin_conexion",
+                            "el origen nombra una conexión que no existe");
+        case Failure::OriginWithPush:
+            return i18n::tr(
+                "t_cmd_gsa_origen_con_destino",
+                "un dataset que trae de un origen no nivela a la vez hacia otro destino");
+        case Failure::OriginRecursive:
+            return i18n::tr(
+                "t_cmd_gsa_origen_recursivo",
+                "lo que se trae sigue el árbol del origen: aquí no se pone --recursive");
+        case Failure::ClashesWithPull:
+            return i18n::tr("t_cmd_gsa_choca_con_traida",
+                            "choca con un dataset que trae de un origen: sus snapshots propios "
+                            "chocarían con los traídos");
     }
     return {};
 }
@@ -614,6 +686,7 @@ bool parseState(const std::string& texto, ConnectionState& out, std::string& err
         d.dataset = kv.first;
         d.destination = v["destination"].toString();
         d.level = v["level"].toBool(false);
+        d.pull = v["pull"].toBool(false);
         d.pending = v["pending"].toBool(false);
         d.lastEval = v["last_eval"].toInt(0);
         d.lastSnapshot = v["snapshot"]["name"].toString();

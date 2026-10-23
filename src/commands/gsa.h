@@ -52,6 +52,11 @@ struct Schedule {
     int monthly{0};
     int yearly{0};
     std::string target;   // «zfsm://connection/pool/dataset»
+    // PULL: this dataset is a copy that THIS machine keeps by pulling from that one
+    // («zfsm://connection/pool/dataset»), which must have its own schedule. No snapshots are
+    // taken here; the retentions say how many of the pulled ones of each class to keep. Its
+    // descendants with GSA snapshots come too, each into the same path under this one.
+    std::string origin;
 
     bool hasNoRetentions() const {
         return hourly <= 0 && daily <= 0 && weekly <= 0 && monthly <= 0 && yearly <= 0;
@@ -60,12 +65,17 @@ struct Schedule {
 
 enum class Failure {
     None_,
-    RetentionNotAnInteger,   // detail: the offending property
+    RetentionNotAnInteger,  // detail: the offending property
     EnabledWithNoRetention,
     LevelWithNoTarget,
-    MalformedTarget,         // not the URL of a dataset
-    TargetHasNoConnection,   // detail: the name of the missing connection
-    ClashesWithRecursive,    // detail: the dataset that already has one
+    MalformedTarget,        // not the URL of a dataset
+    TargetHasNoConnection,  // detail: the name of the missing connection
+    ClashesWithRecursive,   // detail: the dataset that already has one
+    MalformedOrigin,        // not the URL of a dataset
+    OriginHasNoConnection,  // detail: the name of the missing connection
+    OriginWithPush,         // a dataset that pulls does not also push (--to/--level)
+    OriginRecursive,        // what is pulled follows the source's tree; no --recursive here
+    ClashesWithPull,        // detail: the dataset that pulls, or the schedule inside it
 };
 
 struct Reason {
@@ -97,6 +107,11 @@ struct Entry {
     Schedule schedule;
 };
 bool isValidSet(const std::vector<Entry>& fromTheSamePool, Reason& why);
+
+// Where a source dataset of a pull lands: `origin` maps to `here`, and a descendant of it to
+// the same path under `here`. Empty if `sourceDataset` is not `origin` nor below it.
+std::string pullTargetFor(const std::string& origin, const std::string& sourceDataset,
+                          const std::string& here);
 
 // The agent's raw schedule properties («dataset<TAB>property<TAB>value[<TAB>source]», one line
 // per property) grouped by dataset. Only those whose source is LOCAL, as the daemon's
@@ -263,8 +278,9 @@ LevelAction decideLevel(const LevelTrigger& t);
 
 struct DatasetState {
     std::string dataset;
-    std::string destination;   // stored form; empty if it does not level
+    std::string destination;  // stored form; empty if it does not level. For a pull, the ORIGIN
     bool level{false};
+    bool pull{false};          // this dataset pulls from `destination` (schedule-origin)
     bool pending{false};       // scheduled, but no pass has looked at it yet
     long long lastEval{0};
     std::string lastSnapshot;

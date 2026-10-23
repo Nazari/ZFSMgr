@@ -566,7 +566,7 @@ const TablaDeVerbos& tablaDeVerbos() {
                         "org.zfsmgr:schedule-enabled,org.zfsmgr:schedule-recursive,org.zfsmgr:"
                         "schedule-hourly,org.zfsmgr:schedule-daily,org.zfsmgr:schedule-weekly,org."
                         "zfsmgr:schedule-monthly,org.zfsmgr:schedule-yearly,org.zfsmgr:schedule-"
-                        "level,org.zfsmgr:schedule-target",
+                        "level,org.zfsmgr:schedule-target,org.zfsmgr:schedule-origin",
                         p.params[0]});
         });
 

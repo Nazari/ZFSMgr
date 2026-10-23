@@ -929,19 +929,21 @@ Tabla tablaDeProgramaciones(const std::vector<std::pair<std::string, B::gsa::Ent
                         T("t_cab_activa", "ACTIVA"),     T("t_cab_recursiva", "RECURSIVA"),
                         T("t_cab_hora", "HORA"),         T("t_cab_dia", "DÍA"),
                         T("t_cab_sem", "SEM"),           T("t_cab_mes", "MES"),
-                        T("t_cab_ano", "AÑO"),           T("t_cab_destino", "DESTINO")};
+                        T("t_cab_ano", "AÑO"),           T("t_cab_destino", "DESTINO"),
+                        T("t_cab_origen", "ORIGEN")};
     t.campos = {"connection", "dataset", "enabled", "recursive",   "hourly", "daily",
-                "weekly",     "monthly", "yearly",  "destination", "level"};  // json only
+                "weekly",     "monthly", "yearly",  "destination", "origin", "level"};  // json
     t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Booleano, Tipo::Booleano,
                Tipo::Entero, Tipo::Entero, Tipo::Entero,   Tipo::Entero,
-               Tipo::Entero, Tipo::Cadena, Tipo::Booleano};
+               Tipo::Entero, Tipo::Cadena, Tipo::Cadena,   Tipo::Booleano};
     for (const auto& f : filas) {
         const B::gsa::Schedule& p = f.second.schedule;
         t.filas.push_back({f.first, f.second.dataset, p.enabled ? "true" : "false",
                            p.recursive ? "true" : "false", std::to_string(p.hourly),
                            std::to_string(p.daily), std::to_string(p.weekly),
                            std::to_string(p.monthly), std::to_string(p.yearly),
-                           p.target.empty() ? "-" : p.target, p.level ? "true" : "false"});
+                           p.target.empty() ? "-" : p.target, p.origin.empty() ? "-" : p.origin,
+                           p.level ? "true" : "false"});
     }
     return t;
 }

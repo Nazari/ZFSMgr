@@ -3197,6 +3197,49 @@ LOCALES = [casos_arranque, casos_identidad, casos_devices, casos_ayuda, casos_ve
            casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_send_level, casos_recepcion_a_medias, casos_send_fichero, casos_send_comprimido, casos_gsa, casos_sin_montar, casos_cp_destino, casos_load_key, casos_editor_ancho, casos_tab_continua, casos_pantalla, casos_monitor_conexiones, casos_path, casos_info_labelclear, casos_servicio, casos_servicio_conexiones, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
+def casos_traer(ctx):
+    """A PULL schedule (schedule-origin): fc16 keeps a copy of a unib tree, pulled by fc16's
+    daemon, with a retention of its own longer than the source's."""
+    L, R = POOL_LOCAL, POOL_REMOTO
+    src = f"{R}/porigen"
+    dst = f"{L}/pcopia"
+    snaps = lambda ds: f"zfs list -H -o name -t snapshot -s createtxg -d 1 {ds}"
+    cuenta = lambda ds: f"bash -c '{snaps(ds)} | grep -c @GSA-daily-'"
+    sh(ctx, f"zfs create -o atime=off {src}", True, root=True)
+    sh(ctx, f"zfs create {src}/hijo", True, root=True)
+    cli(ctx, [f"cd unib/{src}", "schedule --daily 2 --recursive", "schedule run --wait"])
+    sh(ctx, f"zfs create {dst}", root=True)
+    caso(ctx, "traer: la primera pasada trae el árbol entero a un dataset vacío",
+         [f"cd Local/{dst}", f"schedule --daily 3 --origin zfsm://unib/{src}",
+          "schedule run --wait"], rc=0,
+         estado=[("el diario en la copia", snaps(dst), r"@GSA-daily-"),
+                 ("y en su hijo", snaps(f"{dst}/hijo"), r"@GSA-daily-"),
+                 ("lo traído no se monta solo",
+                  f"zfs get -H -o value canmount {dst}/hijo", r"^noauto$"),
+                 ("la programación sigue en la copia",
+                  f"zfs get -H -s local -o value org.zfsmgr:schedule-origin {dst}",
+                  rf"^zfsm://unib/{src}$"),
+                 ("el origen retiene la base de la copia",
+                  f"bash -c 'zfs holds -H $({snaps(src)} | tail -1)'", r"zfsmgr-pull:", True)])
+    envejece = (f"bash -c 'u=$({snaps(src)} | grep @GSA-daily- | tail -1); "
+                f"[ -n \"$u\" ] && zfs rename -r \"$u\" {src}@GSA-daily-$1-000000' _ ")
+    for dia in ("20200401", "20200402", "20200403"):
+        sh(ctx, f"bash -c 'echo {dia} >> /mnt/{src}/hijo/f.txt'", True, root=True)
+        sh(ctx, envejece + dia, True, root=True)
+        cli(ctx, [f"cd unib/{src}", "schedule run --wait"])
+        cli(ctx, [f"cd Local/{dst}", "schedule run --wait"])
+    caso(ctx, "traer: la copia guarda más que el origen y sigue en verde",
+         [f"cd Local/{dst}", "schedule status"], rc=0, idioma="es",
+         espera=[r"\bverde\b", r"traído ok"], no_espera=[r"\brojo\b"],
+         estado=[("el origen guarda 2", cuenta(src), r"^2$", True),
+                 ("la copia guarda 3", cuenta(dst), r"^3$"),
+                 ("y su hijo también", cuenta(f"{dst}/hijo"), r"^3$")])
+    caso(ctx, "traer: schedules enseña el origen",
+         [f"cd Local/{dst}", "schedule"], espera=[rf"zfsm://unib/{src}"])
+    caso(ctx, "traer: --clear en la copia", [f"cd Local/{dst}", "schedule --clear"], rc=0)
+    caso(ctx, "traer: --clear en el origen", [f"cd unib/{src}", "schedule --clear"], rc=0)
+
+
 def casos_gsa_remota(ctx):
     """A recursive levelling fc16 -> unib, the path `srvs` takes: the tree arrives, the
     source's schedule does not (2026-10-22: `send -R` copied it to the target)."""
@@ -3269,7 +3312,7 @@ def casos_gsa_remota(ctx):
                    (f"zfs list -H -o name -t snapshot -d 1 {traido}", r"\A(?![\s\S]*@nohay)"))
 
 
-ENTRE_MAQUINAS = [casos_entre_maquinas, casos_gsa_remota]
+ENTRE_MAQUINAS = [casos_entre_maquinas, casos_gsa_remota, casos_traer]
 
 
 def main():

@@ -399,6 +399,12 @@ QString MainWindow::gsaMensajeDeMotivo(const zfsmgr::base::gsa::Reason& m,
                        QStringLiteral("No se puede programar %1 porque %2 ya tiene una programación GSA recursiva."),
                        QStringLiteral("%1 cannot be scheduled because %2 already has a recursive GSA schedule."))
                 .arg(dataset, QString::fromStdString(m.detail));
+        // Pulling (schedule-origin) is not in this window until 2.0: the shared text.
+        case F::MalformedOrigin:
+        case F::OriginHasNoConnection:
+        case F::OriginWithPush:
+        case F::OriginRecursive:
+        case F::ClashesWithPull:
         case F::None_:
             break;
     }

@@ -92,7 +92,8 @@ ExecResult runDumpGsaRawAllPoolsCapture() {
         ExecResult one = runExecCapture(
             "zfs",
             {"get", "-H", "-o", "name,property,value", "-r",
-             "org.zfsmgr:schedule-enabled,org.zfsmgr:schedule-level,org.zfsmgr:schedule-target",
+             "org.zfsmgr:schedule-enabled,org.zfsmgr:schedule-level,org.zfsmgr:schedule-target,"
+             "org.zfsmgr:schedule-origin",
              pool});
         if (!one.out.empty()) {
             out << one.out;
@@ -2005,6 +2006,10 @@ GsaProgramacion gsaLeeProgramacion(const std::string& ds) {
     p.yearly = gsaIntVal(gsaPropValue(ds, "org.zfsmgr:schedule-yearly", false));
     p.levelOn = gsaBoolOn(gsaPropValue(ds, "org.zfsmgr:schedule-level", false));
     p.dstSpec = gsaPropValue(ds, "org.zfsmgr:schedule-target", false);
+    p.origin = gsaPropValue(ds, "org.zfsmgr:schedule-origin", false);
+    if (trim(p.origin) == "-") {
+        p.origin.clear();
+    }
     return p;
 }
 
@@ -2053,8 +2058,277 @@ bool gsaTrabajoCancelado(const std::string& id) {
     return it != g_jobs.end() && it->second.state == JobState::Cancelled;
 }
 
-std::string gsaLanzaNivelacion(const std::string& ds, bool recursive, const std::string& dstSpec,
-                               const GsaTargetConn& target, const GsaLog& log) {
+// Empty enough to be overwritten by a first pull: no snapshots, no children, and under 1 MB
+// referenced (a new filesystem is about 100 KB).
+bool gsaDatasetVacio(const std::string& ds) {
+    const ExecResult hijos =
+        runExecCapture("zfs", {"list", "-H", "-o", "name", "-r", "-t", "all", ds});
+    if (hijos.rc != 0 || splitLines(trim(hijos.out)).size() != 1) {
+        return false;
+    }
+    const ExecResult ref =
+        runExecCapture("zfs", {"get", "-H", "-p", "-o", "value", "referenced", ds});
+    try {
+        return ref.rc == 0 && std::stoll(trim(ref.out)) < 1024LL * 1024LL;
+    } catch (...) {
+        return false;
+    }
+}
+
+GsaNivelado gsaTrae(const std::string& ds, const GsaProgramacion& p, bool soloMirar,
+                    const TransferProgressFn& avance, const GsaLog& log) {
+    namespace G = zfsmgr::base::gsa;
+    GsaNivelado res;
+    const auto falla = [&](const std::string& codigo, std::vector<std::string> args) {
+        res.paso.hecho = true;
+        res.paso.falla(codigo, std::move(args));
+        log("ERROR", "GSA pull error for " + ds + ": " + res.paso.error);
+        return res;
+    };
+    std::string conexion;
+    std::string raiz;
+    if (!G::splitTarget(p.origin, conexion, raiz)) {
+        return falla("gsa_bad_destination", {p.origin});
+    }
+    if (gsaDestinoSoyYo(conexion, gsaYoMismo())) {
+        return falla("gsa_pull_origin_here", {p.origin});
+    }
+    GsaPeer par;
+    if (!gsaCargaPeer(conexion, par)) {
+        return falla("gsa_no_peer_credentials", {conexion, std::string(kPeersPath)});
+    }
+    // The origin's tree, through its daemon: dataset -> its snapshots, oldest first.
+    std::string salida;
+    std::string errPar;
+    switch (gsaPeerRpc(par, "--dump-zfs-list-all", {raiz}, salida, errPar)) {
+        case GsaRpc::NoLlega:
+            return falla(t_gsaFalloPar.codigo, t_gsaFalloPar.args);
+        case GsaRpc::Rechaza:
+            return falla("gsa_cannot_look_at", {p.origin, errPar});
+        case GsaRpc::Ok:
+            break;
+    }
+    std::map<std::string, std::vector<std::pair<long long, G::SnapRef>>> arbol;
+    for (const std::string& l : splitLines(salida)) {
+        const std::vector<std::string> c = zfsmgr::base::split(l, "\t", false);
+        if (c.size() < 6) {
+            continue;
+        }
+        const std::size_t arroba = c[0].find('@');
+        if (arroba == std::string::npos) {
+            continue;
+        }
+        const std::string suyo = c[0].substr(0, arroba);
+        if (G::pullTargetFor(raiz, suyo, ds).empty()) {
+            continue;
+        }
+        long long creado = 0;
+        try {
+            creado = std::stoll(c[5]);
+        } catch (...) {
+        }
+        arbol[suyo].push_back({creado, {c[0].substr(arroba + 1), trim(c[1])}});
+    }
+    // The hold that keeps each base on the source while this machine is away.
+    const std::string etiqueta = std::string(G::kPullHoldPrefix) + detectMachineUuid() + ":" + ds;
+    bool algoQueTraer = false;
+    std::vector<std::pair<std::string, std::string>> podar;  // (dataset here, guid to protect)
+    // std::map: a parent comes before its children, so a new child has where to land.
+    for (auto& [origenDs, conFecha] : arbol) {
+        if (gsaParado()) {
+            return falla(g_stop.load() ? "daemon_stopping" : "cancelled", {});
+        }
+        std::stable_sort(conFecha.begin(), conFecha.end(),
+                         [](const auto& a, const auto& b) { return a.first < b.first; });
+        std::vector<G::SnapRef> fuente;
+        bool hayGsa = false;
+        for (const auto& x : conFecha) {
+            fuente.push_back(x.second);
+            hayGsa = hayGsa || x.second.name.rfind("GSA-", 0) == 0;
+        }
+        if (!hayGsa) {
+            continue;  // only what the origin's schedule produces travels
+        }
+        const std::string aqui = G::pullTargetFor(raiz, origenDs, ds);
+        const bool existe = runExecCapture("zfs", {"list", "-H", "-o", "name", aqui}).rc == 0;
+        std::vector<G::SnapRef> local;
+        std::string err;
+        if (existe && !gsaSnapshotsDe(aqui, local, err)) {
+            return falla("gsa_list_snapshots_failed", {aqui, err});
+        }
+        G::LevelPlan plan = G::planLevel(fuente, local, existe);
+        // The dataset that holds the schedule has to exist before the first pull, so an EMPTY
+        // one —no snapshots, no children, almost nothing written— is overwritten by the first
+        // full receive. Anything with data in it stays a conflict and is not touched.
+        bool sobrescribe = false;
+        if (plan.kind == G::LevelPlan::Kind::Conflict && plan.conflicting.empty() && existe
+            && gsaDatasetVacio(aqui)) {
+            plan.kind = G::LevelPlan::Kind::Full;
+            sobrescribe = true;
+        }
+        if (plan.kind == G::LevelPlan::Kind::Conflict) {
+            if (plan.conflicting.empty()) {
+                return falla("gsa_pull_unrelated", {aqui});
+            }
+            std::string lista;
+            for (const std::string& n : plan.conflicting) {
+                lista += (lista.empty() ? "" : ", ") + n;
+            }
+            return falla("gsa_pull_has_own", {aqui, lista});
+        }
+        if (plan.kind != G::LevelPlan::Kind::UpToDate) {
+            algoQueTraer = true;
+        }
+        if (origenDs == raiz) {
+            res.enviado = fuente.back().name;
+            res.guidBase = fuente.back().guid;
+        }
+        podar.push_back({aqui, fuente.back().guid});
+        if (soloMirar) {
+            continue;
+        }
+        // The origin renamed one that did not change: the same here, found by guid.
+        for (const auto& rn : plan.renameOnTarget) {
+            const ExecResult r =
+                runExecCapture("zfs", {"rename", aqui + "@" + rn.first, aqui + "@" + rn.second});
+            log(r.rc == 0 ? "INFO" : "WARN",
+                "GSA pull rename " + aqui + "@" + rn.first + " -> " + rn.second
+                    + (r.rc == 0 ? std::string() : ": " + trim(r.err)));
+        }
+        if (plan.kind == G::LevelPlan::Kind::UpToDate) {
+            continue;
+        }
+        const std::string nuevo = fuente.back().name;
+        // Hold the newest on the source BEFORE sending it: from then on its prune cannot take
+        // it, and it is the base of the next pull.
+        {
+            std::string o;
+            std::string e;
+            const GsaRpc h =
+                gsaPeerRpc(par, "--mutate-zfs-hold", {etiqueta, origenDs + "@" + nuevo}, o, e);
+            if (h == GsaRpc::NoLlega) {
+                return falla(t_gsaFalloPar.codigo, t_gsaFalloPar.args);
+            }
+            if (h == GsaRpc::Rechaza && e.find("already exists") == std::string::npos) {
+                return falla("gsa_pull_hold_failed", {origenDs + "@" + nuevo, e});
+            }
+        }
+        // A receive left half-way is discarded: the send starts again from the base, which is
+        // held. Resuming would save bytes; this saves a second path.
+        if (existe) {
+            const ExecResult t =
+                runExecCapture("zfs", {"get", "-H", "-o", "value", "receive_resume_token", aqui});
+            if (t.rc == 0 && !trim(t.out).empty() && trim(t.out) != "-") {
+                runExecCapture("zfs", {"recv", "-A", aqui});
+                log("WARN", "GSA pull " + aqui + ": a half-received stream was discarded");
+            }
+        }
+        const bool incremental = (plan.kind == G::LevelPlan::Kind::Incremental);
+        // WITHOUT -R: -F then only rolls back local changes and never destroys older
+        // snapshots, which this machine keeps with its own retention. New datasets arrive
+        // with canmount=noauto: one from another machine may say mountpoint=/usr.
+        std::vector<std::string> recv = {"recv", "-u", "-s"};
+        if (incremental || sobrescribe) {
+            recv.push_back("-F");
+        }
+        if (!incremental) {
+            recv.insert(recv.end(), {"-o", "canmount=noauto"});
+        }
+        // Overwriting recreates the dataset and its local properties go with it: the
+        // schedule is read now and put back after.
+        std::vector<std::pair<std::string, std::string>> programacion;
+        if (sobrescribe) {
+            for (const std::string& prop : G::scheduleProperties()) {
+                const std::string v = gsaPropValue(aqui, prop, /*local=*/true);
+                if (!trim(v).empty() && trim(v) != "-") {
+                    programacion.push_back({prop, trim(v)});
+                }
+            }
+        }
+        for (const std::string& prop : G::scheduleProperties()) {
+            recv.insert(recv.end(), {"-x", prop});
+        }
+        recv.push_back(aqui);
+        log("INFO", "GSA pull start " + origenDs + "@" + nuevo + " -> " + aqui
+                        + (incremental ? " from @" + plan.base : std::string(" (full)")));
+        const ExecResult r = tiraFlujoDelPar(
+            par, {origenDs + "@" + nuevo, incremental ? "@" + plan.base : std::string(), "-wLec"},
+            recv, avance);
+        if (gsaParado()) {
+            return falla(g_stop.load() ? "daemon_stopping" : "cancelled", {});
+        }
+        if (r.rc != 0) {
+            return falla(r.code.empty() ? "pull_stream_cut" : r.code,
+                         r.code.empty() ? std::vector<std::string>{conexion} : r.args);
+        }
+        log("INFO", "GSA pull done " + origenDs + "@" + nuevo + " -> " + aqui);
+        if (!programacion.empty()) {
+            std::vector<std::string> set = {"set"};
+            for (const auto& kv : programacion) {
+                set.push_back(kv.first + "=" + kv.second);
+            }
+            set.push_back(aqui);
+            const ExecResult r2 = runExecCapture("zfs", set);
+            if (r2.rc != 0) {
+                return falla("gsa_snapshot_failed", {aqui, "schedule lost: " + trim(r2.err)});
+            }
+        }
+        // The older bases this machine held on that dataset are released: only the newest is
+        // its base now.
+        std::vector<std::string> nombres;
+        for (const auto& f : fuente) {
+            if (f.name != nuevo) {
+                nombres.push_back(origenDs + "@" + f.name);
+            }
+        }
+        std::string holds;
+        std::string eh;
+        if (!nombres.empty()
+            && gsaPeerRpc(par, "--dump-zfs-holds", nombres, holds, eh) == GsaRpc::Ok) {
+            for (const std::string& l : splitLines(holds)) {
+                const std::vector<std::string> c = zfsmgr::base::split(l, "\t", false);
+                if (c.size() >= 2 && trim(c[1]) == etiqueta) {
+                    std::string o;
+                    std::string e;
+                    (void)gsaPeerRpc(par, "--mutate-zfs-release", {etiqueta, trim(c[0])}, o, e);
+                }
+            }
+        }
+    }
+    if (soloMirar) {
+        res.paso.hecho = algoQueTraer;
+        return res;
+    }
+    res.paso.hecho = true;
+    // This machine's own retention, on every dataset that came, never past the base.
+    for (const auto& [aqui, guid] : podar) {
+        for (const char* klass : {"hourly", "daily", "weekly", "monthly", "yearly"}) {
+            const int keep = (std::string(klass) == "hourly")    ? p.hourly
+                             : (std::string(klass) == "daily")   ? p.daily
+                             : (std::string(klass) == "weekly")  ? p.weekly
+                             : (std::string(klass) == "monthly") ? p.monthly
+                                                                 : p.yearly;
+            bool conservada = false;
+            const GsaPaso uno =
+                gsaPoda(aqui, klass, keep, false, guid, res.borradosEnDestino, conservada, log);
+            if (uno.hecho) {
+                res.podaDestino.hecho = true;
+            }
+            if (!uno.ok && res.podaDestino.ok) {
+                res.podaDestino = uno;
+            }
+        }
+    }
+    return res;
+}
+
+using GsaTrabajo = std::function<GsaNivelado(const TransferProgressFn&, const GsaLog&)>;
+
+// A levelling or a pull as a daemon JOB: queued, waits its turn (kGsaNivMax), reports bytes,
+// can be cancelled, and writes its result into the schedule's state entry.
+std::string gsaLanzaTrabajo(const std::string& ds, const std::string& tipo,
+                            const std::string& dstSpec, const std::string& descripcion,
+                            GsaTrabajo trabajo, const GsaLog& log) {
     const std::string id = generateJobId();
     if (id.empty()) {
         log("ERROR", "GSA level error for " + ds + ": could not create a job id");
@@ -2063,12 +2337,12 @@ std::string gsaLanzaNivelacion(const std::string& ds, bool recursive, const std:
     {
         DaemonJob j;
         j.id = id;
-        j.type = "gsa-level";
+        j.type = tipo;
         j.state = JobState::Queued;
         j.snap = ds;
         j.dstDataset = dstSpec;
         j.startedAtUtc = utcNowIsoString();
-        j.description = "gsa level " + ds + " -> " + dstSpec;
+        j.description = descripcion;
         std::lock_guard<std::mutex> lock(g_jobsMutex);
         g_jobs[id] = j;
         persistJobsLocked();
@@ -2082,9 +2356,10 @@ std::string gsaLanzaNivelacion(const std::string& ds, bool recursive, const std:
         t.set("id", zfsmgr::base::json::Value(id));
         e.set("level_job", t);
     });
-    log("INFO", "GSA level job " + id + " queued for " + ds);
+    log("INFO", "GSA " + tipo + " job " + id + " queued for " + ds);
 
-    std::thread([id, ds, recursive, dstSpec, target]() {
+    const bool traida = (tipo == "gsa-pull");
+    std::thread([id, ds, traida, trabajo]() {
         t_currentJobId = id;
         const GsaLog log = gsaLogDelDaemon();
         // Esperar turno.
@@ -2116,7 +2391,7 @@ std::string gsaLanzaNivelacion(const std::string& ds, bool recursive, const std:
                 reportJobProgress(linea);
                 return !g_stop.load() && !gsaTrabajoCancelado(id);
             };
-            n = gsaNivela(ds, recursive, dstSpec, target, avance, log);
+            n = trabajo(avance, log);
             {
                 std::lock_guard<std::mutex> lock(g_gsaNivMutex);
                 --g_gsaNivEnMarcha;
@@ -2153,6 +2428,14 @@ std::string gsaLanzaNivelacion(const std::string& ds, bool recursive, const std:
             if (ok) {
                 reg.set("sent", J::Value(n.enviado));
                 reg.set("base_guid", J::Value(n.guidBase));
+                // A pull's «last snapshot» is the last one that arrived.
+                if (traida && !n.enviado.empty()) {
+                    J::Value sn;
+                    sn.set("time", J::Value(ahora));
+                    sn.set("ok", J::Value(true));
+                    sn.set("name", J::Value(n.enviado));
+                    e.set("snapshot", sn);
+                }
             } else {
                 std::string codigo = n.paso.codigo;
                 std::vector<std::string> args = n.paso.args;
@@ -2183,10 +2466,73 @@ std::string gsaLanzaNivelacion(const std::string& ds, bool recursive, const std:
             g_gsaNivPorDataset.erase(ds);
         }
         if (cancelado) {
-            log("WARN", "GSA level job " + id + " for " + ds + " cancelled by the user");
+            log("WARN", "GSA job " + id + " for " + ds + " cancelled by the user");
         }
     }).detach();
     return id;
+}
+
+std::string gsaLanzaNivelacion(const std::string& ds, bool recursive, const std::string& dstSpec,
+                               const GsaTargetConn& target, const GsaLog& log) {
+    return gsaLanzaTrabajo(
+        ds, "gsa-level", dstSpec, "gsa level " + ds + " -> " + dstSpec,
+        [ds, recursive, dstSpec, target](const TransferProgressFn& avance, const GsaLog& l) {
+            return gsaNivela(ds, recursive, dstSpec, target, avance, l);
+        },
+        log);
+}
+
+// A dataset that PULLS, in a pass: is anything new at the origin? If so, a `gsa-pull` job; if
+// not, only this dataset's own prune. The origin being unreachable goes to the state as a
+// failed pull —red, with the reason— and nothing here is touched.
+std::string gsaProcesaTraida(const std::string& ds, const GsaProgramacion& p, bool forzado,
+                             const GsaLog& log) {
+    namespace J = zfsmgr::base::json;
+    const long long ahora = static_cast<long long>(std::time(nullptr));
+    gsaActualizaEntrada(ds, [&](J::Value& e) {
+        e.set("last_eval", J::Value(ahora));
+        e.set("level", J::Value(true));
+        e.set("pull", J::Value(true));
+        e.set("destination", J::Value(p.origin));
+        e.remove("pending");
+    });
+    if (gsaNivelandose(ds)) {
+        return {};
+    }
+    log("INFO", "GSA evaluate pull " + ds + " <- " + p.origin);
+    const GsaNivelado mira = gsaTrae(ds, p, /*soloMirar=*/true, {}, log);
+    if (mira.paso.ok && (mira.paso.hecho || forzado)) {
+        return gsaLanzaTrabajo(
+            ds, "gsa-pull", p.origin, "gsa pull " + p.origin + " -> " + ds,
+            [ds, p](const TransferProgressFn& avance, const GsaLog& l) {
+                return gsaTrae(ds, p, /*soloMirar=*/false, avance, l);
+            },
+            log);
+    }
+    // Nothing new (or the origin could not be looked at): the prune of what is here, and the
+    // result in the state.
+    const GsaNivelado n = mira.paso.ok ? gsaTrae(ds, p, /*soloMirar=*/false, {}, log) : mira;
+    gsaActualizaEntrada(ds, [&](J::Value& e) {
+        const J::Value previo = e["level_result"];
+        J::Value reg;
+        reg.set("time", J::Value(ahora));
+        reg.set("ok", J::Value(n.paso.ok));
+        if (n.paso.ok) {
+            reg.set("sent", J::Value(n.enviado));
+            reg.set("base_guid", J::Value(n.guidBase));
+        } else {
+            gsaPonError(reg, n.paso.codigo, n.paso.args);
+            reg.set("sent", J::Value(previo["sent"].toString()));
+            reg.set("base_guid", J::Value(previo["base_guid"].toString()));
+        }
+        e.set("level_result", reg);
+        if (n.podaDestino.hecho || n.paso.ok) {
+            J::Value rp = gsaRegistroDe(n.podaDestino, ahora);
+            rp.set("destroyed", J::Value(n.borradosEnDestino));
+            e.set("target_prune", rp);
+        }
+    });
+    return {};
 }
 
 // Lo que se hace con un dataset en cada pasada. Devuelve el id del trabajo de nivelación que
@@ -2196,6 +2542,9 @@ std::string gsaProcesaDataset(const std::string& ds, const std::string& selfConn
     namespace J = zfsmgr::base::json;
     namespace G = zfsmgr::base::gsa;
     const GsaProgramacion p = gsaLeeProgramacion(ds);
+    if (!trim(p.origin).empty()) {
+        return gsaProcesaTraida(ds, p, forzado, log);
+    }
     const long long ahora = static_cast<long long>(std::time(nullptr));
     const J::Value previo = gsaEntradaDe(ds);
     const J::Value previoNivel = previo["level_result"];
@@ -2409,7 +2758,8 @@ ExecResult runGsaRunOnceCapture(const std::string& ds) {
         r.out += "JOB_ID=" + g_gsaNivPorDataset[ds] + "\nALREADY_RUNNING=1\n";
     }
     const zfsmgr::base::json::Value e = gsaEntradaDe(ds);
-    const bool mal = !e["snapshot"]["ok"].toBool(true) || !e["prune"]["ok"].toBool(true);
+    const bool mal = !e["snapshot"]["ok"].toBool(true) || !e["prune"]["ok"].toBool(true)
+                     || (e["pull"].toBool(false) && !e["level_result"]["ok"].toBool(true));
     r.rc = mal ? 1 : 0;
     return r;
 }
