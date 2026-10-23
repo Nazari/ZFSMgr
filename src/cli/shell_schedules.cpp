@@ -423,11 +423,15 @@ bool compruebaTraida(Estado& e, const ZfsmUrl& destino, const std::string& orige
     ZfsmUrl maquina;
     maquina.kind = ZfsmKind::Connection;
     maquina.connection = destino.connection;
-    const std::string esperada = B::agentversion::expected();
-    const auto anticuado = [&](const std::string& version) {
-        return !version.empty()
-               && B::agentversion::verdictFor(version, esperada)
-                      == B::agentversion::Verdict::Update;
+    // Whether a daemon KNOWS how to pull or send to a puller: 1.4.0 or later, whatever the
+    // build. Comparing with this client's exact build refused a released 1.4.0 daemon from a
+    // development client of the same 1.4.0.
+    const auto anticuado = [](const std::string& version) {
+        int v[3] = {0, 0, 0};
+        if (std::sscanf(version.c_str(), "%d.%d.%d", &v[0], &v[1], &v[2]) < 2) {
+            return false;  // unknown: the pass will say it if it cannot
+        }
+        return v[0] < 1 || (v[0] == 1 && v[1] < 4);
     };
     // 2. The daemon that will pull knows how.
     std::string salud;

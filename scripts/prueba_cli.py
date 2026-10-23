@@ -3340,6 +3340,12 @@ def casos_traer(ctx):
          estado=[("ya no se retiene",
                   f"bash -c 'zfs holds -H -r $({snaps(src)} | tail -1) | grep -c zfsmgr-pull'",
                   r"^0$", True)])
+    # A copy already up to date holds its base too (2026-10-23: it used to wait for a send).
+    caso(ctx, "traer: sin nada nuevo, la pasada vuelve a retener la base",
+         [f"cd Local/{dst}", "schedule run --wait"], rc=0,
+         estado=[("retenida otra vez",
+                  f"bash -c 'zfs holds -H -r $({snaps(src)} | tail -1) | grep -c zfsmgr-pull'",
+                  r"^[1-9]", True)])
     caso(ctx, "traer: --clear en la copia", [f"cd Local/{dst}", "schedule --clear"], rc=0)
     caso(ctx, "traer: --clear en el origen", [f"cd unib/{src}", "schedule --clear"], rc=0)
 
@@ -3348,6 +3354,10 @@ def casos_gsa_remota(ctx):
     """A recursive levelling fc16 -> unib, the path `srvs` takes: the tree arrives, the
     source's schedule does not (2026-10-22: `send -R` copied it to the target)."""
     L, R = POOL_LOCAL, POOL_REMOTO
+    # Pushing to unib needs FULL credentials on fc16, and fc16 may have only pull ones (as it
+    # does since 2026-10-23): full ones for this group, the file as it was at the end.
+    sh(ctx, f"cp -p /etc/zfsmgr/peers.json {ctx.dir_tmp}/peers.json.remota", root=True)
+    cli(ctx, ["peers --push --on zfsm://local"])
     S = f"{L}/grdatos"
     T = f"{R}/grcopia"
     sh(ctx, f"zfs create -o atime=off {S}", root=True)
@@ -3414,6 +3424,7 @@ def casos_gsa_remota(ctx):
     comprueba_pull("pull: un snapshot que no existe lo dice el origen y no recibe nada",
                    f"{fuente}@nohay @b -wLec {traido}", 1,
                    (f"zfs list -H -o name -t snapshot -d 1 {traido}", r"\A(?![\s\S]*@nohay)"))
+    sh(ctx, f"cp -p {ctx.dir_tmp}/peers.json.remota /etc/zfsmgr/peers.json", root=True)
 
 
 ENTRE_MAQUINAS = [casos_entre_maquinas, casos_gsa_remota, casos_credencial_traer, casos_traer,

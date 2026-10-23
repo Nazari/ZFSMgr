@@ -1164,6 +1164,7 @@
     "t_sch_to2": "--to <zfsm://connection/pool/dataset>",
     "t_sch_to_q3": "Where the schedule is levelled to: the URL of a dataset.",
     "t_sch_no_to": "--no-to",
+    "t_cab_origen_traer": "ORIGIN",
     "t_cab_copia": "COPY",
     "t_cab_desde": "SINCE",
     "t_cab_maquina": "MACHINE",

@@ -130,6 +130,13 @@ const Mensaje kMensajes[] = {
     {"gsa_pull_unrelated",
      "%1 existe y no comparte ningún snapshot con el origen; no se trae nada para no tocarlo",
      "%1 exists and shares no snapshot with the source; nothing is pulled, so as not to touch it"},
+    {"gsa_push_needs_full",
+     "esta máquina solo tiene credenciales de TRAER para «%1»: nivelar hacia ella necesita las "
+     "completas («peers --push» sobre esta máquina, sin --role pull), o que sea «%1» quien traiga "
+     "con «schedule --origin»",
+     "this machine only has PULL credentials for «%1»: levelling to it needs the full ones "
+     "(«peers --push» onto this machine, without --role pull), or let «%1» pull with "
+     "«schedule --origin»"},
     {"verb_not_for_puller",
      "«%1» no se le permite a una credencial de traer: solo puede mirar, enviar y retener lo suyo",
      "«%1» is not allowed for a pull credential: it may only look, send and hold its own"},

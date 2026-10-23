@@ -133,6 +133,7 @@
     "t_cab_ocupado": "OCUPADO",
     "t_cab_orden": "ORDEN",
     "t_cab_origen": "ORIGEN",
+    "t_cab_origen_traer": "ORIGEN",
     "t_cab_permisos": "PERMISOS",
     "t_cab_pool": "POOL",
     "t_cab_propiedad": "PROPIEDAD",

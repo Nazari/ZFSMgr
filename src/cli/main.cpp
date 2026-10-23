@@ -295,6 +295,12 @@ int main(int argc, char** argv) {
             uso(stdout);
             return 0;
         }
+        // `--version` and `-V`: what everybody types first. It answered «unknown option»
+        // while the command `version` existed.
+        if (a == "--version" || a == "-V") {
+            op.orden = {"version"};
+            break;
+        }
         if (a == "--password-fd" && i + 1 < argc) {
             op.passwordFd = std::atoi(argv[++i]);
             continue;

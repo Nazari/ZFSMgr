@@ -1560,6 +1560,11 @@ ExecResult gsaEnviaFlujo(bool isLocal, const GsaPeer& peer, const std::string& c
     if (gsaPeerRpc(peer, "--zfs-recv-listen", {recvEn, incremental ? "1" : "0", "noschedule"},
                    respuesta, errPeer)
         != GsaRpc::Ok) {
+        // With only a PULL credential for that machine it cannot be pushed to: say that, not
+        // «it could not listen», which sends one to `peers --listen` for nothing.
+        if (t_gsaFalloPar.codigo == "verb_not_for_puller") {
+            return fallo(1, "gsa_push_needs_full", {conexion});
+        }
         return fallo(1, "peer_cannot_listen", {conexion, errPeer});
     }
     std::string puerto;
@@ -2253,12 +2258,11 @@ GsaNivelado gsaTrae(const std::string& ds, const GsaProgramacion& p, bool soloMi
                 "GSA pull rename " + aqui + "@" + rn.first + " -> " + rn.second
                     + (r.rc == 0 ? std::string() : ": " + trim(r.err)));
         }
-        if (plan.kind == G::LevelPlan::Kind::UpToDate) {
-            continue;
-        }
         const std::string nuevo = fuente.back().name;
-        // Hold the newest on the source BEFORE sending it: from then on its prune cannot take
-        // it, and it is the base of the next pull.
+        // Hold the newest on the source —BEFORE sending it, or now if this copy is already up
+        // to date—: from then on its prune cannot take it, and it is the base of the next
+        // pull. A copy that was already level used to stay without a held base until its
+        // first send (back/user/srvs on fc16, 2026-10-23).
         {
             std::string o;
             std::string e;
@@ -2270,6 +2274,34 @@ GsaNivelado gsaTrae(const std::string& ds, const GsaProgramacion& p, bool soloMi
             if (h == GsaRpc::Rechaza && e.find("already exists") == std::string::npos) {
                 return falla("gsa_pull_hold_failed", {origenDs + "@" + nuevo, e});
             }
+        }
+        // The older bases this machine held on that dataset are released: only the newest is
+        // its base now.
+        const auto sueltaLasViejas = [&]() {
+            std::vector<std::string> nombres;
+            for (const auto& f : fuente) {
+                if (f.name != nuevo) {
+                    nombres.push_back(origenDs + "@" + f.name);
+                }
+            }
+            std::string holds;
+            std::string eh;
+            if (nombres.empty()
+                || gsaPeerRpc(par, "--dump-zfs-holds", nombres, holds, eh) != GsaRpc::Ok) {
+                return;
+            }
+            for (const std::string& l : splitLines(holds)) {
+                const std::vector<std::string> c = zfsmgr::base::split(l, "\t", false);
+                if (c.size() >= 2 && trim(c[1]) == etiqueta) {
+                    std::string o;
+                    std::string e;
+                    (void)gsaPeerRpc(par, "--mutate-zfs-release", {etiqueta, trim(c[0])}, o, e);
+                }
+            }
+        };
+        if (plan.kind == G::LevelPlan::Kind::UpToDate) {
+            sueltaLasViejas();
+            continue;
         }
         // A receive left half-way is discarded: the send starts again from the base, which is
         // held. Resuming would save bytes; this saves a second path.
@@ -2331,27 +2363,7 @@ GsaNivelado gsaTrae(const std::string& ds, const GsaProgramacion& p, bool soloMi
                 return falla("gsa_snapshot_failed", {aqui, "schedule lost: " + trim(r2.err)});
             }
         }
-        // The older bases this machine held on that dataset are released: only the newest is
-        // its base now.
-        std::vector<std::string> nombres;
-        for (const auto& f : fuente) {
-            if (f.name != nuevo) {
-                nombres.push_back(origenDs + "@" + f.name);
-            }
-        }
-        std::string holds;
-        std::string eh;
-        if (!nombres.empty()
-            && gsaPeerRpc(par, "--dump-zfs-holds", nombres, holds, eh) == GsaRpc::Ok) {
-            for (const std::string& l : splitLines(holds)) {
-                const std::vector<std::string> c = zfsmgr::base::split(l, "\t", false);
-                if (c.size() >= 2 && trim(c[1]) == etiqueta) {
-                    std::string o;
-                    std::string e;
-                    (void)gsaPeerRpc(par, "--mutate-zfs-release", {etiqueta, trim(c[0])}, o, e);
-                }
-            }
-        }
+        sueltaLasViejas();
     }
     if (soloMirar) {
         res.paso.hecho = algoQueTraer;

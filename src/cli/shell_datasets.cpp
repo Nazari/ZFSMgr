@@ -925,12 +925,17 @@ bool leeProgramaciones(Estado& e, const ZfsmUrl& destino, const std::string& rai
 Tabla tablaDeProgramaciones(const std::vector<std::pair<std::string, B::gsa::Entry>>& filas) {
     Tabla t;
     t.nombreJson = "schedules";
-    t.cabecerasTexto = {T("t_cab_conexion", "CONEXIÓN"), T("t_cab_dataset", "DATASET"),
-                        T("t_cab_activa", "ACTIVA"),     T("t_cab_recursiva", "RECURSIVA"),
-                        T("t_cab_hora", "HORA"),         T("t_cab_dia", "DÍA"),
-                        T("t_cab_sem", "SEM"),           T("t_cab_mes", "MES"),
-                        T("t_cab_ano", "AÑO"),           T("t_cab_destino", "DESTINO"),
-                        T("t_cab_origen", "ORIGEN")};
+    t.cabecerasTexto = {T("t_cab_conexion", "CONEXIÓN"),
+                        T("t_cab_dataset", "DATASET"),
+                        T("t_cab_activa", "ACTIVA"),
+                        T("t_cab_recursiva", "RECURSIVA"),
+                        T("t_cab_hora", "HORA"),
+                        T("t_cab_dia", "DÍA"),
+                        T("t_cab_sem", "SEM"),
+                        T("t_cab_mes", "MES"),
+                        T("t_cab_ano", "AÑO"),
+                        T("t_cab_destino", "DESTINO"),
+                        T("t_cab_origen_traer", "ORIGEN")};
     t.campos = {"connection", "dataset", "enabled", "recursive",   "hourly", "daily",
                 "weekly",     "monthly", "yearly",  "destination", "origin", "level"};  // json
     t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Booleano, Tipo::Booleano,
