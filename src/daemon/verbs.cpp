@@ -1,9 +1,12 @@
 // The verb table: ONE table for both doors of the agent, the RPC and the command line.
 
 #include "agent_internal.h"
+#include <chrono>
+#include <condition_variable>
 
 #include <algorithm>
 #include <mutex>
+#include <thread>
 #include <set>
 #ifndef _WIN32
 #include <grp.h>
@@ -11,6 +14,79 @@
 #endif
 
 namespace zfsmgr::agent {
+
+// The search for importable pools, bounded and shared. `zpool import` reads every disk of
+// the machine, and one that does not answer —a USB stick stuck for hours on fc16, 2026-10-23—
+// kept it waiting for ever: each `ls` of a connection launched one more, they piled up
+// (four at once), and the client gave up saying the TLS handshake had failed. Now:
+// - ONE search at a time, in its own thread; whoever asks waits for its result at most 15 s
+//   —inside the client's 25 s— and otherwise gets import_probe_timeout at once. Waiting for
+//   the child itself was not enough: a `zpool` caught in a read of the stuck disk takes long
+//   to die even when killed, and the caller waited with it;
+// - the search goes on in the background and leaves its result for the next requests,
+//   reused for 10 s; a request never starts a second one while it runs, so they never pile up.
+namespace {
+ExecResult buscaImportables() {
+    constexpr int kLimiteMs = 120000;  // the child's own bound; the caller never waits this
+    ExecResult r;
+    const ExecResult a = zfsmgr::base::runExecStream("zpool", {"import"}, "", kLimiteMs, {});
+    const bool agotado = (a.rc == 124);
+    const ExecResult b =
+        agotado ? ExecResult{}
+                : zfsmgr::base::runExecStream("zpool", {"import", "-s"}, "", kLimiteMs, {});
+    if (agotado || b.rc == 124) {
+        r.rc = 1;
+        ponCodigo(r, "import_probe_timeout", {std::to_string(kLimiteMs / 1000)});
+        return r;
+    }
+    r.rc = b.rc;
+    r.out = a.out + b.out;
+    if (const std::string ilegible = discoIlegible(); !ilegible.empty()) {
+        r.out += kMarcaDiscosIlegibles;
+        r.out += kMarcaDiscoIlegible + ilegible + "\n";
+        if (permisosCambiaronTrasArranque()) {
+            r.out += kMarcaTccTrasArranque;
+        }
+    }
+    r.err = a.err + b.err;
+    return r;
+}
+}  // namespace
+
+ExecResult runImportProbeCapture() {
+    static std::mutex m;
+    static std::condition_variable cv;
+    static bool enMarcha = false;
+    static ExecResult ultimo;
+    static std::chrono::steady_clock::time_point cuando{};
+    constexpr int kEsperaSegs = 15;
+    const auto ahora = [] { return std::chrono::steady_clock::now(); };
+    std::unique_lock<std::mutex> lk(m);
+    if (!enMarcha && cuando.time_since_epoch().count() != 0
+        && ahora() - cuando < std::chrono::seconds(10)) {
+        return ultimo;
+    }
+    if (!enMarcha) {
+        enMarcha = true;
+        std::thread([]() {
+            ExecResult r = buscaImportables();
+            std::lock_guard<std::mutex> l(m);
+            enMarcha = false;
+            ultimo = std::move(r);
+            cuando = std::chrono::steady_clock::now();
+            cv.notify_all();
+        }).detach();
+    }
+    if (cv.wait_for(lk, std::chrono::seconds(kEsperaSegs), [] { return !enMarcha; })) {
+        return ultimo;
+    }
+    daemonLog("WARN", "import probe: no answer in " + std::to_string(kEsperaSegs)
+                          + " s (a disk not answering?); it goes on in the background");
+    ExecResult tarde;
+    tarde.rc = 1;
+    ponCodigo(tarde, "import_probe_timeout", {std::to_string(kEsperaSegs)});
+    return tarde;
+}
 
 const TablaDeVerbos& tablaDeVerbos() {
     static const TablaDeVerbos tabla = [] {
@@ -66,22 +142,8 @@ const TablaDeVerbos& tablaDeVerbos() {
         t.pon({"--dump-zpool-list"}, [](const Peticion& p) -> ExecResult {
             return runExecCapture("zpool", {"list", "-j"});
         });
-        t.pon({"--dump-zpool-import-probe"}, [](const Peticion&) -> ExecResult {
-            ExecResult r;
-            ExecResult a = runExecCapture("zpool", {"import"});
-            ExecResult b = runExecCapture("zpool", {"import", "-s"});
-            r.rc = b.rc;
-            r.out = a.out + b.out;
-            if (const std::string ilegible = discoIlegible(); !ilegible.empty()) {
-                r.out += kMarcaDiscosIlegibles;
-                r.out += kMarcaDiscoIlegible + ilegible + "\n";
-                if (permisosCambiaronTrasArranque()) {
-                    r.out += kMarcaTccTrasArranque;
-                }
-            }
-            r.err = a.err + b.err;
-            return r;
-        });
+        t.pon({"--dump-zpool-import-probe"},
+              [](const Peticion&) -> ExecResult { return runImportProbeCapture(); });
         t.pon({"--dump-zpool-guid-status-batch"},
               [](const Peticion& p) -> ExecResult { return runDumpZpoolGuidStatusBatchCapture(); });
         t.pon({"--dump-resolve-devices"}, [](const Peticion& p) -> ExecResult {

@@ -130,6 +130,11 @@ const Mensaje kMensajes[] = {
     {"gsa_pull_unrelated",
      "%1 existe y no comparte ningún snapshot con el origen; no se trae nada para no tocarlo",
      "%1 exists and shares no snapshot with the source; nothing is pulled, so as not to touch it"},
+    {"import_probe_timeout",
+     "la búsqueda de pools importables no terminó en %1 s: algún disco no contesta (¿un USB "
+     "atascado o muy lento?); lo demás del listado está al día",
+     "the search for importable pools did not end in %1 s: some disk is not answering (a stuck "
+     "or very slow USB?); the rest of the listing is up to date"},
     {"gsa_push_needs_full",
      "esta máquina solo tiene credenciales de TRAER para «%1»: nivelar hacia ella necesita las "
      "completas («peers --push» sobre esta máquina, sin --role pull), o que sea «%1» quien traiga "

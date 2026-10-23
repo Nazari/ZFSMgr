@@ -323,10 +323,30 @@ bool runLocalAgentRpc(const std::vector<std::string>& agentArgs,
     // validación, así que probar dos era gastar una conexión de más.
     std::string respuesta;
     std::string errorTls;
-    if (!tlsRequestLine(tls, json::toCompact(req), respuesta, errorTls)) {
+    TlsFailure punto = TlsFailure::None;
+    if (!tlsRequestLine(tls, json::toCompact(req), respuesta, errorTls, punto, TlsRequestHooks{})) {
         if (diag) {
             diag->elapsedMs = transcurrido();
-            diag->failure = {Failure::HandshakeFailed, errorTls};
+            // Where it failed, as the tunnel path says it. Everything used to be «the TLS
+            // handshake failed», also a daemon that simply took longer than the wait —an
+            // import probe stuck on a USB disk, 2026-10-23—, which points at certificates.
+            switch (punto) {
+                case TlsFailure::Connect:
+                    diag->failure = {Failure::ConnectionRefused, errorTls};
+                    break;
+                case TlsFailure::Pinning:
+                    diag->failure = {Failure::CertificateMismatch, {}};
+                    break;
+                case TlsFailure::Write:
+                    diag->failure = {Failure::SendFailed, {}};
+                    break;
+                case TlsFailure::Read:
+                    diag->failure = {Failure::InvalidAnswer, errorTls};
+                    break;
+                default:
+                    diag->failure = {Failure::HandshakeFailed, errorTls};
+                    break;
+            }
         }
         return false;
     }
