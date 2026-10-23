@@ -1350,6 +1350,94 @@ void setClientTimeouts(NativeSock fd, int ms) {
 #endif
 }
 
+// Writes all of `datos`, or fails.
+bool sslEscribeTodo(SSL* ssl, const char* datos, std::size_t len) {
+    while (len > 0) {
+        const int n = SSL_write(ssl, datos, static_cast<int>(std::min<std::size_t>(len, 1u << 20)));
+        if (n <= 0) {
+            return false;
+        }
+        datos += n;
+        len -= static_cast<std::size_t>(n);
+    }
+    return true;
+}
+
+// `--zfs-send-stream <snap> <base> <flags> [<resume token>]`: `zfs send` written on THIS
+// connection (see kTramoFlujoMax). Answers itself, so it never goes through the cache.
+void serveZfsSendStream(SSL* ssl, NativeSock clientFd, const std::vector<std::string>& args) {
+    const auto respondeError = [&](const char* codigo, const std::vector<std::string>& a) {
+        std::string linea = "{\"rc\":1,\"stdout\":\"\",\"stderr\":\"\",\"code\":\""
+                            + jsonEscape(codigo) + "\",\"args\":[";
+        for (std::size_t i = 0; i < a.size(); ++i) {
+            linea += (i ? ",\"" : "\"") + jsonEscape(a[i]) + "\"";
+        }
+        linea += "]}\n";
+        (void)sslEscribeTodo(ssl, linea.data(), linea.size());
+    };
+    const std::string snap = args.size() > 0 ? trim(args[0]) : std::string();
+    const std::string base = args.size() > 1 ? trim(args[1]) : std::string();
+    const std::string flags = args.size() > 2 ? trim(args[2]) : std::string();
+    const std::string resume = args.size() > 3 ? trim(args[3]) : std::string();
+    std::string malaBandera;
+    if (snap.empty() && resume.empty()) {
+        respondeError("usage", {"--zfs-send-stream <snap> <base> <flags> [<resume token>]"});
+        return;
+    }
+    if (!zfsmgr::base::zfsprops::areValidSendFlags(flags, malaBandera)) {
+        respondeError("send_flag_not_allowed", {malaBandera});
+        return;
+    }
+    // The same check as --zfs-send-to-peer-async, which takes snap at 0, base at 4, token at 6.
+    if (const std::string falta = instantaneaQueFalta({snap, "", "", "", base, flags, resume});
+        !falta.empty()) {
+        respondeError("snapshot_not_found", {falta});
+        return;
+    }
+    SpawnedStdout hijo = spawnReadingStdout("zfs", argvDeZfsSend(snap, base, flags, resume));
+    if (!hijo.ok) {
+        respondeError("send_cannot_launch", {});
+        return;
+    }
+    // From here on the connection carries data: a slow receiver must not cut it after the
+    // 15 s that a request line gets.
+    setClientTimeouts(clientFd, 300000);
+    const std::string cabecera = "{\"rc\":0,\"stream\":1}\n";
+    bool escribe = sslEscribeTodo(ssl, cabecera.data(), cabecera.size());
+    std::vector<char> buf(kTramoFlujoMax + 4);
+    std::uint64_t total = 0;
+    while (escribe) {
+        const long n = readSpawnedStdout(hijo, buf.data() + 4, kTramoFlujoMax);
+        if (n <= 0) {
+            break;
+        }
+        const auto len = static_cast<std::uint32_t>(n);
+        buf[0] = static_cast<char>((len >> 24) & 0xFF);
+        buf[1] = static_cast<char>((len >> 16) & 0xFF);
+        buf[2] = static_cast<char>((len >> 8) & 0xFF);
+        buf[3] = static_cast<char>(len & 0xFF);
+        escribe = sslEscribeTodo(ssl, buf.data(), static_cast<std::size_t>(n) + 4);
+        total += static_cast<std::uint64_t>(n);
+    }
+    if (!escribe) {
+        // The puller went away: nobody reads, so the send is stopped.
+        matarSpawnedStdout(hijo);
+    }
+    std::string errSend;
+    const int rc = waitSpawnedStdout(hijo, &errSend);
+    if (escribe) {
+        const char fin[4] = {0, 0, 0, 0};
+        const std::string cola = "{\"rc\":" + std::to_string(rc) + ",\"stderr\":\""
+                                 + jsonEscape(trim(errSend)) + "\"}\n";
+        (void)(sslEscribeTodo(ssl, fin, 4) && sslEscribeTodo(ssl, cola.data(), cola.size()));
+    }
+    daemonLog(rc == 0 && escribe ? "INFO" : "WARN",
+              "send-stream " + (snap.empty() ? std::string("(resume)") : snap)
+                  + (base.empty() ? std::string() : " since " + base) + ": " + std::to_string(total)
+                  + " bytes, rc=" + std::to_string(rc)
+                  + (escribe ? std::string() : std::string(", the puller went away")));
+}
+
 // One client connection: TLS handshake, the request line, the answer.
 void serveConnection(SSL_CTX* ctx, NativeSock clientFd, ServerState& st,
                      const AgentRuntimeConfig& cfg) {
@@ -1385,6 +1473,22 @@ void serveConnection(SSL_CTX* ctx, NativeSock clientFd, ServerState& st,
         }
     }
 
+    // A stream is answered on this same connection, not with one JSON line.
+    {
+        std::string cmd;
+        std::vector<std::string> rpcArgs;
+        if (gotLine && parseJsonRpcRequest(reqLine, cmd, rpcArgs) && cmd == "--zfs-send-stream") {
+            {
+                std::lock_guard<std::mutex> lock(st.runtimeMutex);
+                st.rpcCommands.insert(cmd);
+            }
+            serveZfsSendStream(ssl, clientFd, rpcArgs);
+            SSL_shutdown(ssl);
+            SSL_free(ssl);
+            closeSock(clientFd);
+            return;
+        }
+    }
     ExecResult exec = handleRpcRequest(st, cfg, reqLine, gotLine);
 
     // Un fallo del propio agente va como "code" y "args" EN VEZ de la frase: stderr solo

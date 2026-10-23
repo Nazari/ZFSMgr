@@ -1,5 +1,6 @@
 #include "agentmsg.h"
 #include "tlsclient.h"
+#include <algorithm>
 
 #include <openssl/err.h>
 #include <openssl/pem.h>
@@ -309,6 +310,7 @@ bool tlsRequestLine(const TlsClientConfig& cfg,
                    > cfg.ioTimeoutMs;
         };
         bool abandonado = false;
+        std::string sobrante;  // what came after the first line: the start of a stream
         char buf[8192];
         while (responseLine.size() < kTope) {
             const int n = SSL_read(ssl, buf, static_cast<int>(sizeof(buf)));
@@ -316,6 +318,7 @@ bool tlsRequestLine(const TlsClientConfig& cfg,
                 responseLine.append(buf, static_cast<std::size_t>(n));
                 const std::size_t nl = responseLine.find('\n');
                 if (nl != std::string::npos) {
+                    sobrante = responseLine.substr(nl + 1);
                     responseLine.resize(nl);
                     break;
                 }
@@ -368,6 +371,62 @@ bool tlsRequestLine(const TlsClientConfig& cfg,
             error = agentmsg::inClientLanguage("tls_no_answer", {});
             failure = TlsFailure::Read;
             break;
+        }
+        if (hooks.onStream) {
+            // The same wait in slices as the first line, but the limit counts from the last
+            // byte that arrived: a stream that takes hours is fine, one that goes silent is not.
+            auto ultimoDato = std::chrono::steady_clock::now();
+            const auto lector = [&](char* destino, std::size_t len) -> long {
+                if (!sobrante.empty()) {
+                    const std::size_t k = std::min(len, sobrante.size());
+                    std::memcpy(destino, sobrante.data(), k);
+                    sobrante.erase(0, k);
+                    return static_cast<long>(k);
+                }
+                for (;;) {
+                    const int pedir = static_cast<int>(std::min<std::size_t>(len, 1u << 20));
+                    const int n = SSL_read(ssl, destino, pedir);
+                    if (n > 0) {
+                        ultimoDato = std::chrono::steady_clock::now();
+                        return n;
+                    }
+                    const int motivo = SSL_get_error(ssl, n);
+                    if (motivo == SSL_ERROR_ZERO_RETURN) {
+                        return 0;
+                    }
+#ifdef _WIN32
+                    const int wsa = WSAGetLastError();
+                    const bool esperaDelSistema =
+                        (motivo == SSL_ERROR_SYSCALL
+                         && (wsa == WSAETIMEDOUT || wsa == WSAEWOULDBLOCK || wsa == WSAEINTR));
+#else
+                    const bool esperaDelSistema =
+                        (motivo == SSL_ERROR_SYSCALL
+                         && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR));
+#endif
+                    if (!(motivo == SSL_ERROR_WANT_READ || motivo == SSL_ERROR_WANT_WRITE
+                          || esperaDelSistema)) {
+                        return n == 0 ? 0 : -1;
+                    }
+                    if (hooks.keepWaiting && !hooks.keepWaiting()) {
+                        return -1;
+                    }
+                    if (cfg.ioTimeoutMs > 0
+                        && std::chrono::duration_cast<std::chrono::milliseconds>(
+                               std::chrono::steady_clock::now() - ultimoDato)
+                                   .count()
+                               > cfg.ioTimeoutMs) {
+                        return -1;
+                    }
+                }
+            };
+            if (!hooks.onStream(responseLine, lector)) {
+                if (error.empty()) {
+                    error = agentmsg::inClientLanguage("tls_no_answer", {});
+                }
+                failure = TlsFailure::Read;
+                break;
+            }
         }
         ok = true;
     } while (false);

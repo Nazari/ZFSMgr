@@ -1100,6 +1100,231 @@ GsaRpc gsaPeerRpc(const GsaPeer& peer, const std::string& cmd, const std::vector
     return GsaRpc::Ok;
 }
 
+// The puller's side of `--zfs-send-stream` (see kTramoFlujoMax): this daemon opens the TLS
+// connection to the source, so it needs no open port and the source needs no credentials of
+// its own to reach it. `zfs recv` reads from a PIPE that this daemon fills, which is what every
+// port digests well (see runTransferReceiveSession).
+#ifndef _WIN32
+ExecResult tiraFlujoDelPar(const GsaPeer& peer, const std::vector<std::string>& sendArgs,
+                           const std::vector<std::string>& recvArgv,
+                           const TransferProgressFn& avance) {
+    ExecResult r;
+    // Writing to a `zfs recv` that died must give EPIPE, not kill the daemon. Ignoring it for
+    // good is the safe direction: nothing in the daemon wants SIGPIPE's default.
+    std::signal(SIGPIPE, SIG_IGN);
+    int aRecv[2] = {-1, -1};
+    int errores[2] = {-1, -1};
+    const auto cierra = [](int& fd) {
+        if (fd >= 0) {
+            close(fd);
+            fd = -1;
+        }
+    };
+    const auto creaTubo = [](int t[2]) {
+#if defined(__linux__) || defined(__FreeBSD__)
+        return pipe2(t, O_CLOEXEC) == 0;
+#else
+        if (pipe(t) != 0)
+            return false;
+        fcntl(t[0], F_SETFD, FD_CLOEXEC);
+        fcntl(t[1], F_SETFD, FD_CLOEXEC);
+        return true;
+#endif
+    };
+    if (!creaTubo(aRecv) || !creaTubo(errores)) {
+        cierra(aRecv[0]);
+        cierra(aRecv[1]);
+        cierra(errores[0]);
+        cierra(errores[1]);
+        ponFallo(r, 125, "internal", {"pipe failed"});
+        return r;
+    }
+    std::vector<char*> argv;
+    argv.push_back(const_cast<char*>("zfs"));
+    for (const std::string& a : recvArgv) {
+        argv.push_back(const_cast<char*>(a.c_str()));
+    }
+    argv.push_back(nullptr);
+    const pid_t pid = fork();
+    if (pid == 0) {
+        dup2(aRecv[0], STDIN_FILENO);
+        dup2(errores[1], STDERR_FILENO);
+        execvp("zfs", argv.data());
+        _exit(127);
+    }
+    cierra(aRecv[0]);
+    cierra(errores[1]);
+    if (pid < 0) {
+        cierra(aRecv[1]);
+        cierra(errores[0]);
+        ponFallo(r, 125, "internal", {"fork failed"});
+        return r;
+    }
+    // recv's stderr is drained aside: if it filled the pipe while we block writing its input,
+    // the two would wait for each other.
+    std::string errRecv;
+    std::thread drena([&errRecv, fd = errores[0]]() {
+        char b[4096];
+        for (;;) {
+            const ssize_t n = read(fd, b, sizeof(b));
+            if (n <= 0) {
+                break;
+            }
+            errRecv.append(b, static_cast<std::size_t>(n));
+        }
+    });
+
+    zfsmgr::base::TlsClientConfig cfg;
+    cfg.host = peer.host;
+    cfg.port = peer.port;
+    cfg.serverCertPem = peer.serverCertPem;
+    cfg.clientCertPem = peer.clientCertPem;
+    cfg.clientKeyPem = peer.clientKeyPem;
+    cfg.ioTimeoutMs = 300000;  // of inactivity, see TlsRequestHooks::onStream
+    zfsmgr::base::json::Value req;
+    req.set("cmd", zfsmgr::base::json::Value("--zfs-send-stream"));
+    zfsmgr::base::json::Array ja;
+    for (const std::string& a : sendArgs) {
+        ja.push_back(zfsmgr::base::json::Value(a));
+    }
+    req.set("args", zfsmgr::base::json::Value(std::move(ja)));
+
+    enum class Fin { Nada, RechazoDelPar, Corte, Cancelado, RecvMuerto, Hecho };
+    Fin fin = Fin::Nada;
+    int rcSend = -1;
+    std::string errSend;
+    std::string codigoPar;
+    std::vector<std::string> argsPar;
+    std::uint64_t total = 0;
+    const auto t0 = std::chrono::steady_clock::now();
+    zfsmgr::base::TlsRequestHooks hooks;
+    hooks.keepWaiting = []() { return !gsaParado(); };
+    hooks.onStream = [&](const std::string& primera,
+                         const std::function<long(char*, std::size_t)>& lee) -> bool {
+        zfsmgr::base::json::Value cab;
+        if (!zfsmgr::base::json::parse(primera, cab, nullptr) || cab["rc"].toInt(1) != 0
+            || cab["stream"].toInt(0) != 1) {
+            codigoPar = cab["code"].toString();
+            for (const auto& x : cab["args"].toArray()) {
+                argsPar.push_back(x.toString());
+            }
+            errSend = cab["stderr"].toString();
+            fin = Fin::RechazoDelPar;
+            return false;
+        }
+        const auto leeExacto = [&](char* destino, std::size_t n) {
+            while (n > 0) {
+                const long k = lee(destino, n);
+                if (k <= 0) {
+                    return false;
+                }
+                destino += k;
+                n -= static_cast<std::size_t>(k);
+            }
+            return true;
+        };
+        std::vector<char> buf(kTramoFlujoMax);
+        for (;;) {
+            unsigned char l[4];
+            if (!leeExacto(reinterpret_cast<char*>(l), 4)) {
+                fin = gsaParado() ? Fin::Cancelado : Fin::Corte;
+                return false;
+            }
+            const std::size_t len = (std::size_t(l[0]) << 24) | (std::size_t(l[1]) << 16)
+                                    | (std::size_t(l[2]) << 8) | std::size_t(l[3]);
+            if (len == 0) {
+                break;
+            }
+            if (len > buf.size() || !leeExacto(buf.data(), len)) {
+                fin = gsaParado() ? Fin::Cancelado : Fin::Corte;
+                return false;
+            }
+            std::size_t escrito = 0;
+            while (escrito < len) {
+                const ssize_t w = write(aRecv[1], buf.data() + escrito, len - escrito);
+                if (w <= 0) {
+                    if (w < 0 && errno == EINTR) {
+                        continue;
+                    }
+                    fin = Fin::RecvMuerto;
+                    return false;
+                }
+                escrito += static_cast<std::size_t>(w);
+            }
+            total += len;
+            const long segs = static_cast<long>(std::chrono::duration_cast<std::chrono::seconds>(
+                                                    std::chrono::steady_clock::now() - t0)
+                                                    .count());
+            const double mib = static_cast<double>(total) / (1024.0 * 1024.0);
+            if (avance && !avance(total, segs, segs > 0 ? mib / static_cast<double>(segs) : mib)) {
+                fin = Fin::Cancelado;
+                return false;
+            }
+        }
+        // The trailer: zfs send's own result.
+        std::string cola;
+        char c = 0;
+        while (cola.size() < 65536 && lee(&c, 1) == 1 && c != '\n') {
+            cola.push_back(c);
+        }
+        zfsmgr::base::json::Value v;
+        if (!zfsmgr::base::json::parse(cola, v, nullptr)) {
+            fin = Fin::Corte;
+            return false;
+        }
+        rcSend = static_cast<int>(v["rc"].toInt(1));
+        errSend = v["stderr"].toString();
+        fin = Fin::Hecho;
+        return true;
+    };
+    std::string respuesta;
+    std::string errTls;
+    zfsmgr::base::TlsFailure fallo = zfsmgr::base::TlsFailure::None;
+    const bool conecto = zfsmgr::base::tlsRequestLine(cfg, zfsmgr::base::json::toCompact(req),
+                                                      respuesta, errTls, fallo, hooks);
+    // Closing recv's input is what tells it the stream ended: complete if it all arrived,
+    // cut otherwise —and then, with -s, it keeps a resume token—.
+    cierra(aRecv[1]);
+    if (fin == Fin::Cancelado) {
+        kill(pid, SIGTERM);
+    }
+    int estado = 0;
+    while (waitpid(pid, &estado, 0) < 0 && errno == EINTR) {
+    }
+    drena.join();
+    cierra(errores[0]);
+    const int rcRecv = WIFEXITED(estado) ? WEXITSTATUS(estado) : 128;
+    r.out = "BYTES=" + std::to_string(total) + "\n";
+    if (fin == Fin::Hecho && rcSend == 0 && rcRecv == 0) {
+        r.rc = 0;
+        return r;
+    }
+    if (fin == Fin::Cancelado) {
+        ponFallo(r, 1, "cancelled", {});
+    } else if (fin == Fin::RechazoDelPar && !codigoPar.empty()) {
+        ponFallo(r, 1, codigoPar, argsPar);
+    } else if (!conecto && fin == Fin::Nada) {
+        ponFallo(r, 1, "peer_unreachable",
+                 {peer.id, peer.host + ":" + std::to_string(peer.port), trim(errTls)});
+    } else if (fin == Fin::Hecho && rcSend != 0) {
+        ponFallo(r, 1, "pull_send_failed", {peer.id, trim(errSend)});
+    } else if (rcRecv != 0 || fin == Fin::RecvMuerto) {
+        const std::string destino = recvArgv.empty() ? std::string() : recvArgv.back();
+        ponFallo(r, 1, "pull_recv_failed", {destino, trim(errRecv)});
+    } else {
+        ponFallo(r, 1, "pull_stream_cut", {peer.id});
+    }
+    return r;
+}
+#else
+ExecResult tiraFlujoDelPar(const GsaPeer&, const std::vector<std::string>&,
+                           const std::vector<std::string>&, const TransferProgressFn&) {
+    ExecResult r;
+    ponFallo(r, 1, "pull_not_on_windows", {});
+    return r;
+}
+#endif
+
 // `zfs send | zfs recv` en la misma máquina, pero con el daemon EN MEDIO: lee de uno, cuenta y
 // escribe en el otro. Es lo que necesita la nivelación del planificador para ser un trabajo
 // —bytes, velocidad, cancelación—; `ejecutaTuberiaZfsLocal` los une directamente y no ve

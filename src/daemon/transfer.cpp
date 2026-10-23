@@ -2383,6 +2383,32 @@ ExecResult runFileRecvListenCapture(const std::string& ruta, bool sobrescribir, 
 // vive ahora en spawnReadingStdout.
 // Devuelve false para pedir que la transfer se interrumpa. Se llama en cada vuelta
 // del relé, igual que la comprobación de cancelación que hacía el camino asíncrono.
+std::vector<std::string> argvDeZfsSend(const std::string& snap, const std::string& baseSnap,
+                                       const std::string& flagsStr,
+                                       const std::string& resumeToken) {
+    std::vector<std::string> sendArgs = {"send"};
+    if (!resumeToken.empty()) {
+        // `zfs send -t` lleva dentro del testigo qué snapshot y desde dónde continuar,
+        // así que no admite ni snapshot ni base ni banderas: ponerlas sería un error.
+        sendArgs.push_back("-t");
+        sendArgs.push_back(resumeToken);
+        return sendArgs;
+    }
+    if (!flagsStr.empty()) {
+        std::istringstream iss(flagsStr);
+        std::string tok;
+        while (iss >> tok) {
+            sendArgs.push_back(tok);
+        }
+    }
+    if (!baseSnap.empty()) {
+        sendArgs.push_back("-I");
+        sendArgs.push_back(baseSnap);
+    }
+    sendArgs.push_back(snap);
+    return sendArgs;
+}
+
 ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params,
                                    const TransferProgressFn& onProgress,
                                    const std::string& ficheroOrigen) {
@@ -2468,26 +2494,7 @@ ExecResult runZfsSendToPeerCapture(const std::vector<std::string>& params,
     const std::string tokenLine = token + "\n";
     (void)send(sockFd, tokenLine.c_str(), static_cast<int>(tokenLine.size()), 0);
 
-    std::vector<std::string> sendArgs = {"send"};
-    if (!resumeToken.empty()) {
-        // `zfs send -t` lleva dentro del testigo qué snapshot y desde dónde continuar,
-        // así que no admite ni snapshot ni base ni banderas: ponerlas sería un error.
-        sendArgs.push_back("-t");
-        sendArgs.push_back(resumeToken);
-    } else {
-        if (!flagsStr.empty()) {
-            std::istringstream iss(flagsStr);
-            std::string tok;
-            while (iss >> tok) {
-                sendArgs.push_back(tok);
-            }
-        }
-        if (!baseSnap.empty()) {
-            sendArgs.push_back("-I");
-            sendArgs.push_back(baseSnap);
-        }
-        sendArgs.push_back(snap);
-    }
+    const std::vector<std::string> sendArgs = argvDeZfsSend(snap, baseSnap, flagsStr, resumeToken);
 
     if (!desdeFichero) {
         child = spawnReadingStdout("zfs", sendArgs);

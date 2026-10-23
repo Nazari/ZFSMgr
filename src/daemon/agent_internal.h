@@ -1025,6 +1025,23 @@ struct SpawnedStdout {
 };
 
 SpawnedStdout spawnReadingStdout(const std::string& program, const std::vector<std::string>& args);
+// The argv of `zfs send` (without «zfs»): `-t <token>` alone to resume, otherwise the flags,
+// `-I <base>` if there is one, and the snapshot. The flags must already be checked
+// (zfsprops::areValidSendFlags): this runs with privileges.
+std::vector<std::string> argvDeZfsSend(const std::string& snap, const std::string& baseSnap,
+                                       const std::string& flagsStr, const std::string& resumeToken);
+// `--zfs-send-stream`: the answer is the stream itself, on the same TLS connection the caller
+// opened. After a first JSON line ({"rc":0,"stream":1}, or the usual error answer), frames of a
+// 4-byte big-endian length and that many bytes; a frame of length 0 ends it, and one JSON line
+// follows with `zfs send`'s result ({"rc":N,"stderr":"…"}). It is how a machine PULLS a copy:
+// it opens the connection, so it needs no open port and nobody has to know its address.
+constexpr std::size_t kTramoFlujoMax = 256 * 1024;
+// The puller's side: asks `peer` for `--zfs-send-stream <snap> <base> <flags> [<resume>]` and
+// feeds it to a local `zfs <recvArgv>`, with progress and cancellation (`avance` returning
+// false stops it; the receive, with -s, keeps a resume token).
+ExecResult tiraFlujoDelPar(const GsaPeer& peer, const std::vector<std::string>& sendArgs,
+                           const std::vector<std::string>& recvArgv,
+                           const TransferProgressFn& avance);
 bool rutaDeFlujoValida(const std::string& ruta, std::string& err);
 SpawnedStdout abreFicheroComoFlujo(const std::string& ruta, std::string& err);
 long readSpawnedStdout(SpawnedStdout& s, char* buf, std::size_t len);

@@ -117,6 +117,11 @@ const Mensaje kMensajes[] = {
      "received anything"},
     {"job_daemon_restarted", "el daemon se reinició con el trabajo en marcha",
      "daemon restarted while running"},
+    {"pull_send_failed", "el envío desde «%1» falló: %2", "the send from «%1» failed: %2"},
+    {"pull_recv_failed", "la recepción en %1 falló: %2", "receiving into %1 failed: %2"},
+    {"pull_stream_cut", "el flujo desde «%1» se cortó a medias", "the stream from «%1» was cut half-way"},
+    {"pull_not_on_windows", "traer un flujo a esta máquina aún no está hecho en Windows",
+     "pulling a stream into this machine is not done on Windows yet"},
     {"peer_cannot_listen",
      "el daemon de «%1» no pudo escuchar: %2 (tiene que atender en una dirección alcanzable: "
      "«peers --listen» en esa máquina)",

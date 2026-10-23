@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <functional>
 #include <string>
 
@@ -59,6 +60,16 @@ struct TlsRequestHooks {
     // **Returning false ABANDONS the wait.** It is what allows leaving the moment the tunnel
     // process dies, instead of sitting out the whole timeout.
     std::function<bool()> keepWaiting;
+
+    // For a request whose answer is a STREAM after its first line (`--zfs-send-stream`). Called
+    // with that first line —already parsed by nobody— and a reader for what follows; the
+    // connection stays open until it returns, and its result is the call's. The reader fills
+    // `buf` with up to `len` bytes and returns how many, 0 when the other side closed, -1 when
+    // the read was cut or the wait abandoned (keepWaiting). `ioTimeoutMs` is then a limit of
+    // INACTIVITY: it restarts with every byte that arrives.
+    std::function<bool(const std::string& firstLine,
+                       const std::function<long(char* buf, std::size_t len)>& read)>
+        onStream;
 };
 
 // Sends a request and returns the answer up to the first newline, which is the daemon's

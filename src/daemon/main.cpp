@@ -142,6 +142,38 @@ int main(int argc, char* argv[]) {
         }
         return e.rc;
     }
+    // `--zfs-pull-stream <peer> <snap> <base> <flags> <dataset>`: pull a copy from a peer
+    // (see tiraFlujoDelPar). The schedule uses the function itself; this door is for testing
+    // it by hand, as root, before a schedule exists.
+    if (cmd == "--zfs-pull-stream") {
+        if (args.size() < 7) {
+            std::cerr << "usage: " << args[0]
+                      << " --zfs-pull-stream <peer> <snap> <base> <flags> <dataset>\n";
+            return 2;
+        }
+        GsaPeer par;
+        if (!gsaCargaPeer(args[2], par)) {
+            std::cerr << "no credentials for peer «" << args[2] << "» in the peers file\n";
+            return 1;
+        }
+        std::vector<std::string> recv = {"recv", "-u", "-s"};
+        // Incremental: -F, which WITHOUT -R only rolls back what changed after the last
+        // snapshot (a mount, an atime); it does not destroy older snapshots.
+        if (!trim(args[4]).empty()) {
+            recv.push_back("-F");
+        }
+        for (const std::string& prop : zfsmgr::base::gsa::scheduleProperties()) {
+            recv.insert(recv.end(), {"-x", prop});
+        }
+        recv.push_back(args[6]);
+        const ExecResult e = tiraFlujoDelPar(par, {args[3], args[4], args[5]}, recv,
+                                             [](std::uint64_t, long, double) { return true; });
+        std::cout << e.out;
+        if (e.rc != 0) {
+            std::cerr << zfsmgr::base::agentmsg::inEnglish(e.code, e.args) << "\n";
+        }
+        return e.rc;
+    }
     if (cmd == "--zfs-recv-listen") {
         if (args.size() < 3) {
             printUsage(args[0].c_str());

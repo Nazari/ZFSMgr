@@ -507,8 +507,22 @@ def casos_dedup(ctx):
 
         # La RAM que cuesta la DDT. Es el dato por el que se añadió todo esto: un pool
         # puede tener DEDUP 1.00 —sin ahorrar nada— y estar pagando cientos de MB.
-        rc, crudoD = sh(ctx, f"zpool status -D {P}", root=True)
-        linea = next((l for l in crudoD.splitlines() if "dedup:" in l), "")
+        #
+        # The two readings back to back, up to three times: the DDT's size in core changes on
+        # its own (45K and then 106K with the same 320 entries), and comparing the `ls` taken
+        # at the start with a `zpool status` taken later failed or passed depending on timing.
+        for _intento in range(3):
+            rc, crudoD = sh(ctx, f"zpool status -D {P}", root=True)
+            _, js = cli(ctx, ["format json", "ls zfsm://local"])
+            linea = next((l for l in crudoD.splitlines() if "dedup:" in l), "")
+            try:
+                _visto = {x["name"]: x for x in json_de(js)["pools"]}[P].get("ddtmemory")
+                _esperado = a_bytes(linea.split(",")[-1].replace("in core", "").strip())
+                if _visto is not None and _esperado is not None and \
+                        abs(_visto - _esperado) <= max(4096, _esperado * 0.02):
+                    break
+            except Exception:             # noqa: BLE001 - the checks below say what failed
+                break
         nombre = "dedup: la RAM de la DDT coincide con zpool status -D"
         problemas = []
         if "DDT entries" not in linea:
@@ -3200,6 +3214,59 @@ def casos_gsa_remota(ctx):
                   f"zfs get -H -s local,received -o name -r org.zfsmgr:schedule-enabled {T}",
                   r"\A\s*\Z", True)])
     caso(ctx, "gsa remota recursiva: --clear", [f"cd Local/{S}", "schedule --clear"], rc=0)
+
+    # PULL: fc16 asks unib's daemon for the stream on the connection fc16 opens
+    # (--zfs-send-stream), and feeds its own `zfs recv`. Through the agent's test door; the
+    # schedule that uses it comes later.
+    agente = "/usr/local/libexec/zfsmgr-agent"
+    fuente = f"{R}/pullsrc"
+    traido = f"{L}/pulled"
+    sh(ctx, f"zfs create {fuente}", True, root=True)
+    # 20 MB of random data: the stream crosses many 256 KB frames, and the sum on both sides
+    # says whether every byte arrived in order.
+    sh(ctx, f"bash -c 'echo a > /mnt/{fuente}/f.txt && dd if=/dev/urandom of=/mnt/{fuente}/r.bin "
+            f"bs=1M count=20 status=none && zfs snapshot {fuente}@a'", True, root=True)
+    _, suma_origen = sh(ctx, f"sha256sum /mnt/{fuente}/r.bin", True, root=True)
+
+    def comprueba_pull(nombre, args, esperado_rc, comprobacion=None):
+        rc, salida = sh(ctx, f"{agente} --zfs-pull-stream unib {args}", root=True)
+        problemas = []
+        if rc != esperado_rc:
+            problemas.append(f"rc={rc}, se esperaba {esperado_rc}")
+        if comprobacion:
+            rc2, visto = sh(ctx, comprobacion[0], root=True)
+            if not re.search(comprobacion[1], visto, re.M):
+                problemas.append(f"{comprobacion[0]} → {visto.strip()[:200]!r}")
+        if problemas:
+            ctx.fallos.append((nombre, problemas, salida[:500]))
+            print(f"  FALLO  {nombre}")
+            for x in problemas:
+                print(f"         {x}")
+        else:
+            ctx.pasados.append(nombre)
+            print(f"  ok     {nombre}")
+
+    comprueba_pull("pull: copia completa traída desde unib",
+                   f"{fuente}@a '' -wLec {traido}", 0,
+                   (f"zfs list -H -o name -t snapshot -d 1 {traido}", rf"^{traido}@a$"))
+    sh(ctx, f"bash -c 'zfs set mountpoint=/mnt/{traido} {traido} && zfs mount {traido}'",
+       root=True)
+    _, suma_traida = sh(ctx, f"sha256sum /mnt/{traido}/r.bin", root=True)
+    nombre = "pull: los 20 MB llegan íntegros"
+    if suma_origen.split()[:1] and suma_origen.split()[0] == (suma_traida.split() or [""])[0]:
+        ctx.pasados.append(nombre)
+        print(f"  ok     {nombre}")
+    else:
+        ctx.fallos.append((nombre, [f"origen {suma_origen.strip()!r}, traído {suma_traida.strip()!r}"], ""))
+        print(f"  FALLO  {nombre}")
+    sh(ctx, f"zfs unmount {traido}", root=True)
+    sh(ctx, f"bash -c 'echo b >> /mnt/{fuente}/f.txt && zfs snapshot {fuente}@b'", True, root=True)
+    comprueba_pull("pull: incremental desde la base",
+                   f"{fuente}@b @a -wLec {traido}", 0,
+                   (f"zfs list -H -o name -t snapshot -d 1 {traido}", rf"^{traido}@b$"))
+    comprueba_pull("pull: un snapshot que no existe lo dice el origen y no recibe nada",
+                   f"{fuente}@nohay @b -wLec {traido}", 1,
+                   (f"zfs list -H -o name -t snapshot -d 1 {traido}", r"\A(?![\s\S]*@nohay)"))
 
 
 ENTRE_MAQUINAS = [casos_entre_maquinas, casos_gsa_remota]
