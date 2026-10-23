@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <map>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -198,6 +199,8 @@ std::vector<SnapRef> parseSnapRefs(const std::string& zfsList, const std::string
 struct PrunePlan {
     std::vector<std::string> destroy;   // short names, oldest first
     bool keptBase{false};   // the protected snapshot was beyond the retention and was kept
+    // Every protected snapshot that was beyond the retention and was kept, oldest first.
+    std::vector<std::string> kept;
 };
 
 // The `GSA-<klass>-<stamp>` among `names` (short names) beyond the newest `keep`, ordered by
@@ -206,6 +209,23 @@ struct PrunePlan {
 // break the incremental chain for good.
 PrunePlan planPrune(const std::vector<std::string>& names, const std::string& klass, int keep,
                     const std::string& protectedName);
+// The same with SEVERAL protected snapshots: the base of this machine's own levelling and
+// every snapshot another machine holds as the base of the copy it pulls (see
+// heldByPullers). None of them is destroyed, whatever the retention.
+PrunePlan planPrune(const std::vector<std::string>& names, const std::string& klass, int keep,
+                    const std::set<std::string>& protectedNames);
+
+// The tag of a `zfs hold` a pulling machine puts on the source's snapshot it uses as its base:
+// «zfsmgr-pull:<its uid>:<its dataset>». One per pulling dataset, so each one's base survives
+// the source's retention while that machine is down, and they do not get in each other's way.
+extern const char* const kPullHoldPrefix;
+
+// The short names of the snapshots of `dataset` held by a pulling machine, from the output of
+// `zfs holds -H <snapshots>` («dataset@snap<TAB>tag<TAB>time», one line per hold). With
+// `recursive`, a hold on a descendant's snapshot of the same name counts too: `zfs destroy -r
+// dataset@snap` would fail on it, and renaming it would leave that machine without its base.
+std::set<std::string> heldByPullers(const std::string& zfsHolds, const std::string& dataset,
+                                    bool recursive);
 
 // The newest `GSA-<klass>-…` among `names`, by the stamp in the name. Empty if there is none.
 std::string newestOfClass(const std::vector<std::string>& names, const std::string& klass);

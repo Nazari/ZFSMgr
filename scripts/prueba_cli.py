@@ -111,6 +111,17 @@ def cli(ctx, ordenes, timeout=180, idioma=None, frase=None):
     return p.returncode, (p.stdout + p.stderr)
 
 
+def json_de(salida):
+    """The first JSON document in what `cli()` returns.
+
+    `cli()` gives stdout and stderr together, so a warning on stderr —a machine that is off
+    and answered late to the background check at start-up— lands after the JSON and
+    `json.loads` fails with «Extra data». Depending on timing a case passed or failed.
+    """
+    inicio = min((i for i in (salida.find("{"), salida.find("[")) if i >= 0), default=0)
+    return json.JSONDecoder().raw_decode(salida[inicio:])[0]
+
+
 def caso_argv(ctx, nombre, args, espera=(), no_espera=(), rc=None):
     """Un caso que invoca el BINARIO directamente, sin entrar al intérprete.
 
@@ -381,7 +392,7 @@ def casos_volumenes(ctx):
         nombre = "ls: en json el campo es «status» y «mounted» ya no está"
         problemas = []
         try:
-            filas = json.loads(js)["entries"]
+            filas = json_de(js)["entries"]
             if not any("status" in f for f in filas):
                 problemas.append("no hay campo «status»")
             if any("mounted" in f for f in filas):
@@ -408,7 +419,7 @@ def casos_volumenes(ctx):
         nombre = "devices: un dispositivo sin alias trae [] y no null"
         problemas = []
         try:
-            disp = json.loads(js)["devices"]
+            disp = json_de(js)["devices"]
             zvols = [d for d in disp if d.get("path", "").startswith("/dev/zd")]
             if not zvols:
                 problemas.append("no hay ningún /dev/zd*: el caso no está probando nada")
@@ -477,7 +488,7 @@ def casos_dedup(ctx):
                              "el caso no estaría probando nada")
         rc2, js = cli(ctx, ["format json", "ls zfsm://local"])
         try:
-            pools = {x["name"]: x for x in json.loads(js)["pools"]}
+            pools = {x["name"]: x for x in json_de(js)["pools"]}
             fila = pools.get(P)
             if fila is None:
                 problemas.append(f"{P} no sale en el listado")
@@ -510,7 +521,7 @@ def casos_dedup(ctx):
                 problemas.append(f"no se entiende el tamanyo {enMemoria!r}")
             else:
                 try:
-                    fila = {x["name"]: x for x in json.loads(js)["pools"]}[P]
+                    fila = {x["name"]: x for x in json_de(js)["pools"]}[P]
                 except Exception as exc:          # noqa: BLE001
                     fila, _ = {}, problemas.append(f"json ilegible: {exc}")
                 visto = fila.get("ddtmemory")
@@ -541,7 +552,7 @@ def casos_dedup(ctx):
         rc, js2 = cli(ctx, ["format json", "ls zfsm://local"])
         nombre = "dedup: sin DDT el campo de RAM es null y no 0"
         try:
-            fila = {x["name"]: x for x in json.loads(js2)["pools"]}[POOL_LOCAL]
+            fila = {x["name"]: x for x in json_de(js2)["pools"]}[POOL_LOCAL]
             if fila.get("ddtmemory") is None:
                 ctx.pasados.append(nombre)
                 print(f"  ok     {nombre}")
@@ -618,7 +629,7 @@ def casos_patrones(ctx):
     nombre = "patrones: en json, varios destinos son UN documento con el campo target"
     problemas = []
     try:
-        doc = json.loads(js)
+        doc = json_de(js)
         filas = next(iter(doc.values()))
         destinos = sorted({f.get("target") for f in filas})
         if destinos != [f"local/{P}/hijoA", f"local/{P}/hijoB"]:
@@ -2298,6 +2309,31 @@ def casos_gsa(ctx):
                   f"bash -c '{snaps(RC + '/hijo')} | grep -c @GSA-daily-'", r"^2$")])
     caso(ctx, "gsa recursiva: --clear", [f"cd Local/{R}", "schedule --clear"], rc=0)
 
+    # A snapshot another machine holds as its pulled base (hold tag «zfsmgr-pull:…») is
+    # neither pruned nor renamed by the source's schedule.
+    H = f"{P}/hdatos"
+    sh(ctx, f"zfs create -o atime=off {H}", root=True)
+    envejeceH = (f"bash -c 'u=$({snaps(H)} | grep @GSA-daily- | tail -1); "
+                 f"[ -n \"$u\" ] && zfs rename \"$u\" {H}@GSA-daily-$1-000000' _ ")
+    cli(ctx, [f"cd Local/{H}", "schedule --daily 1", "schedule run --wait"])
+    sh(ctx, envejeceH + "20200301", root=True)
+    sh(ctx, f"zfs hold zfsmgr-pull:prueba:back/h {H}@GSA-daily-20200301-000000", root=True)
+    sh(ctx, f"bash -c 'echo uno > /mnt/{H}/f.txt'", root=True)
+    caso(ctx, "gsa: la poda no borra un snapshot retenido por quien tira de él",
+         [f"cd Local/{H}", "schedule run --wait", "schedule status"], rc=0, idioma="es",
+         espera=[r"\bverde\b"], no_espera=[r"\brojo\b"],
+         estado=[("el retenido sigue", snaps(H), rf"^{H}@GSA-daily-20200301-000000$"),
+                 ("y el nuevo diario", f"bash -c '{snaps(H)} | grep -c @GSA-daily-'", r"^2$")])
+    sh(ctx, envejeceH + "20200302", root=True)
+    sh(ctx, f"zfs hold zfsmgr-pull:prueba:back/h {H}@GSA-daily-20200302-000000", root=True)
+    caso(ctx, "gsa: sin cambios no renombra un snapshot retenido: hace otro",
+         [f"cd Local/{H}", "schedule run --wait"], rc=0,
+         estado=[("el retenido conserva su nombre", snaps(H),
+                  rf"^{H}@GSA-daily-20200302-000000$")])
+    sh(ctx, f"bash -c 'for s in 20200301 20200302; do zfs release zfsmgr-pull:prueba:back/h "
+            f"{H}@GSA-daily-$s-000000; done'", root=True)
+    caso(ctx, "gsa: --clear del retenido", [f"cd Local/{H}", "schedule --clear"], rc=0)
+
     caso(ctx, "gsa: schedule status sin conexión desde la raíz lo pide",
          ["schedule status"], rc=1, idioma="es", espera=[r"hace falta estar en una conexión"])
     caso(ctx, "gsa: schedule status de una conexión por su nombre",
@@ -2363,7 +2399,8 @@ def casos_acciones(ctx):
     # SIN `--wait`: con él la orden va por el camino síncrono y no crea trabajo ninguno, así
     # que no habría nada que contar.
     sh(ctx, f"bash -c 'mkdir -p /mnt/{P}/datos/medido && dd if=/dev/urandom "
-            f"of=/mnt/{P}/datos/medido/f.bin bs=1M count=40 status=none && sync'", root=True)
+            f"of=/mnt/{P}/datos/medido/f.bin bs=1M count=40 status=none && zpool sync {P}'",
+            root=True)
     rc, salida = cli(ctx, [f"cd Local/{P}/datos", "breakdown medido hijomedido"])
     ident = ""
     m = re.search(r"\b([0-9a-f]{16})\b", salida)
@@ -2888,7 +2925,7 @@ def casos_devices(ctx):
     rc2, js = cli(ctx, ["format json", "devices --on zfsm://local"])
     nombre2 = "devices: dispositivos + alias suman lo que mandó el agente"
     try:
-        datos = json.loads(js)["devices"]
+        datos = json_de(js)["devices"]
         suma = len(datos) + sum(len(d.get("aliases") or []) for d in datos)
     except Exception as exc:          # noqa: BLE001 - se informa, no se traga
         datos, suma = [], -1

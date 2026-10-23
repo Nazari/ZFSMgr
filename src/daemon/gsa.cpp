@@ -3,6 +3,8 @@
 
 #include "agent_internal.h"
 
+#include <set>
+
 namespace zfsmgr::agent {
 
 // ── El planificador de instantáneas (GSA) ───────────────────────────────────────────
@@ -777,6 +779,38 @@ bool gsaSinCambiosDesde(const std::string& ds, const std::string& previo, bool r
 
 // El snapshot de la clase que toca.
 //
+// The snapshots of `ds` another machine holds as the base of the copy it pulls (holds tagged
+// gsa::kPullHoldPrefix). They are neither pruned nor renamed: that machine may be down for
+// longer than the retention, or reading one right now. `userrefs` first, so only the few
+// snapshots with any hold are asked about. If it cannot be asked, the answer is «none», which
+// is today's behaviour — and ZFS itself refuses to destroy a held snapshot anyway.
+std::set<std::string> gsaRetenidosPorPares(const std::string& ds, bool recursive) {
+    std::vector<std::string> args = {"get", "-H", "-o", "name,value", "-t", "snapshot"};
+    if (recursive) {
+        args.push_back("-r");
+    } else {
+        args.insert(args.end(), {"-d", "1"});
+    }
+    args.push_back("userrefs");
+    args.push_back(ds);
+    const ExecResult refs = runExecCapture("zfs", args);
+    if (refs.rc != 0) {
+        return {};
+    }
+    std::vector<std::string> conHold = {"holds", "-H"};
+    for (const std::string& l : splitLines(refs.out)) {
+        const std::size_t tab = l.find('\t');
+        if (tab != std::string::npos && trim(l.substr(tab + 1)) != "0") {
+            conHold.push_back(trim(l.substr(0, tab)));
+        }
+    }
+    if (conHold.size() == 2) {
+        return {};
+    }
+    const ExecResult holds = runExecCapture("zfs", conHold);
+    return zfsmgr::base::gsa::heldByPullers(holds.out, ds, recursive);
+}
+
 // Si el dataset no ha cambiado desde el último de ESA MISMA clase, no se hace uno nuevo: se
 // RENOMBRA aquel al nombre que tocaría. El periodo queda cubierto —que es lo que mira
 // `gsaDueClasses`—, la retención no gasta una plaza en algo que no aporta nada y el snapshot
@@ -806,7 +840,11 @@ GsaPaso gsaHazSnapshot(const std::string& ds, const std::string& klass, bool rec
     const std::string previo = zfsmgr::base::gsa::newestOfClass(gsaNombres(snaps), klass);
     // Con una nivelación en marcha no se renombra: `zfs send -I` puede estar leyendo ese
     // snapshot. Se hace uno normal, que no estorba a nadie.
-    if (permitirRenombrar && !previo.empty() && gsaSinCambiosDesde(ds, previo, recursive)) {
+    // Nor when another machine holds it: it is that machine's base, and it finds it by guid
+    // but releases its hold by name.
+    if (permitirRenombrar && !previo.empty()
+        && gsaRetenidosPorPares(ds, recursive).count(previo) == 0
+        && gsaSinCambiosDesde(ds, previo, recursive)) {
         std::vector<std::string> args = {"rename"};
         if (recursive) {
             args.push_back("-r");
@@ -864,12 +902,18 @@ GsaPaso gsaPoda(const std::string& ds, const std::string& klass, int keep, bool 
             protegido = s.name;
         }
     }
+    // Protected: this machine's own levelling base, and every base another machine holds.
+    std::set<std::string> protegidos = gsaRetenidosPorPares(ds, recursive);
+    if (!protegido.empty()) {
+        protegidos.insert(protegido);
+    }
     const zfsmgr::base::gsa::PrunePlan plan =
-        zfsmgr::base::gsa::planPrune(gsaNombres(snaps), klass, keep, protegido);
-    if (plan.keptBase) {
+        zfsmgr::base::gsa::planPrune(gsaNombres(snaps), klass, keep, protegidos);
+    for (const std::string& n : plan.kept) {
         baseConservada = true;
-        log("WARN", "GSA prune of " + ds + ": " + protegido
-                        + " is beyond the retention but kept, it is the base of the levelling");
+        log("WARN", "GSA prune of " + ds + ": " + n + " is beyond the retention but kept, "
+                        + (n == protegido ? std::string("it is the base of the levelling")
+                                          : std::string("another machine holds it as its base")));
     }
     for (const std::string& n : plan.destroy) {
         paso.hecho = true;

@@ -7,6 +7,7 @@
 #include "zfsmurl.h"
 
 #include <algorithm>
+#include <set>
 #include <ctime>
 #include <cctype>
 
@@ -448,6 +449,39 @@ LevelPlan planLevel(const std::vector<SnapRef>& origen, const std::vector<SnapRe
 
 PrunePlan planPrune(const std::vector<std::string>& nombres, const std::string& clase, int keep,
                     const std::string& protegido) {
+    std::set<std::string> uno;
+    if (!protegido.empty()) {
+        uno.insert(protegido);
+    }
+    return planPrune(nombres, clase, keep, uno);
+}
+
+const char* const kPullHoldPrefix = "zfsmgr-pull:";
+
+std::set<std::string> heldByPullers(const std::string& zfsHolds, const std::string& dataset,
+                                    bool recursive) {
+    std::set<std::string> out;
+    const std::string ds = trim(dataset);
+    for (const std::string& linea : split(zfsHolds, "\n", true)) {
+        const std::vector<std::string> c = split(linea, "\t", false);
+        if (c.size() < 2 || !startsWith(trim(c[1]), kPullHoldPrefix)) {
+            continue;
+        }
+        const std::string nombre = trim(c[0]);
+        const std::size_t arroba = nombre.find('@');
+        if (arroba == std::string::npos) {
+            continue;
+        }
+        const std::string suyo = nombre.substr(0, arroba);
+        if (suyo == ds || (recursive && startsWith(suyo, ds + "/"))) {
+            out.insert(nombre.substr(arroba + 1));
+        }
+    }
+    return out;
+}
+
+PrunePlan planPrune(const std::vector<std::string>& nombres, const std::string& clase, int keep,
+                    const std::set<std::string>& protegidos) {
     PrunePlan plan;
     if (keep <= 0) {
         return plan;
@@ -466,8 +500,9 @@ PrunePlan planPrune(const std::vector<std::string>& nombres, const std::string& 
     }
     const std::size_t sobran = deLaClase.size() - static_cast<std::size_t>(keep);
     for (std::size_t i = 0; i < sobran; ++i) {
-        if (!protegido.empty() && deLaClase[i].second == protegido) {
+        if (protegidos.count(deLaClase[i].second) > 0) {
             plan.keptBase = true;
+            plan.kept.push_back(deLaClase[i].second);
             continue;
         }
         plan.destroy.push_back(deLaClase[i].second);

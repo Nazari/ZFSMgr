@@ -3550,6 +3550,25 @@ void caso49() {
                       "podar: dentro de la retención no se borra nada");
             comprobar(G::planPrune(n, "daily", 0, "").destroy.empty(),
                       "podar: retención 0 es «clase sin programar», no «bórralas todas»");
+            // Several protected: this machine's own base and another machine's pulled base.
+            p = G::planPrune(
+                n, "daily", 1,
+                std::set<std::string>{"GSA-daily-20261001-000000", "GSA-daily-20261002-000000"});
+            comprobar(p.destroy.empty() && p.kept.size() == 2,
+                      "prune: no protected snapshot is destroyed, and each one is said");
+
+            // Which snapshots a pulling machine holds, from `zfs holds -H`.
+            const std::string holds =
+                "tank/a@GSA-daily-1\tzfsmgr-pull:uid1:back/a\tThu Oct 22 10:00 2026\n"
+                "tank/a@GSA-daily-2\tkeep\tThu Oct 22 10:00 2026\n"
+                "tank/a/hijo@GSA-daily-3\tzfsmgr-pull:uid2:back/a\tThu Oct 22 10:00 2026\n"
+                "tank/ab@GSA-daily-4\tzfsmgr-pull:uid3:back/ab\tThu Oct 22 10:00 2026\n";
+            comprobar(
+                G::heldByPullers(holds, "tank/a", false) == std::set<std::string>{"GSA-daily-1"},
+                "pull holds: only zfsmgr-pull tags, only that dataset");
+            comprobar(G::heldByPullers(holds, "tank/a", true)
+                          == std::set<std::string>{"GSA-daily-1", "GSA-daily-3"},
+                      "pull holds: recursive counts a descendant's hold, not a sibling's");
             igual(G::newestOfClass(n, "daily"), "GSA-daily-20261003-000000",
                   "gsa: el más nuevo de la clase, por el nombre");
             igual(G::newestOfClass(n, "weekly"), "", "gsa: sin ninguno de la clase, vacío");
