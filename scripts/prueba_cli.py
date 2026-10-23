@@ -3221,6 +3221,28 @@ def casos_traer(ctx):
                   rf"^zfsm://unib/{src}$"),
                  ("el origen retiene la base de la copia",
                   f"bash -c 'zfs holds -H $({snaps(src)} | tail -1)'", r"zfsmgr-pull:", True)])
+    caso(ctx, "traer: el origen sabe qué máquinas traen copias suyas",
+         [f"cd unib/{src}", "schedule --pullers"], rc=0,
+         espera=[r"zfsmgr-pull:", rf"{dst}"])
+
+    # What the first pass would find out, refused when writing.
+    dst2 = f"{L}/pmal"
+    sh(ctx, f"zfs create {dst2}", root=True)
+    sh(ctx, f"zfs create {R}/sinprog", True, root=True)
+    caso(ctx, "traer: un origen sin programación se rechaza al escribir",
+         [f"cd Local/{dst2}", f"schedule --daily 3 --origin zfsm://unib/{R}/sinprog"], rc=1,
+         idioma="es", espera=[r"no tiene programación"],
+         estado=[("no se ha escrito nada",
+                  f"zfs get -H -s local -o value org.zfsmgr:schedule-origin {dst2}", r"\A\s*\Z")])
+    caso(ctx, "traer: un origen en la misma máquina se rechaza",
+         [f"cd Local/{dst2}", f"schedule --daily 3 --origin zfsm://local/{dst}"], rc=1,
+         idioma="es", espera=[r"misma máquina"])
+    cli(ctx, [f"cd unib/{src}", f"schedule --to zfsm://local/{dst2}"])
+    caso(ctx, "traer: un origen que ya nivela hacia aquí se rechaza",
+         [f"cd Local/{dst2}", f"schedule --daily 3 --origin zfsm://unib/{src}"], rc=1,
+         idioma="es", espera=[r"ya nivela hacia"])
+    cli(ctx, [f"cd unib/{src}", "schedule --no-to"])
+
     envejece = (f"bash -c 'u=$({snaps(src)} | grep @GSA-daily- | tail -1); "
                 f"[ -n \"$u\" ] && zfs rename -r \"$u\" {src}@GSA-daily-$1-000000' _ ")
     for dia in ("20200401", "20200402", "20200403"):
@@ -3236,6 +3258,16 @@ def casos_traer(ctx):
                  ("y su hijo también", cuenta(f"{dst}/hijo"), r"^3$")])
     caso(ctx, "traer: schedules enseña el origen",
          [f"cd Local/{dst}", "schedule"], espera=[rf"zfsm://unib/{src}"])
+    _, js = cli(ctx, [f"cd unib/{src}", "format json", "schedule --pullers"])
+    try:
+        etiqueta = json_de(js)["pullers"][0]["tag"]
+    except Exception:                 # noqa: BLE001 - the case below then fails and says so
+        etiqueta = "zfsmgr-pull:none"
+    caso(ctx, "traer: soltar la base de una copia que ya no está",
+         [f"cd unib/{src}", f"schedule --release-puller {etiqueta}"], rc=0,
+         estado=[("ya no se retiene",
+                  f"bash -c 'zfs holds -H -r $({snaps(src)} | tail -1) | grep -c zfsmgr-pull'",
+                  r"^0$", True)])
     caso(ctx, "traer: --clear en la copia", [f"cd Local/{dst}", "schedule --clear"], rc=0)
     caso(ctx, "traer: --clear en el origen", [f"cd unib/{src}", "schedule --clear"], rc=0)
 

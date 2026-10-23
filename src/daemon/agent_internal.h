@@ -933,6 +933,9 @@ struct GsaProgramacion {
 };
 
 GsaProgramacion gsaLeeProgramacion(const std::string& ds);
+// `--peer-check <connection>` and `--dump-gsa-pullers <dataset>` (see gsa.cpp).
+ExecResult runPeerCheckCapture(const std::string& id);
+ExecResult runGsaPullersCapture(const std::string& ds);
 // PULL into `ds` from its origin: every dataset of the origin's tree with GSA snapshots, one
 // by one and without -R, holding the base on the source, then pruning here with this
 // dataset's own retentions. `soloMirar` plans without sending: `paso.hecho` says whether

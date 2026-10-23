@@ -2075,6 +2075,64 @@ bool gsaDatasetVacio(const std::string& ds) {
     }
 }
 
+// `--peer-check <connection>`: can THIS daemon reach that one, as a pull would? Answered from
+// here because it is this daemon that connects, with its own peers file — the client reaching
+// both machines says nothing about that. Out: VERSION=<the other daemon's version>.
+ExecResult runPeerCheckCapture(const std::string& id) {
+    ExecResult r;
+    GsaPeer par;
+    if (!gsaCargaPeer(trim(id), par)) {
+        return fallo(1, "gsa_no_peer_credentials", {trim(id), std::string(kPeersPath)});
+    }
+    std::string salida;
+    std::string err;
+    switch (gsaPeerRpc(par, "--health", {}, salida, err)) {
+        case GsaRpc::NoLlega:
+            return fallo(1, t_gsaFalloPar.codigo, t_gsaFalloPar.args);
+        case GsaRpc::Rechaza:
+            return fallo(1, "peer_refused", {par.id, err});
+        case GsaRpc::Ok:
+            break;
+    }
+    for (const std::string& l : splitLines(salida)) {
+        if (l.rfind("VERSION=", 0) == 0) {
+            r.out += trim(l) + "\n";
+        }
+    }
+    r.rc = 0;
+    return r;
+}
+
+// `--dump-gsa-pullers <dataset>`: the machines that pull a copy of this dataset or a
+// descendant, from the holds they keep on it: «tag<TAB>snapshot<TAB>time», one per hold.
+ExecResult runGsaPullersCapture(const std::string& ds) {
+    ExecResult r;
+    const ExecResult refs = runExecCapture(
+        "zfs", {"get", "-H", "-o", "name,value", "-t", "snapshot", "-r", "userrefs", trim(ds)});
+    if (refs.rc != 0) {
+        return fallo(1, "gsa_list_snapshots_failed", {trim(ds), trim(refs.err)});
+    }
+    std::vector<std::string> conHold = {"holds", "-H"};
+    for (const std::string& l : splitLines(refs.out)) {
+        const std::size_t tab = l.find('\t');
+        if (tab != std::string::npos && trim(l.substr(tab + 1)) != "0") {
+            conHold.push_back(trim(l.substr(0, tab)));
+        }
+    }
+    r.rc = 0;
+    if (conHold.size() == 2) {
+        return r;
+    }
+    const ExecResult holds = runExecCapture("zfs", conHold);
+    for (const std::string& l : splitLines(holds.out)) {
+        const std::vector<std::string> c = zfsmgr::base::split(l, "\t", false);
+        if (c.size() >= 3 && trim(c[1]).rfind(zfsmgr::base::gsa::kPullHoldPrefix, 0) == 0) {
+            r.out += trim(c[1]) + "\t" + trim(c[0]) + "\t" + trim(c[2]) + "\n";
+        }
+    }
+    return r;
+}
+
 GsaNivelado gsaTrae(const std::string& ds, const GsaProgramacion& p, bool soloMirar,
                     const TransferProgressFn& avance, const GsaLog& log) {
     namespace G = zfsmgr::base::gsa;

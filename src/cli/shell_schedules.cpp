@@ -343,6 +343,189 @@ bool cmdScheduleRun(Estado& e, const ZfsmUrl& destino, bool esperar) {
     }
 }
 
+// «1.2T» → bytes; -1 if it is not a size.
+long long bytesDeTexto(const std::string& texto) {
+    const std::string t = B::trim(texto);
+    if (t.empty()) {
+        return -1;
+    }
+    char* fin = nullptr;
+    const double n = std::strtod(t.c_str(), &fin);
+    if (fin == t.c_str()) {
+        return -1;
+    }
+    const std::string sufijo = B::toLowerAscii(B::trim(std::string(fin)));
+    double mult = 1;
+    if (!sufijo.empty()) {
+        const std::string unidades = "kmgtpe";
+        const std::size_t i = unidades.find(sufijo[0]);
+        if (i == std::string::npos) {
+            return -1;
+        }
+        for (std::size_t k = 0; k <= i; ++k) {
+            mult *= 1024;
+        }
+    }
+    return static_cast<long long>(n * mult);
+}
+
+// The same dataset on the same machine, however each side names that machine: by connection
+// name, by machine uid, or the local connection against this machine's host name (what a
+// schedule written elsewhere stores, see gsa::targetForScheduleMachine).
+bool mismaUrl(const Estado& e, const std::string& a, const std::string& b) {
+    std::string ca;
+    std::string da;
+    std::string cb;
+    std::string db;
+    if (!B::gsa::splitTarget(a, ca, da) || !B::gsa::splitTarget(b, cb, db) || da != db) {
+        return false;
+    }
+    if (B::toLowerAscii(ca) == B::toLowerAscii(cb)) {
+        return true;
+    }
+    const auto* pa = buscarConexion(e.conns, ca);
+    const auto* pb = buscarConexion(e.conns, cb);
+    if (pa && pb && !pa->machineUid.empty() && pa->machineUid == pb->machineUid) {
+        return true;
+    }
+    const std::string host = B::toLowerAscii(B::peers::thisMachineName());
+    const auto esLocal = [](const B::ConnectionProfile* p) {
+        return p && B::transport::isLocalConnection(*p);
+    };
+    return (esLocal(pa) && B::toLowerAscii(cb) == host)
+           || (esLocal(pb) && B::toLowerAscii(ca) == host);
+}
+
+// Before a schedule that PULLS is written: what the daemon would only find out on its first
+// pass, said now. `destino` is the dataset that will pull; `origen` the URL it pulls from.
+// Returns false on anything that would make it fail; a lack of space is only a warning.
+bool compruebaTraida(Estado& e, const ZfsmUrl& destino, const std::string& origen) {
+    std::string conOrigen;
+    std::string dsOrigen;
+    if (!B::gsa::splitTarget(origen, conOrigen, dsOrigen)) {
+        return false;  // isValid already said why
+    }
+    const auto* perfilDestino = buscarConexion(e.conns, destino.connection);
+    const auto* perfilOrigen = buscarConexion(e.conns, conOrigen);
+    const auto mal = [](const std::string& texto) {
+        std::fprintf(stderr, "%s\n", texto.c_str());
+        return false;
+    };
+    // 1. Not the same machine: that is a schedule with --to on the origin.
+    if (B::toLowerAscii(conOrigen) == B::toLowerAscii(destino.connection)
+        || (perfilDestino && perfilOrigen && !perfilDestino->machineUid.empty()
+            && perfilDestino->machineUid == perfilOrigen->machineUid)) {
+        return mal(B::format(T("t_traer_misma",
+                               "%1 está en esta misma máquina: para eso, una programación con "
+                               "--to en el origen"),
+                             {origen}));
+    }
+    ZfsmUrl maquina;
+    maquina.kind = ZfsmKind::Connection;
+    maquina.connection = destino.connection;
+    const std::string esperada = B::agentversion::expected();
+    const auto anticuado = [&](const std::string& version) {
+        return !version.empty()
+               && B::agentversion::verdictFor(version, esperada)
+                      == B::agentversion::Verdict::Update;
+    };
+    // 2. The daemon that will pull knows how.
+    std::string salud;
+    if (agente(e, maquina, {"--health"}, salud, 15000) && anticuado(clavesDe(salud)["VERSION"])) {
+        return mal(B::format(T("t_traer_destino_viejo",
+                               "el daemon de %1 no sabe traer todavía: «install-daemon --on "
+                               "zfsm://%1»"),
+                             {destino.connection}));
+    }
+    // 3. It reaches the origin's daemon with ITS credentials, and that one knows how to send.
+    std::string comprobacion;
+    std::string error;
+    if (!agente(e, maquina, PET::peerCheck(conOrigen), comprobacion, 30000, &error)) {
+        return mal(B::format(T("t_traer_no_llega",
+                               "el daemon de %1 no llega al de %2: %3\n  En %1: «peers --push "
+                               "--on zfsm://%1»; en %2: «peers --listen 0.0.0.0 --on zfsm://%2»"),
+                             {destino.connection, conOrigen, error}));
+    }
+    if (anticuado(clavesDe(comprobacion)["VERSION"])) {
+        return mal(B::format(T("t_traer_origen_viejo",
+                               "el daemon de %1 no sabe enviar a quien trae todavía: "
+                               "«install-daemon --on zfsm://%1»"),
+                             {conOrigen}));
+    }
+    // 4-6. The origin is scheduled, not already pushing here, and following origins does not
+    //      come back here.
+    const std::string yo = "zfsm://" + destino.connection + "/" + destino.dataset;
+    std::string con = conOrigen;
+    std::string ds = dsOrigen;
+    for (int salto = 0; salto < 8; ++salto) {
+        if (!buscarConexion(e.conns, con)) {
+            break;  // a machine this client does not know: nothing more to look at from here
+        }
+        ZfsmUrl u;
+        u.kind = ZfsmKind::Dataset;
+        u.connection = con;
+        u.pool = ds.substr(0, ds.find('/'));
+        u.dataset = ds;
+        std::vector<B::gsa::Entry> delPool;
+        if (!leeProgramaciones(e, u, u.pool, delPool)) {
+            break;
+        }
+        const B::gsa::Entry* cubre = nullptr;
+        for (const B::gsa::Entry& en : delPool) {
+            if (!en.schedule.enabled) {
+                continue;
+            }
+            if (en.dataset == ds
+                || (en.schedule.recursive && B::startsWith(ds, en.dataset + "/"))) {
+                cubre = &en;
+            }
+        }
+        const std::string url = "zfsm://" + con + "/" + ds;
+        if (!cubre || cubre->schedule.hasNoRetentions()) {
+            return mal(B::format(T("t_traer_sin_programar",
+                                   "%1 no tiene programación: no hay snapshots que traer. "
+                                   "Prográmelo allí antes («schedule --daily 7 --on %1»)"),
+                                 {url}));
+        }
+        if (!cubre->schedule.target.empty() && mismaUrl(e, cubre->schedule.target, yo)) {
+            return mal(B::format(T("t_traer_ya_empuja",
+                                   "%1 ya nivela hacia %2: serían dos escribiendo en el mismo "
+                                   "sitio"),
+                                 {url, yo}));
+        }
+        if (cubre->schedule.origin.empty()) {
+            break;  // a schedule of its own: the chain ends there
+        }
+        if (mismaUrl(e, cubre->schedule.origin, yo)) {
+            return mal(
+                B::format(T("t_traer_ciclo", "%1 ya trae de %2: sería un ciclo"), {url, yo}));
+        }
+        if (!B::gsa::splitTarget(cubre->schedule.origin, con, ds)) {
+            break;
+        }
+    }
+    // 7. Space: a warning, not a refusal —it may well fit with compression—.
+    ZfsmUrl urlOrigen;
+    urlOrigen.kind = ZfsmKind::Dataset;
+    urlOrigen.connection = conOrigen;
+    urlOrigen.pool = dsOrigen.substr(0, dsOrigen.find('/'));
+    urlOrigen.dataset = dsOrigen;
+    std::string usado;
+    std::string libre;
+    if (agente(e, urlOrigen, PET::datasetProperty("used", dsOrigen), usado, 15000)
+        && agente(e, destino, PET::datasetProperty("available", destino.pool), libre, 15000)) {
+        const long long u = bytesDeTexto(usado);
+        const long long l = bytesDeTexto(libre);
+        if (u > 0 && l >= 0 && u > l) {
+            std::fprintf(stderr,
+                         TC("t_traer_espacio", "aviso: %s ocupa %s y en %s quedan libres %s\n"),
+                         origen.c_str(), B::trim(usado).c_str(), destino.pool.c_str(),
+                         B::trim(libre).c_str());
+        }
+    }
+    return true;
+}
+
 bool cmdSchedule(Estado& e, const LineaAnalizada& linea) {
     const std::vector<std::string> palabras = linea.lista("texto");
     if (!palabras.empty() && B::toLowerAscii(palabras[0]) == "status") {
@@ -369,6 +552,69 @@ bool cmdSchedule(Estado& e, const LineaAnalizada& linea) {
     }
     if (ejecutar) {
         return cmdScheduleRun(e, destino, pet.tiene("--wait"));
+    }
+    // The machines that pull a copy of this dataset, from the holds they keep on it; and
+    // releasing one that is gone for good, so its base stops being kept.
+    if (pet.tiene("--pullers") || !pet.valor("release-puller").empty()) {
+        std::string out;
+        if (!agente(e, destino, PET::gsaPullers(destino.dataset), out, 30000)) {
+            return false;
+        }
+        const std::string soltar = pet.valor("release-puller");
+        Tabla t;
+        t.nombreJson = "pullers";
+        t.cabecerasTexto = {T("t_cab_etiqueta", "ETIQUETA"), T("t_cab_maquina", "MÁQUINA"),
+                            T("t_cab_copia", "COPIA"), T("t_cab_instantanea", "SNAPSHOT"),
+                            T("t_cab_desde", "DESDE")};
+        t.campos = {"tag", "machine", "copy", "snapshot", "since"};
+        std::vector<std::pair<std::string, std::string>> aSoltar;  // (tag, snapshot)
+        for (const std::string& l : B::split(out, "\n", true)) {
+            const std::vector<std::string> c = B::split(l, "\t", false);
+            if (c.size() < 3) {
+                continue;
+            }
+            // «zfsmgr-pull:<uid>:<dataset>»: the uid shown as the connection's name if known.
+            const std::string resto = c[0].substr(std::string(B::gsa::kPullHoldPrefix).size());
+            const std::size_t dos = resto.find(':');
+            std::string maquina = resto.substr(0, dos);
+            for (const auto& perfil : e.conns.perfiles) {
+                if (!perfil.machineUid.empty() && perfil.machineUid == maquina) {
+                    maquina = perfil.name.empty() ? perfil.id : perfil.name;
+                }
+            }
+            t.filas.push_back({c[0], maquina,
+                               dos == std::string::npos ? std::string() : resto.substr(dos + 1),
+                               c[1], c[2]});
+            if (!soltar.empty() && c[0] == soltar) {
+                aSoltar.push_back({c[0], c[1]});
+            }
+        }
+        if (soltar.empty()) {
+            t.imprime(e.formato);
+            return true;
+        }
+        if (aSoltar.empty()) {
+            std::fprintf(stderr, TC("t_sch_puller_no_hay", "ninguna copia retiene %s con «%s»\n"),
+                         destino.dataset.c_str(), soltar.c_str());
+            return false;
+        }
+        if (!confirma(e, B::format(T("t_conf_sch_soltar",
+                                     "Se van a soltar %1 retenciones de %2. Esa copia dejará de "
+                                     "tener su base protegida: si vuelve, puede necesitar un "
+                                     "envío completo. ¿Continuar?"),
+                                   {std::to_string(aSoltar.size()), soltar}))) {
+            std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
+            return false;
+        }
+        for (const auto& [etiqueta, snap] : aSoltar) {
+            std::string r;
+            if (!agente(e, destino, {"--mutate-zfs-release", etiqueta, snap}, r)) {
+                return false;
+            }
+        }
+        std::fprintf(stderr, TC("t_sch_soltadas", "soltadas %zu retenciones de %s\n"),
+                     aSoltar.size(), soltar.c_str());
+        return true;
     }
     // Lo que hay puesto AHORA. Se lee siempre, también para escribir: fijar `--daily` no
     // debe borrar el resto de la programación.
@@ -524,6 +770,11 @@ bool cmdSchedule(Estado& e, const LineaAnalizada& linea) {
                                                             esLocal(destino.connection),
                                                             B::peers::thisMachineName());
         }
+    }
+    // A schedule that pulls: what its first pass would find out, said now.
+    if (!nueva.origin.empty() && nueva.enabled && (nueva.origin != actual.origin || !actual.enabled)
+        && !compruebaTraida(e, destino, nueva.origin)) {
+        return false;
     }
     // Y después el conjunto: dos activadas del mismo pool no pueden solaparse si una es
     // recursiva. Hace falta lo que ya hay programado en el POOL, no solo aquí debajo.

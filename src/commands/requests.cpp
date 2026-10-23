@@ -204,6 +204,14 @@ std::vector<std::string> gsaRunOnce(const std::string& dataset) {
     return withOne("--mutate-gsa-run-once", dataset);
 }
 
+std::vector<std::string> peerCheck(const std::string& connection) {
+    return withOne("--peer-check", connection);
+}
+
+std::vector<std::string> gsaPullers(const std::string& dataset) {
+    return withOne("--dump-gsa-pullers", dataset);
+}
+
 std::vector<std::string> directoryContents(const std::string& ruta) {
     return withOne("--dump-dir-list", ruta);
 }

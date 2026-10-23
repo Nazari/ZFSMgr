@@ -107,6 +107,10 @@ std::vector<std::string> gsaOfAllPools();
 std::vector<std::string> gsaStatus();
 // One pass for ONE dataset, now. Never every dataset.
 std::vector<std::string> gsaRunOnce(const std::string& dataset);
+// Can that daemon reach `connection`'s daemon with its own peers file (as a pull would)?
+std::vector<std::string> peerCheck(const std::string& connection);
+// The machines pulling a copy of this dataset or below it, from their holds on it.
+std::vector<std::string> gsaPullers(const std::string& dataset);
 
 // ── Files ────────────────────────────────────────────────────────────────────
 

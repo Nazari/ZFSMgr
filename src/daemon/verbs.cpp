@@ -906,6 +906,24 @@ const TablaDeVerbos& tablaDeVerbos() {
             }).detach();
             return r;
         });
+        t.pon({"--peer-check"}, [](const Peticion& p) -> ExecResult {
+            if (p.params.empty()) {
+                ExecResult r;
+                r.rc = 2;
+                ponCodigo(r, "usage", {std::string(p.argv0) + " --peer-check <connection>"});
+                return r;
+            }
+            return runPeerCheckCapture(p.params[0]);
+        });
+        t.pon({"--dump-gsa-pullers"}, [](const Peticion& p) -> ExecResult {
+            if (p.params.empty()) {
+                ExecResult r;
+                r.rc = 2;
+                ponCodigo(r, "usage", {std::string(p.argv0) + " --dump-gsa-pullers <dataset>"});
+                return r;
+            }
+            return runGsaPullersCapture(p.params[0]);
+        });
         t.pon({"--dump-peers"}, [](const Peticion&) -> ExecResult {
             ExecResult r;
             // SOLO los nombres y a donde apuntan: los certificados y la clave privada no salen
