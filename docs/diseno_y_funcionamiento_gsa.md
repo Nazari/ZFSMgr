@@ -23,6 +23,7 @@ reinstalar el cliente y viaja con el pool si se exporta:
 | `org.zfsmgr:schedule-hourly`, `-daily`, `-weekly`, `-monthly`, `-yearly` | cuántos se guardan de cada clase (0 = ninguno) |
 | `org.zfsmgr:schedule-target` | destino de la nivelación: una URL `zfsm://conexión/pool/dataset` |
 | `org.zfsmgr:schedule-level` | `on`: nivelar contra el destino tras cada snapshot |
+| `org.zfsmgr:schedule-origin` | en un DESTINO: la URL del dataset del que esta máquina trae copias (ver «Traer») |
 
 ```
 schedule --hourly 24 --daily 7 --recursive --to zfsm://backup/tank/copia --level
@@ -67,6 +68,52 @@ Para nivelar, el daemon del origen tiene que llegar por su cuenta al del destino
 peers --listen 0.0.0.0 --on zfsm://backup   # el destino atiende en la red (mTLS)
 peers --push --on zfsm://servidor          # el origen recibe las credenciales de los demás
 ```
+
+## Traer en vez de empujar: `schedule-origin`
+
+Una programación puede ir en el sentido contrario: la pone el DESTINO, y es su daemon quien
+trae los snapshots del origen. Sirve para que la máquina de copias inicie ella la copia (el
+servidor no necesita llegar a ella ni tener sus credenciales), para que un mismo origen tenga
+varias copias, y para que cada copia guarde su propia retención.
+
+```
+# en el destino (la máquina de copias), sobre un dataset vacío:
+schedule --daily 30 --origin zfsm://servidor/tank/datos
+# en el origen, que tiene que estar programado:
+schedule --daily 7 --recursive
+schedule --pullers                      # quién trae copias de aquí
+schedule --release-puller <etiqueta>    # soltar la base de una copia que ya no está
+```
+
+- **Propiedad** `org.zfsmgr:schedule-origin`, una URL `zfsm://`. Con ella no se ponen `--to`,
+  `--level` ni `--recursive`: lo que se trae sigue el árbol del origen. Las retenciones dicen
+  cuántos de los traídos se guardan de cada clase; el destino no hace snapshots propios.
+- **Cada pasada** (cada cinco minutos) pregunta al daemon del origen por su árbol. Si hay algo
+  nuevo, lanza un trabajo `gsa-pull` (`gsaTrae`):
+  - trae cada dataset con snapshots GSA uno a uno, **sin `-R`**. Así `recv -F` solo deshace
+    cambios locales y nunca borra los snapshots antiguos que el destino guarda de más;
+  - lo nuevo llega con `canmount=noauto`;
+  - repite por guid los renombrados del origen;
+  - después poda con la retención propia del destino, sin pasar nunca de la base.
+- **El flujo** (`--zfs-send-stream`) viaja por la conexión TLS que abre el destino: no hace
+  falta un puerto abierto en él, ni que el origen sepa su dirección.
+- **La base de cada copia** queda retenida en el origen con un `zfs hold`
+  (`zfsmgr-pull:<uid>:<dataset>`). La poda y el renombrado del origen no la tocan, así que una
+  copia apagada más días que la retención del origen se pone al día sola.
+- **La primera traída** puede ir a un dataset que ya existe si está vacío (sin snapshots, sin
+  hijos, menos de 1 MB); su programación se vuelve a poner después.
+- **Al escribir** la programación, el CLI comprueba lo que la primera pasada solo descubriría:
+  - el origen no está en la misma máquina;
+  - el daemon destino llega al del origen con SUS credenciales (`--peer-check`, que contesta
+    el propio daemon destino);
+  - los dos daemons están al día;
+  - el origen está programado y no nivela ya hacia aquí;
+  - no hay ciclo;
+  - el espacio alcanza (solo un aviso).
+- **Credencial limitada:** `peers --push --role pull` entrega a la máquina de copias el
+  certificado `puller.crt` de cada máquina en vez del completo. El daemon decide el rol por
+  coincidencia exacta del certificado y con ese solo atiende mirar, enviar el flujo y retener
+  o soltar sus propias bases. Una copia comprometida no puede borrar el origen.
 
 ## Estado y observabilidad
 
