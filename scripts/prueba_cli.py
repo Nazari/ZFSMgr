@@ -3197,6 +3197,78 @@ LOCALES = [casos_arranque, casos_identidad, casos_devices, casos_ayuda, casos_ve
            casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_send_level, casos_recepcion_a_medias, casos_send_fichero, casos_send_comprimido, casos_gsa, casos_sin_montar, casos_cp_destino, casos_load_key, casos_editor_ancho, casos_tab_continua, casos_pantalla, casos_monitor_conexiones, casos_path, casos_info_labelclear, casos_servicio, casos_servicio_conexiones, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
+def rpc_directo(ctx, entrada, cmd, args):
+    """One request to a daemon with the credential of a peers.json entry, straight over TLS:
+    what that credential lets a machine do, without the client in the middle."""
+    import socket
+    import ssl
+    cert = os.path.join(ctx.dir_tmp, ".par.crt")
+    clave = os.path.join(ctx.dir_tmp, ".par.key")
+    for ruta, texto in ((cert, entrada["client_cert_pem"]), (clave, entrada["client_key_pem"])):
+        with open(os.open(ruta, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
+            f.write(texto)
+    contexto = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    contexto.check_hostname = False
+    contexto.verify_mode = ssl.CERT_NONE   # the client pins; here only the role matters
+    contexto.load_cert_chain(cert, clave)
+    try:
+        with socket.create_connection((entrada["host"], int(entrada["port"])), timeout=15) as s:
+            with contexto.wrap_socket(s) as t:
+                t.sendall((json.dumps({"cmd": cmd, "args": args}) + "\n").encode())
+                datos = b""
+                while b"\n" not in datos:
+                    trozo = t.recv(65536)
+                    if not trozo:
+                        break
+                    datos += trozo
+        return json.loads(datos.split(b"\n")[0] or b"{}")
+    finally:
+        for ruta in (cert, clave):
+            os.remove(ruta)
+
+
+def casos_credencial_traer(ctx):
+    """`peers --push --role pull`: fc16 gets only PULL credentials. Straight to unib's daemon
+    with that credential: it answers what a pull needs and refuses the rest. casos_traer then
+    runs with it, which proves it is enough to pull. fc16's peers.json is restored at the end
+    (casos_restaura_pares)."""
+    sh(ctx, f"cp -p /etc/zfsmgr/peers.json {ctx.dir_tmp}/peers.json.original", root=True)
+    caso(ctx, "credencial de traer: se entrega a fc16",
+         ["peers --push --role pull --on zfsm://local"], rc=0, idioma="es",
+         espera=[r"entregadas \d+ credenciales"])
+    _, crudo = sh(ctx, "cat /etc/zfsmgr/peers.json", root=True)
+    nombre = "credencial de traer: unib responde lo de traer y rechaza lo demás"
+    problemas = []
+    try:
+        entrada = next(p for p in json.loads(crudo)["peers"] if p["id"] == "unib")
+        if entrada.get("role") != "pull":
+            problemas.append(f"role={entrada.get('role')!r}")
+        salud = rpc_directo(ctx, entrada, "--health", [])
+        if salud.get("rc") != 0:
+            problemas.append(f"--health no responde: {salud}")
+        for verbo, args in (("--mutate-zfs-destroy", [f"{POOL_REMOTO}/x@nohay"]),
+                            ("--mutate-zfs-rollback", [f"{POOL_REMOTO}/x@nohay"]),
+                            ("--mutate-zfs-release", ["keep", f"{POOL_REMOTO}/x@nohay"])):
+            r = rpc_directo(ctx, entrada, verbo, args)
+            if r.get("code") != "verb_not_for_puller":
+                problemas.append(f"{verbo} no se rechazó: {r}")
+    except Exception as exc:          # noqa: BLE001 - se informa, no se traga
+        problemas.append(f"{type(exc).__name__}: {exc}")
+    if problemas:
+        ctx.fallos.append((nombre, problemas, ""))
+        print(f"  FALLO  {nombre}")
+        for x in problemas:
+            print(f"         {x}")
+    else:
+        ctx.pasados.append(nombre)
+        print(f"  ok     {nombre}")
+
+
+def casos_restaura_pares(ctx):
+    """fc16's peers.json as it was before casos_credencial_traer."""
+    sh(ctx, f"cp -p {ctx.dir_tmp}/peers.json.original /etc/zfsmgr/peers.json", root=True)
+
+
 def casos_traer(ctx):
     """A PULL schedule (schedule-origin): fc16 keeps a copy of a unib tree, pulled by fc16's
     daemon, with a retention of its own longer than the source's."""
@@ -3344,7 +3416,8 @@ def casos_gsa_remota(ctx):
                    (f"zfs list -H -o name -t snapshot -d 1 {traido}", r"\A(?![\s\S]*@nohay)"))
 
 
-ENTRE_MAQUINAS = [casos_entre_maquinas, casos_gsa_remota, casos_traer]
+ENTRE_MAQUINAS = [casos_entre_maquinas, casos_gsa_remota, casos_credencial_traer, casos_traer,
+                  casos_restaura_pares]
 
 
 def main():

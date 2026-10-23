@@ -2,6 +2,7 @@
 // over mTLS and the ZED event watcher.
 
 #include "agent_internal.h"
+#include "commands/peers.h"
 
 namespace zfsmgr::agent {
 
@@ -1438,6 +1439,44 @@ void serveZfsSendStream(SSL* ssl, NativeSock clientFd, const std::vector<std::st
                   + (escribe ? std::string() : std::string(", the puller went away")));
 }
 
+X509* leeCertificadoPem(const std::string& ruta) {
+    FILE* f = std::fopen(ruta.c_str(), "rb");
+    if (!f) {
+        return nullptr;
+    }
+    X509* x = PEM_read_X509(f, nullptr, nullptr, nullptr);
+    std::fclose(f);
+    return x;
+}
+
+// Who is on the other end, by the EXACT certificate presented: this daemon's client
+// certificate gives everything, its pull certificate the closed list of
+// peers::pullerMayCall. Anything else is refused. «Anything that verifies» is not enough:
+// both certificates are self-signed with CA:TRUE, so one signed with puller.key would verify
+// too —and must not come out as the full client—.
+enum class RolCliente { Completo, Traer, Ninguno };
+RolCliente rolDelCliente(SSL* ssl, const AgentRuntimeConfig& cfg) {
+    X509* presentado = SSL_get1_peer_certificate(ssl);
+    if (!presentado) {
+        return RolCliente::Ninguno;
+    }
+    RolCliente rol = RolCliente::Ninguno;
+    for (const auto& [ruta, siCoincide] :
+         {std::pair<std::string, RolCliente>{cfg.tlsClientCert, RolCliente::Completo},
+          std::pair<std::string, RolCliente>{cfg.tlsPullerCert, RolCliente::Traer}}) {
+        if (X509* esperado = leeCertificadoPem(ruta)) {
+            const bool igual = X509_cmp(presentado, esperado) == 0;
+            X509_free(esperado);
+            if (igual) {
+                rol = siCoincide;
+                break;
+            }
+        }
+    }
+    X509_free(presentado);
+    return rol;
+}
+
 // One client connection: TLS handshake, the request line, the answer.
 void serveConnection(SSL_CTX* ctx, NativeSock clientFd, ServerState& st,
                      const AgentRuntimeConfig& cfg) {
@@ -1449,6 +1488,16 @@ void serveConnection(SSL_CTX* ctx, NativeSock clientFd, ServerState& st,
     }
     SSL_set_fd(ssl, static_cast<int>(clientFd));
     if (SSL_accept(ssl) != 1) {
+        SSL_shutdown(ssl);
+        SSL_free(ssl);
+        closeSock(clientFd);
+        return;
+    }
+    const RolCliente rol = rolDelCliente(ssl, cfg);
+    if (rol == RolCliente::Ninguno) {
+        daemonLog("WARN",
+                  "rpc refused: the client certificate is neither the client's nor the "
+                  "puller's");
         SSL_shutdown(ssl);
         SSL_free(ssl);
         closeSock(clientFd);
@@ -1473,11 +1522,27 @@ void serveConnection(SSL_CTX* ctx, NativeSock clientFd, ServerState& st,
         }
     }
 
-    // A stream is answered on this same connection, not with one JSON line.
+    // A stream is answered on this same connection, not with one JSON line. And the pull
+    // credential gets only its closed list —checked here, before anything else, because this
+    // is the one place every verb goes through, the stream included—.
     {
         std::string cmd;
         std::vector<std::string> rpcArgs;
-        if (gotLine && parseJsonRpcRequest(reqLine, cmd, rpcArgs) && cmd == "--zfs-send-stream") {
+        const bool entendida = gotLine && parseJsonRpcRequest(reqLine, cmd, rpcArgs);
+        if (rol == RolCliente::Traer
+            && (!entendida || !zfsmgr::base::peers::pullerMayCall(cmd, rpcArgs))) {
+            daemonLog("WARN", "rpc refused for the pull credential: " + cmd);
+            const std::string no =
+                "{\"rc\":1,\"stdout\":\"\",\"stderr\":\"\",\"code\":"
+                "\"verb_not_for_puller\",\"args\":[\""
+                + jsonEscape(cmd) + "\"]}\n";
+            (void)sslEscribeTodo(ssl, no.data(), no.size());
+            SSL_shutdown(ssl);
+            SSL_free(ssl);
+            closeSock(clientFd);
+            return;
+        }
+        if (entendida && cmd == "--zfs-send-stream") {
             {
                 std::lock_guard<std::mutex> lock(st.runtimeMutex);
                 st.rpcCommands.insert(cmd);
@@ -1525,6 +1590,12 @@ SSL_CTX* createServerTlsContext(const AgentRuntimeConfig& cfg) {
         || SSL_CTX_load_verify_locations(ctx, cfg.tlsClientCert.c_str(), nullptr) != 1) {
         SSL_CTX_free(ctx);
         return nullptr;
+    }
+    // The pull credential is trusted too; which one was presented is decided per connection
+    // (rolDelCliente), by exact match.
+    if (X509* puller = leeCertificadoPem(cfg.tlsPullerCert)) {
+        X509_STORE_add_cert(SSL_CTX_get_cert_store(ctx), puller);
+        X509_free(puller);
     }
     SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, nullptr);
     return ctx;

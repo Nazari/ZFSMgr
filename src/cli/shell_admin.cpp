@@ -3,6 +3,8 @@
 
 #include "shell_internal.h"
 
+#include <map>
+
 namespace zfsmgr::cli::detail {
 
 // Autorizar la clave SSH de esta máquina en otra.
@@ -353,14 +355,73 @@ bool cmdPeers(Estado& e, const LineaAnalizada& linea) {
             return false;
         }
     }
-    const PR::Handover entrega = PR::composeHandover(e.conns.perfiles, destino.connection,
-                                                     uidDeDestino, PR::thisMachineName());
+    // `--role pull`: each machine's PULL credential instead of its full one, read from it now
+    // (puller.crt/puller.key, root's, as the rest of its TLS material). With it that machine
+    // can only pull copies from the others: look, send, hold its own base.
+    const std::string rol = B::toLowerAscii(pet.valor("role"));
+    if (!rol.empty() && rol != "pull" && rol != "full") {
+        std::fprintf(stderr, TC("t_peers_rol_malo", "--role es «pull» o «full», no «%s»\n"),
+                     rol.c_str());
+        return false;
+    }
+    std::map<std::string, std::pair<std::string, std::string>> deTraer;
+    if (rol == "pull") {
+        for (const B::ConnectionProfile& p : e.conns.perfiles) {
+            const std::string id = p.id.empty() ? p.name : p.id;
+            if (B::toLowerAscii(id) == B::toLowerAscii(destino.connection)) {
+                continue;
+            }
+            const B::ConnectionProfile perfil = conSudo(e, p);
+            const bool windows = T::isWindowsConnection(perfil);
+            const std::string dir =
+                windows ? std::string("C:/ProgramData/ZFSMgr/agent/tls") : "/etc/zfsmgr/tls";
+            const std::string guion =
+                windows ? "foreach($f in @('" + dir + "/puller.crt','" + dir + "/puller.key')){ "
+                          "if(Test-Path -LiteralPath $f){ Write-Output ('__ZFSMGR_TLS_BEGIN__:' + "
+                          "$f); Get-Content -LiteralPath $f -Raw; Write-Output "
+                          "('__ZFSMGR_TLS_END__:' + $f) } }"
+                        : "for f in " + dir + "/puller.crt " + dir + "/puller.key; do "
+                          "[ -r \"$f\" ] && { printf '__ZFSMGR_TLS_BEGIN__:%s\\n' \"$f\"; "
+                          "cat \"$f\"; printf '__ZFSMGR_TLS_END__:%s\\n' \"$f\"; }; done; true";
+            std::string out;
+            std::string err;
+            int rc = -1;
+            std::string cert;
+            std::string clave;
+            if (T::runSsh(e.ses->transporte, perfil,
+                          windows ? guion
+                                  : H::withSudoCommand(perfil, "sh -c " + B::shSingleQuote(guion)),
+                          20000, out, err, rc, {}, {}, {}, {}, /*allowAgentRpc=*/false,
+                          /*echoOutputToLog=*/false)
+                && PR::parsePullCredential(out, cert, clave)) {
+                deTraer[id] = {cert, clave};
+            }
+        }
+    }
+    const PR::Handover entrega =
+        PR::composeHandover(e.conns.perfiles, destino.connection, uidDeDestino,
+                            PR::thisMachineName(), rol == "pull" ? &deTraer : nullptr);
+    if (!entrega.withoutPullCredential.empty()) {
+        std::fprintf(stderr,
+                     TC("t_peers_sin_traer",
+                        "se dejan fuera, sin credencial de traer (su daemon es anterior: "
+                        "«install-daemon» allí): %s\n"),
+                     B::join(entrega.withoutPullCredential, ", ").c_str());
+    }
     if (!entrega.ok()) {
         std::fprintf(stderr, "%s\n", PR::labelOf(entrega.failure).c_str());
         return false;
     }
     const std::vector<std::string>& nombres = entrega.names;
-    if (!confirma(e, B::format(T("t_conf_peers",
+    if (!confirma(
+            e, rol == "pull"
+                   ? B::format(T("t_conf_peers_traer",
+                                 "Se van a entregar a %1 las credenciales de TRAER de: %2.\n"
+                                 "Con ellas, esa máquina solo puede traer copias de las "
+                                 "otras: mirar sus snapshots, recibirlos y retener su "
+                                 "base. ¿Continuar?"),
+                               {destino.connection, B::join(nombres, ", ")})
+                   : B::format(T("t_conf_peers",
                                  "Se van a entregar a %1 las credenciales de: %2.\n"
                                  "Con ellas, esa máquina puede hablar con las otras como si fuera "
                                  "usted. ¿Continuar?"),

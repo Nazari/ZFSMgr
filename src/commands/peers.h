@@ -1,5 +1,6 @@
 #pragma once
 
+#include <map>
 #include <string>
 #include <vector>
 
@@ -61,6 +62,9 @@ struct Handover {
     // The client's Local connection, when it goes in: its daemon must listen on the network
     // for the target to reach it, and the client can say so.
     std::string localName;
+    // With pull credentials: the machines left out because they have none (a daemon older
+    // than the pull credential). Handing them the full one instead is what must not happen.
+    std::vector<std::string> withoutPullCredential;
     Failure failure{Failure::None_};
     bool ok() const { return failure == Failure::None_; }
 };
@@ -75,16 +79,24 @@ struct Handover {
 // it out: there is no way for it to know under which name whoever is talking to it has it
 // written down, and that name is exactly the one that will appear as the target of a
 // levelling.
-Handover composeHandover(const std::vector<ConnectionProfile>& profiles,
-                         const std::string& destination,
-                         // El uid de la máquina de destino, tal y como lo tiene el cliente.
-                         // Vacío si nunca se refrescó esa conexión.
-                         const std::string& destinationUid,
-                         // The network name of the client's own machine. The client's Local
-                         // connection is handed over under it, as name and address: from the
-                         // target, «local» and 127.0.0.1 are the target itself. Empty → the
-                         // Local connection is left out.
-                         const std::string& clientHost);
+Handover composeHandover(
+    const std::vector<ConnectionProfile>& profiles, const std::string& destination,
+    // El uid de la máquina de destino, tal y como lo tiene el cliente.
+    // Vacío si nunca se refrescó esa conexión.
+    const std::string& destinationUid,
+    // The network name of the client's own machine. The client's Local
+    // connection is handed over under it, as name and address: from the
+    // target, «local» and 127.0.0.1 are the target itself. Empty → the
+    // Local connection is left out.
+    const std::string& clientHost,
+    // PULL credentials, by connection id: (puller.crt, puller.key). When
+    // given, every machine goes with ITS pull credential and «role»:«pull»,
+    // or is left out (Handover::withoutPullCredential).
+    const std::map<std::string, std::pair<std::string, std::string>>* pullCredentials = nullptr);
+
+// The pull credential read from a machine (the `__ZFSMGR_TLS_BEGIN__:…/puller.crt` …
+// markers, as the rest of its TLS material). False if either half is missing.
+bool parsePullCredential(const std::string& text, std::string& certPem, std::string& keyPem);
 
 // The network name of this machine, for `clientHost`; empty if it cannot be read.
 std::string thisMachineName();
@@ -117,5 +129,15 @@ bool destinationIsSelf(const std::string& connId, const SelfMatch& m);
 std::string labelOf(Failure f);
 
 std::vector<std::string> bindAddresses();
+
+// ── The PULL credential ─────────────────────────────────────────────────────
+//
+// Each daemon has, besides its full client certificate, a second one (`puller.crt`) that a
+// machine PULLING copies from it is given instead (`peers --push --role pull`). With it the
+// daemon answers only what a pull needs: look at the snapshots, send one on the connection,
+// and hold or release ITS OWN base (tags «zfsmgr-pull:…»). Never destroy, roll back, set,
+// a job, or a shell. So a backup that is broken into cannot erase the server it backs up,
+// and the server needs no credentials of the backup at all.
+bool pullerMayCall(const std::string& verb, const std::vector<std::string>& args);
 
 }  // namespace zfsmgr::base::peers

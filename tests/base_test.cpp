@@ -3977,6 +3977,56 @@ void caso49() {
             igual(h.localName, std::string("local"),
                   "peers local: reported, to warn about listening");
 
+            // --- The PULL credential.
+            comprobar(PE::pullerMayCall("--zfs-send-stream", {"p/d@s", "", "-wLec"})
+                          && PE::pullerMayCall("--dump-zfs-list-all", {"p/d"})
+                          && PE::pullerMayCall("--health", {}),
+                      "pull credential: may look and send");
+            comprobar(PE::pullerMayCall("--mutate-zfs-hold", {"zfsmgr-pull:u:back/d", "p/d@s"})
+                          && !PE::pullerMayCall("--mutate-zfs-release", {"keep", "p/d@s"})
+                          && !PE::pullerMayCall("--mutate-zfs-hold", {"zfsmgr-pull:x"}),
+                      "pull credential: holds only its own tags");
+            for (const char* v :
+                 {"--mutate-zfs-destroy", "--mutate-zfs-rollback", "--mutate-zfs-generic",
+                  "--mutate-zpool-generic", "--job-submit", "--mutate-set-peers",
+                  "--zfs-send-to-peer-async", "--mutate-remove-tree"}) {
+                comprobar(!PE::pullerMayCall(v, {"zfsmgr-pull:x", "p/d"}),
+                          std::string("pull credential: never ") + v);
+            }
+            std::string cert;
+            std::string clave;
+            comprobar(PE::parsePullCredential(
+                          "__ZFSMGR_TLS_BEGIN__:/etc/zfsmgr/tls/puller.crt\n-----BEGIN "
+                          "CERTIFICATE-----\nAAA\n-----END CERTIFICATE-----\n"
+                          "__ZFSMGR_TLS_END__:/etc/zfsmgr/tls/puller.crt\n"
+                          "__ZFSMGR_TLS_BEGIN__:/etc/zfsmgr/tls/puller.key\n-----BEGIN "
+                          "PRIVATE KEY-----\nBBB\n-----END PRIVATE KEY-----\n"
+                          "__ZFSMGR_TLS_END__:/etc/zfsmgr/tls/puller.key\n",
+                          cert, clave)
+                          && cert.find("AAA") != std::string::npos
+                          && clave.find("BBB") != std::string::npos,
+                      "pull credential: read from the markers");
+            comprobar(!PE::parsePullCredential("__ZFSMGR_TLS_BEGIN__:/x/puller.crt\nX\n"
+                                               "__ZFSMGR_TLS_END__:/x/puller.crt\n",
+                                               cert, clave),
+                      "pull credential: half of it is none");
+            {
+                // To «mbp»: unib has a pull credential, the client's Local one does not.
+                const std::map<std::string, std::pair<std::string, std::string>> soloUnib = {
+                    {"unib", {"PULLCERT", "PULLKEY"}}};
+                const PE::Handover h =
+                    PE::composeHandover(conLocal, "mbp", "uid-m", "fc16", &soloUnib);
+                std::string json;
+                comprobar(zfsmgr::base::base64Decode(h.payloadB64, json)
+                              && json.find("PULLCERT") != std::string::npos
+                              && json.find("\"role\":\"pull\"") != std::string::npos,
+                          "pull handover: the pull credential and its role");
+                comprobar(json.find("\"client_cert_pem\":\"C\"") == std::string::npos,
+                          "pull handover: never a full credential", json.substr(0, 300));
+                comprobar(h.withoutPullCredential == std::vector<std::string>{"fc16"},
+                          "pull handover: one without a pull credential is left out, and said");
+            }
+
             // Without a name for the client's machine it is left out, not handed over wrong.
             const PE::Handover sinNombre = PE::composeHandover(conLocal, "unib", "uid-u", "");
             igual(PE::labelOf(sinNombre.failure), PE::labelOf(PE::Failure::NoTlsMaterial),
@@ -4003,9 +4053,73 @@ void caso49() {
                 "back/srvs\torg.zfsmgr:schedule-enabled\ton\treceived\n"
                 "back/srvs\torg.zfsmgr:schedule-daily\t7\treceived\n");
             comprobar(r.empty(), "group properties: a received schedule is not one");
-            comprobar(G::scheduleProperties().size() == 9
-                          && G::scheduleProperties().front() == "org.zfsmgr:schedule-enabled",
-                      "schedule properties: the nine, full names");
+            comprobar(G::scheduleProperties().size() == 10
+                          && G::scheduleProperties().front() == "org.zfsmgr:schedule-enabled"
+                          && G::scheduleProperties().back() == "org.zfsmgr:schedule-origin",
+                      "schedule properties: the ten, full names, the origin included");
+
+            // --- Pulling: schedule-origin.
+            const auto existe = [](const std::string& c) { return c == "unib"; };
+            G::Schedule t;
+            t.enabled = true;
+            t.daily = 30;
+            t.origin = "zfsm://unib/ppal/user/srvs";
+            G::Reason m;
+            comprobar(G::isValid("back/srvs", t, existe, m), "pull: a valid origin");
+            G::Reason ida;
+            G::Schedule vuelta;
+            comprobar(G::fromProperties(G::toProperties(t), vuelta, ida)
+                          && vuelta.origin == t.origin && vuelta.daily == 30,
+                      "pull: the origin survives properties and back");
+            G::Schedule mal = t;
+            mal.origin = "unib::ppal/x";
+            comprobar(!G::isValid("back/srvs", mal, existe, m)
+                          && m.failure == G::Failure::MalformedOrigin,
+                      "pull: the origin is a zfsm:// URL");
+            mal = t;
+            mal.origin = "zfsm://nadie/p/d";
+            comprobar(!G::isValid("back/srvs", mal, existe, m)
+                          && m.failure == G::Failure::OriginHasNoConnection,
+                      "pull: the origin's connection must exist");
+            mal = t;
+            mal.level = true;
+            mal.target = "zfsm://unib/p/d";
+            comprobar(
+                !G::isValid("back/srvs", mal, existe, m) && m.failure == G::Failure::OriginWithPush,
+                "pull: a dataset that pulls does not push too");
+            mal = t;
+            mal.recursive = true;
+            comprobar(!G::isValid("back/srvs", mal, existe, m)
+                          && m.failure == G::Failure::OriginRecursive,
+                      "pull: no --recursive, the tree follows the source");
+            mal = t;
+            mal.daily = 0;
+            comprobar(!G::isValid("back/srvs", mal, existe, m)
+                          && m.failure == G::Failure::EnabledWithNoRetention,
+                      "pull: some retention to keep what arrives");
+
+            G::Schedule propia;
+            propia.enabled = true;
+            propia.daily = 7;
+            comprobar(!G::isValidSet({{"back/srvs", t}, {"back/srvs/Correo", propia}}, m)
+                          && m.failure == G::Failure::ClashesWithPull
+                          && m.dataset == "back/srvs/Correo" && m.detail == "back/srvs",
+                      "pull: no schedule of its own inside a dataset that pulls");
+            propia.recursive = true;
+            comprobar(!G::isValidSet({{"back", propia}, {"back/srvs", t}}, m),
+                      "pull: nor a recursive one above it");
+            propia.recursive = false;
+            comprobar(G::isValidSet({{"back", propia}, {"back/srvs", t}}, m),
+                      "pull: a non-recursive one above it is fine");
+            comprobar(G::isValidSet({{"back/a", t}, {"back/b", t}}, m),
+                      "pull: two datasets pulling the same origin");
+
+            igual(G::pullTargetFor("ppal/srvs", "ppal/srvs", "back/srvs"), "back/srvs",
+                  "pull: the origin lands on this dataset");
+            igual(G::pullTargetFor("ppal/srvs", "ppal/srvs/Correo/2024", "back/srvs"),
+                  "back/srvs/Correo/2024", "pull: a descendant, on the same path below");
+            igual(G::pullTargetFor("ppal/srvs", "ppal/srvsx", "back/srvs"), "",
+                  "pull: a sibling with the same prefix is not below it");
         }
 
         {

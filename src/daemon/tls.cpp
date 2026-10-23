@@ -185,6 +185,15 @@ ExecResult runEnsureTlsCapture() {
         r.err = err;
         return r;
     }
+    // The pull credential: what a machine that only PULLS copies from this one is given.
+    const std::string pullerCrt = kDefaultTlsPullerCertPath;
+    const std::string pullerKey = std::string(kDefaultTlsDir) + kPathSep + "puller.key";
+    if (needsRegen(pullerCrt)
+        && !writeSelfSignedPair(pullerCrt, pullerKey, "zfsmgr-agent-puller", false, err)) {
+        r.rc = 1;
+        r.err = err;
+        return r;
+    }
     r.rc = 0;
     r.out = "TLS_DIR=" + std::string(kDefaultTlsDir) + "\n";
     return r;

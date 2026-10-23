@@ -1,4 +1,6 @@
 #include "peers.h"
+
+#include <set>
 #include "i18n.h"
 
 #include "json.h"
@@ -106,8 +108,10 @@ std::string thisMachineName() {
 #endif
 }
 
-Handover composeHandover(const std::vector<ConnectionProfile>& perfiles, const std::string& destino,
-                         const std::string& uidDestino, const std::string& clientHost) {
+Handover composeHandover(
+    const std::vector<ConnectionProfile>& perfiles, const std::string& destino,
+    const std::string& uidDestino, const std::string& clientHost,
+    const std::map<std::string, std::pair<std::string, std::string>>* credencialesTraer) {
     Handover e;
     json::Array pares;
     bool habiaOtras = false;
@@ -132,19 +136,32 @@ Handover composeHandover(const std::vector<ConnectionProfile>& perfiles, const s
         json::Value uno;
         uno.set("id", json::Value(entregado));
         uno.set("host", json::Value(esLocal ? trim(clientHost) : p.host));
-        if (esLocal) {
-            e.localName = id;
-        }
+
         uno.set("port", json::Value(static_cast<double>(p.daemonTlsPort)));
         uno.set("server_cert_pem", json::Value(p.daemonTlsServerCertPem));
-        uno.set("client_cert_pem", json::Value(p.daemonTlsClientCertPem));
-        uno.set("client_key_pem", json::Value(p.daemonTlsClientKeyPem));
+        if (credencialesTraer) {
+            const auto it = credencialesTraer->find(id);
+            if (it == credencialesTraer->end() || it->second.first.empty()
+                || it->second.second.empty()) {
+                e.withoutPullCredential.push_back(entregado);
+                continue;
+            }
+            uno.set("client_cert_pem", json::Value(it->second.first));
+            uno.set("client_key_pem", json::Value(it->second.second));
+            uno.set("role", json::Value("pull"));
+        } else {
+            uno.set("client_cert_pem", json::Value(p.daemonTlsClientCertPem));
+            uno.set("client_key_pem", json::Value(p.daemonTlsClientKeyPem));
+        }
         // El IDENTIFICADOR DE MÁQUINA, junto al nombre. El nombre es una etiqueta de quien
         // mira —`local` es una máquina distinta según quién pregunte, y la misma máquina
         // aparece como «unib» en una lista y «unibody» en otra—; el uid no. Es lo que
         // permite que el daemon conteste «¿este destino soy yo?» sin fiarse de una etiqueta
         // que le dijo un cliente.
         uno.set("uid", json::Value(trim(p.machineUid)));
+        if (esLocal) {
+            e.localName = id;
+        }
         pares.push_back(uno);
         e.names.push_back(entregado);
     }
@@ -173,6 +190,54 @@ Handover composeHandover(const std::vector<ConnectionProfile>& perfiles, const s
 
 std::vector<std::string> bindAddresses() {
     return {"127.0.0.1", "0.0.0.0", "::"};
+}
+
+bool pullerMayCall(const std::string& verb, const std::vector<std::string>& args) {
+    static const std::set<std::string> kLectura = {"--health", "--heartbeat", "--dump-zfs-list-all",
+                                                   "--dump-zfs-holds", "--zfs-send-stream"};
+    if (kLectura.count(verb) > 0) {
+        return true;
+    }
+    // Hold and release: only its own tags. Releasing someone else's hold —another puller's
+    // base, a hold put by hand— would let its prune take what that one needs.
+    if (verb == "--mutate-zfs-hold" || verb == "--mutate-zfs-release") {
+        return args.size() >= 2 && startsWith(trim(args[0]), "zfsmgr-pull:");
+    }
+    return false;
+}
+
+bool parsePullCredential(const std::string& texto, std::string& cert, std::string& clave) {
+    cert.clear();
+    clave.clear();
+    static const std::string kBegin = "__ZFSMGR_TLS_BEGIN__:";
+    static const std::string kEnd = "__ZFSMGR_TLS_END__:";
+    std::string ruta;
+    std::string contenido;
+    for (const std::string& linea : split(texto, "\n", false)) {
+        const std::string l = trim(linea);
+        if (startsWith(l, kBegin)) {
+            ruta = trim(l.substr(kBegin.size()));
+            contenido.clear();
+            continue;
+        }
+        if (startsWith(l, kEnd)) {
+            if (!ruta.empty() && trim(l.substr(kEnd.size())) == ruta) {
+                const std::string pem = trim(contenido) + "\n";
+                if (endsWith(ruta, "/puller.crt")) {
+                    cert = pem;
+                } else if (endsWith(ruta, "/puller.key")) {
+                    clave = pem;
+                }
+            }
+            ruta.clear();
+            continue;
+        }
+        if (!ruta.empty()) {
+            contenido += linea + "\n";
+        }
+    }
+    return cert.find("BEGIN CERTIFICATE") != std::string::npos
+           && clave.find("PRIVATE KEY") != std::string::npos;
 }
 
 }  // namespace zfsmgr::base::peers

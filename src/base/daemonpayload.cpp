@@ -229,38 +229,46 @@ std::string tlsBootstrapShellCommand() {
         "subjectAltName=DNS:zfsmgr-agent-server,DNS:zfsmgr-agent,DNS:localhost,IP:127.0.0.1");
     const std::string keyUse = std::string(
         "keyUsage=critical,digitalSignature,keyEncipherment,keyCertSign");
-    return format(std::string(
-        "mkdir -p %1; "
-        "_zfsmgr_needs_san() { "
-        "  [ -s \"$1\" ] || return 0; "
-        "  openssl x509 -in \"$1\" -noout -ext subjectAltName 2>/dev/null | grep -q 'DNS:' || return 0; "
-        "  return 1; "
-        "}; "
-        "if [ ! -s %2 ] || [ ! -s %3 ] || _zfsmgr_needs_san %2; then "
-        "  if command -v openssl >/dev/null 2>&1; then "
-        "    openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days 3650 "
-        "      -subj '/CN=zfsmgr-agent-server' -addext '%6' -addext '%7' "
-        "      -addext 'extendedKeyUsage=serverAuth' "
-        "      -keyout %3 -out %2 >/dev/null 2>&1 || true; "
-        "  fi; "
-        "fi; "
-        "if [ ! -s %4 ] || [ ! -s %5 ] || _zfsmgr_needs_san %4; then "
-        "  if command -v openssl >/dev/null 2>&1; then "
-        "    openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days 3650 "
-        "      -subj '/CN=zfsmgr-agent-client' -addext '%6' -addext '%7' "
-        "      -addext 'extendedKeyUsage=clientAuth' "
-        "      -keyout %5 -out %4 >/dev/null 2>&1 || true; "
-        "  fi; "
-        "fi; "
-        "touch %2 %3 %4 %5; "
-        "chmod 600 %2 %3 %4 %5"),
-        {tlsDirPath(),
-         tlsServerCertPath(),
-         tlsServerKeyPath(),
-         tlsClientCertPath(),
-         tlsClientKeyPath(),
-         san,
-         keyUse});
+    return format(
+        std::string(
+            "mkdir -p %1; "
+            "_zfsmgr_needs_san() { "
+            "  [ -s \"$1\" ] || return 0; "
+            "  openssl x509 -in \"$1\" -noout -ext subjectAltName 2>/dev/null | grep -q 'DNS:' || "
+            "return 0; "
+            "  return 1; "
+            "}; "
+            "if [ ! -s %2 ] || [ ! -s %3 ] || _zfsmgr_needs_san %2; then "
+            "  if command -v openssl >/dev/null 2>&1; then "
+            "    openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days 3650 "
+            "      -subj '/CN=zfsmgr-agent-server' -addext '%6' -addext '%7' "
+            "      -addext 'extendedKeyUsage=serverAuth' "
+            "      -keyout %3 -out %2 >/dev/null 2>&1 || true; "
+            "  fi; "
+            "fi; "
+            "if [ ! -s %4 ] || [ ! -s %5 ] || _zfsmgr_needs_san %4; then "
+            "  if command -v openssl >/dev/null 2>&1; then "
+            "    openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days 3650 "
+            "      -subj '/CN=zfsmgr-agent-client' -addext '%6' -addext '%7' "
+            "      -addext 'extendedKeyUsage=clientAuth' "
+            "      -keyout %5 -out %4 >/dev/null 2>&1 || true; "
+            "  fi; "
+            "fi; "
+            // The PULL credential (peers::pullerMayCall): a second client certificate, what a
+            // machine that only pulls copies from this one is given.
+            "if [ ! -s %8 ] || [ ! -s %9 ] || _zfsmgr_needs_san %8; then "
+            "  if command -v openssl >/dev/null 2>&1; then "
+            "    openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days 3650 "
+            "      -subj '/CN=zfsmgr-agent-puller' -addext '%6' -addext '%7' "
+            "      -addext 'extendedKeyUsage=clientAuth' "
+            "      -keyout %9 -out %8 >/dev/null 2>&1 || true; "
+            "  fi; "
+            "fi; "
+            "touch %2 %3 %4 %5 %8 %9; "
+            "chmod 600 %2 %3 %4 %5 %8 %9"),
+        {tlsDirPath(), tlsServerCertPath(), tlsServerKeyPath(), tlsClientCertPath(),
+         tlsClientKeyPath(), san, keyUse, tlsDirPath() + "/puller.crt",
+         tlsDirPath() + "/puller.key"});
 }
 
 }  // namespace zfsmgr::base::daemonpayload

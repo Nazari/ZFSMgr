@@ -202,6 +202,13 @@ const std::string kDefaultTlsClientCertPath_s =
 
 const char* const kDefaultTlsClientCertPath = kDefaultTlsClientCertPath_s.c_str();
 
+// The PULL credential (see peers::pullerMayCall): a second client certificate this daemon
+// accepts, for a closed list of verbs.
+const std::string kDefaultTlsPullerCertPath_s =
+    std::string(kDefaultTlsDir) + kPathSep + "puller.crt";
+
+const char* const kDefaultTlsPullerCertPath = kDefaultTlsPullerCertPath_s.c_str();
+
 #ifdef _WIN32
 constexpr const char* kDefaultCommandPath =
     "C:\\Program Files\\OpenZFS On Windows;C:\\Windows\\System32;C:\\Windows";
@@ -313,6 +320,7 @@ struct AgentRuntimeConfig {
     std::string tlsCert{kDefaultTlsCertPath};
     std::string tlsKey{kDefaultTlsKeyPath};
     std::string tlsClientCert{kDefaultTlsClientCertPath};
+    std::string tlsPullerCert{kDefaultTlsPullerCertPath};
     std::string commandPath{kDefaultCommandPath};
     int cacheTtlFastMs{2000};
     int cacheMaxEntries{512};
