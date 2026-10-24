@@ -3349,6 +3349,37 @@ def casos_traer(ctx):
     caso(ctx, "traer: --clear en la copia", [f"cd Local/{dst}", "schedule --clear"], rc=0)
     caso(ctx, "traer: --clear en el origen", [f"cd unib/{src}", "schedule --clear"], rc=0)
 
+    # An ENCRYPTED origin into an empty dataset: ZFS refuses to overwrite an unencrypted
+    # dataset with an encrypted stream, so the first pull moves the empty one aside
+    # (2026-10-24, unib ppal/user/srvs). The copy stays encrypted, without the key.
+    clave = "/tmp/zfsmgr-prueba-traer.key"
+    cif = f"{R}/pcifrado"
+    dst3 = f"{L}/pcifcopia"
+    sh(ctx, f"bash -c 'head -c 32 /dev/urandom > {clave} && chmod 600 {clave}'", True, root=True)
+    sh(ctx, f"zfs create -o encryption=aes-256-gcm -o keyformat=raw "
+            f"-o keylocation=file://{clave} {cif}", True, root=True)
+    sh(ctx, f"zfs create {cif}/hijo", True, root=True)
+    cli(ctx, [f"cd unib/{cif}", "schedule --daily 2 --recursive", "schedule run --wait"])
+    sh(ctx, f"zfs create {dst3}", root=True)
+    caso(ctx, "traer: un origen cifrado llega cifrado a un dataset vacío",
+         [f"cd Local/{dst3}", f"schedule --daily 3 --origin zfsm://unib/{cif}",
+          "schedule run --wait"], rc=0,
+         estado=[("el diario en la copia", snaps(dst3), r"@GSA-daily-"),
+                 ("y en su hijo", snaps(f"{dst3}/hijo"), r"@GSA-daily-"),
+                 ("cifrada y sin la clave",
+                  f"zfs get -H -o value encryption,keystatus {dst3}",
+                  r"aes-256-gcm\s+unavailable"),
+                 ("la programación sigue en la copia",
+                  f"zfs get -H -s local -o value org.zfsmgr:schedule-origin {dst3}",
+                  rf"^zfsm://unib/{cif}$"),
+                 ("no queda el dataset apartado",
+                  f"bash -c 'zfs list -H -o name -r {L} | grep -c zfsmgr-pull-old'", r"^0$")])
+    caso(ctx, "traer: --clear en la copia cifrada", [f"cd Local/{dst3}", "schedule --clear"],
+         rc=0)
+    caso(ctx, "traer: --clear en el origen cifrado", [f"cd unib/{cif}", "schedule --clear"],
+         rc=0)
+    sh(ctx, f"rm -f {clave}", True, root=True)
+
 
 def casos_gsa_remota(ctx):
     """A recursive levelling fc16 -> unib, the path `srvs` takes: the tree arrives, the

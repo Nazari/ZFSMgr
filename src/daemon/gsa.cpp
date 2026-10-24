@@ -2318,7 +2318,7 @@ GsaNivelado gsaTrae(const std::string& ds, const GsaProgramacion& p, bool soloMi
         // snapshots, which this machine keeps with its own retention. New datasets arrive
         // with canmount=noauto: one from another machine may say mountpoint=/usr.
         std::vector<std::string> recv = {"recv", "-u", "-s"};
-        if (incremental || sobrescribe) {
+        if (incremental) {
             recv.push_back("-F");
         }
         if (!incremental) {
@@ -2339,17 +2339,43 @@ GsaNivelado gsaTrae(const std::string& ds, const GsaProgramacion& p, bool soloMi
             recv.insert(recv.end(), {"-x", prop});
         }
         recv.push_back(aqui);
+        // The empty dataset is moved aside instead of overwritten with -F: ZFS refuses
+        // «overwrite an unencrypted one with an encrypted one», so the first pull of an
+        // encrypted origin always failed (unib ppal/user/srvs, 2026-10-24). It is destroyed
+        // once the copy is in, and put back if the receive fails.
+        const std::string apartado = aqui + ".zfsmgr-pull-old";
+        if (sobrescribe) {
+            const ExecResult mv = runExecCapture("zfs", {"rename", aqui, apartado});
+            if (mv.rc != 0) {
+                return falla("gsa_snapshot_failed", {aqui, "rename aside: " + trim(mv.err)});
+            }
+        }
+        const auto devuelve = [&]() {
+            if (sobrescribe) {
+                runExecCapture("zfs", {"recv", "-A", aqui});
+                runExecCapture("zfs", {"destroy", aqui});
+                runExecCapture("zfs", {"rename", apartado, aqui});
+            }
+        };
         log("INFO", "GSA pull start " + origenDs + "@" + nuevo + " -> " + aqui
                         + (incremental ? " from @" + plan.base : std::string(" (full)")));
         const ExecResult r = tiraFlujoDelPar(
             par, {origenDs + "@" + nuevo, incremental ? "@" + plan.base : std::string(), "-wLec"},
             recv, avance);
         if (gsaParado()) {
+            devuelve();
             return falla(g_stop.load() ? "daemon_stopping" : "cancelled", {});
         }
         if (r.rc != 0) {
+            devuelve();
             return falla(r.code.empty() ? "pull_stream_cut" : r.code,
                          r.code.empty() ? std::vector<std::string>{conexion} : r.args);
+        }
+        if (sobrescribe) {
+            const ExecResult rm = runExecCapture("zfs", {"destroy", apartado});
+            if (rm.rc != 0) {
+                log("WARN", "GSA pull: could not destroy " + apartado + ": " + trim(rm.err));
+            }
         }
         log("INFO", "GSA pull done " + origenDs + "@" + nuevo + " -> " + aqui);
         if (!programacion.empty()) {
