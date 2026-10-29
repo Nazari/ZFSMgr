@@ -41,6 +41,9 @@ std::string remoteDaemonTlsCacheKey(const ConnectionProfile& p);
 // Wraps the command for the shell on the other side: PowerShell on Windows, and as-is
 // everywhere else. On Windows it goes encoded as UTF-16LE base64 (`-EncodedCommand`), which
 // is the only thing that survives crossing an `ssh` and a `cmd.exe`.
+// What every PowerShell command on Windows starts with: quiet progress, and the OpenZFS On
+// Windows folders on $env:Path. wrapRemoteCommand puts it in front; the local installer too.
+std::string windowsPowerShellPrologue();
 std::string wrapRemoteCommand(const ConnectionProfile& p, const std::string& remoteCmd);
 
 // --- Whether a command changes the state of the other side.

@@ -2794,7 +2794,7 @@ def casos_version_openzfs(ctx):
     # El de SOLO CLI: el completo trae además las interfaces, que aquí no se prueban.
     zips = sorted(f for f in os.listdir(paquete)
                   if f.startswith("zfsmgr-cli-") and f.endswith(".zip")) if os.path.isdir(paquete) else []
-    nombre3 = "instalar-linux.sh: el cliente SÍ se instala en una máquina sin OpenZFS"
+    nombre3 = "install-linux.sh: el cliente SÍ se instala en una máquina sin OpenZFS"
     if not zips:
         print(f"  (saltado: {nombre3} — no hay zfsmgr-cli-*.zip en dist/; "
               f"ejecute scripts/empaqueta.sh --solo-cli)")
@@ -2806,7 +2806,7 @@ def casos_version_openzfs(ctx):
         rc, vista = sh(ctx,
             f"ssh -o BatchMode=yes {remoto_q} 'cd /tmp && rm -rf zpprueba && mkdir zpprueba "
             f"&& cd zpprueba && (unzip -q ../{base}.zip 2>/dev/null || 7z x -y ../{base}.zip "
-            f">/dev/null) && cd {base} && sh instalar-linux.sh --prefijo \"$HOME/zpprueba\" "
+            f">/dev/null) && cd {base} && sh install-linux.sh --prefijo \"$HOME/zpprueba\" "
             f"--sin-daemon 2>&1; "
             f"echo RC=$?; $HOME/zpprueba/bin/zfsmgr-cli version 2>&1'")
         problemas = []
@@ -2825,7 +2825,7 @@ def casos_version_openzfs(ctx):
             ctx.pasados.append(nombre3)
             print(f"  ok     {nombre3}")
         sh(ctx, f"ssh -o BatchMode=yes {remoto_q} 'cd /tmp/zpprueba/{base} 2>/dev/null && "
-                f"sh instalar-linux.sh --prefijo \"$HOME/zpprueba\" --desinstalar --sin-daemon "
+                f"sh install-linux.sh --prefijo \"$HOME/zpprueba\" --desinstalar --sin-daemon "
                 f">/dev/null 2>&1; "
                 f"rm -rf /tmp/zpprueba /tmp/{base}.zip \"$HOME/zpprueba\"'")
 

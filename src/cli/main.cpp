@@ -407,12 +407,12 @@ int main(int argc, char** argv) {
                 return 2;
             }
         }
-#ifdef _WIN32
-        std::fputs(TC("t_idl_windows",
-                      "en Windows el daemon no se instala así: se instala con «install-daemon» "
-                      "desde otra máquina\n"),
-                   stderr);
-        return 1;
+#if defined(_WIN32)
+        // Windows: the same task, firewall rule and TLS that `install-daemon` sets up over SSH.
+        // No administrator check here: install-windows.ps1 elevates before calling this, and
+        // without it schtasks /RU SYSTEM refuses and the error is shown.
+        const std::string plataforma = "windows";
+        const std::string arquitectura = "x86_64";
 #else
 #if defined(__APPLE__)
         const std::string plataforma = "macos";
@@ -428,6 +428,7 @@ int main(int argc, char** argv) {
                          op.orden[0].c_str());
             return 1;
         }
+#endif
         namespace DI = zfsmgr::base::daemoninstall;
         if (quitar) {
             const DI::Result q = DI::uninstallLocal(plataforma, simular, [](const std::string& l) {
@@ -511,7 +512,6 @@ int main(int argc, char** argv) {
                        stdout);
         }
         return 0;
-#endif
     }
 
     if (op.orden.size() >= 3 && op.orden[0] == "url" && op.orden[1] == "parse") {

@@ -86,8 +86,8 @@ std::string installScript(const std::string& platform, const std::string& versio
 //
 // Ejecuta el MISMO `installScript` que las instalaciones remotas, con el binario por la
 // entrada estándar. Comprueba antes OpenZFS con la misma sonda. Con `simular`, no ejecuta
-// nada: pasa el guion entero por `traza`. En Windows no hace nada y lo dice: allí el agente
-// llega por `install-daemon` desde otra máquina.
+// nada: pasa el guion entero por `traza`. On Windows it runs the PowerShell script that
+// `install` runs there (scheduled task, firewall rule, --ensure-tls).
 Result installLocal(const std::string& platform, const std::string& binaryPath, bool simulate,
                     const std::function<void(const std::string&)>& trace);
 

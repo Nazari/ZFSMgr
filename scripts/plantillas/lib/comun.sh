@@ -1,7 +1,7 @@
 # Lógica común de los instaladores de Unix: Linux, macOS y FreeBSD.
 #
 # POSIX sh, sin bash: FreeBSD no lo trae de serie, y un instalador que necesita instalar algo
-# antes de instalar no es un instalador. Se carga con `.` desde cada instalar-<sistema>.sh.
+# antes de instalar no es un instalador. Se carga con `.` desde cada install-<sistema>.sh.
 #
 # Lo que hay aquí es lo que NO cambia entre sistemas: las opciones, las sumas, la versión de
 # OpenZFS, la elevación, el CLI suelto y el daemon. Lo que cambia —dónde va la GUI y cómo se
@@ -66,9 +66,9 @@ zm_exige_sistema() {
   real="$(uname -s)"
   [ "${real}" = "${esperado}" ] && return 0
   case "${real}" in
-    Linux) bueno=instalar-linux.sh ;;
-    Darwin) bueno=instalar-macos.sh ;;
-    FreeBSD) bueno=instalar-freebsd.sh ;;
+    Linux) bueno=install-linux.sh ;;
+    Darwin) bueno=install-macos.sh ;;
+    FreeBSD) bueno=install-freebsd.sh ;;
     *) bueno="" ;;
   esac
   if [ -n "${bueno}" ]; then

@@ -789,7 +789,6 @@
     "t_idl_trabajos": "el daemon de esta máquina tiene %zu trabajos en curso, y reinstalarlo los cortaría a medias:\n",
     "t_idl_trabajos_2": "Espere a que terminen, o repita con --force para cortarlos.\n",
     "t_idl_uso3": "uso: %s %s [--simular] [--comprobar] [--force]\n",
-    "t_idl_windows": "en Windows el daemon no se instala así: se instala con «install-daemon» desde otra máquina\n",
     "t_importa_un_2c9f21": "Importa un pool. Sin nombre, enseña los que hay disponibles.",
     "t_importado": "importado %s\n",
     "t_info_no_existe": "%s no es un pool importado ni importable\n",

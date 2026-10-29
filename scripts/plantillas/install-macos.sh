@@ -9,7 +9,7 @@
 # versión: si la llevara, cada actualización rompería el enlace.
 set -eu
 ZM_AQUI="$(cd "$(dirname "$0")" && pwd)"
-ZM_GUION="instalar-macos.sh"
+ZM_GUION="install-macos.sh"
 . "${ZM_AQUI}/lib/comun.sh"
 
 zm_opciones "$@"

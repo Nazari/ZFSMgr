@@ -758,7 +758,6 @@
     "t_idl_trabajos": "this machine's daemon has %zu jobs in progress, and reinstalling it would cut them off half-way:\n",
     "t_idl_trabajos_2": "Wait for them to finish, or repeat with --force to cut them off.\n",
     "t_idl_uso3": "usage: %s %s [--simular] [--comprobar] [--force]\n",
-    "t_idl_windows": "on Windows the daemon is not installed this way: install it with «install-daemon» from another machine\n",
     "t_importa_un_2c9f21": "Import a pool. With no name, shows the ones available.",
     "t_info_no_existe": "%s is neither an imported nor an importable pool\n",
     "t_info_res2": "The detail of whatever is named: a connection (with its daemon), a pool —also one not imported, with its devices—, a dataset or a snapshot.",

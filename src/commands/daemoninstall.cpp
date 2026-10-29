@@ -78,6 +78,37 @@ helpers::OpenZfsLectura readOpenZfsProbe(const std::string& salida) {
     return helpers::leeSoporteOpenZfs(salida);
 }
 
+std::string windowsOpenZfsProbeCommand() {
+    return "$z = Get-Command zfs -ErrorAction SilentlyContinue; "
+           "if ($z) { & $z.Source version 2>&1 | Out-String } "
+           "else { '__ZFSMGR_SIN_ZFS__' }";
+}
+
+// A PowerShell script on THIS Windows machine, with the transport's prologue. From a .ps1 file
+// and not through `cmd /C`: the install script is long enough for the local path of
+// wrapRemoteCommand to inline it, and cmd.exe would then take its `>nul` as its own.
+ExecResult runLocalPowerShell(const std::string& script) {
+    std::error_code ec;
+    const std::filesystem::path ruta =
+        std::filesystem::temp_directory_path(ec) / "zfsmgr-install-daemon.ps1";
+    {
+        std::ofstream f(ruta, std::ios::binary | std::ios::trunc);
+        // UTF-8 BOM: without it Windows PowerShell 5.1 reads the file as ANSI.
+        f << "\xEF\xBB\xBF" << T::windowsPowerShellPrologue() << "\r\n" << script << "\r\n";
+        if (!f) {
+            ExecResult r;
+            r.rc = 1;
+            r.err = "cannot write " + ruta.string();
+            return r;
+        }
+    }
+    ExecResult r = runExecCapture(
+        "powershell.exe",
+        {"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", ruta.string()});
+    std::filesystem::remove(ruta, ec);
+    return r;
+}
+
 helpers::OpenZfsLectura remoteOpenZfs(TransportSession& ses, const ConnectionProfile& p,
                                       bool verboso) {
     // `zfs version` y no `zfs --version`: la primera es la que existe en todas las ramas, y
@@ -99,12 +130,7 @@ helpers::OpenZfsLectura remoteOpenZfs(TransportSession& ses, const ConnectionPro
     // written yet»—, and a1278, reinstalled with Windows and no OpenZFS, got an agent that
     // answered without a single pool to see (2026-10-20). `zfs version` there says
     // «zfswin-2.4.1rc14», which leeSoporteOpenZfs reads as 2.4.
-    const std::string sonda = T::isWindowsConnection(p)
-                                  ? std::string(
-                                        "$z = Get-Command zfs -ErrorAction SilentlyContinue; "
-                                        "if ($z) { & $z.Source version 2>&1 | Out-String } "
-                                        "else { '__ZFSMGR_SIN_ZFS__' }")
-                                  : orden;
+    const std::string sonda = T::isWindowsConnection(p) ? windowsOpenZfsProbeCommand() : orden;
     const bool llego =
         T::runSsh(ses, p, sonda, 20000, out, err, rc, {}, {}, {}, {}, false, verboso);
     // ssh's own failure (rc 255) or no answer at all is «could not ask», not «there is no
@@ -562,8 +588,18 @@ Result uninstallLocal(const std::string& plataforma, bool simular,
     Result r;
     r.isMac = (plataforma == "macos");
     if (plataforma == "windows") {
-        r.fallo = Failure::InstallFailed;
-        r.detail = "windows";
+        if (simular) {
+            if (traza) {
+                traza(DP::windowsUninstallCommand());
+            }
+            return r;
+        }
+        const ExecResult ej = runLocalPowerShell(DP::windowsUninstallCommand());
+        if (ej.rc != 0 || ej.out.find("ZFSMGR_WIN_AGENT_OK") == std::string::npos) {
+            r.fallo = Failure::InstallFailed;
+            r.rc = ej.rc;
+            r.detail = trim(ej.err.empty() ? ej.out : ej.err);
+        }
         return r;
     }
     const std::string guion = uninstallScript(plataforma);
@@ -586,13 +622,7 @@ Result installLocal(const std::string& plataforma, const std::string& rutaBinari
                     bool simular, const std::function<void(const std::string&)>& traza) {
     Result r;
     r.isMac = (plataforma == "macos");
-    if (plataforma == "windows") {
-        // En Windows no hay guion de servicio que ejecutar aquí: el agente llega hoy por
-        // `install-daemon` desde otra máquina. No se finge que se puede.
-        r.fallo = Failure::InstallFailed;
-        r.detail = "windows";
-        return r;
-    }
+    const bool windows = (plataforma == "windows");
     const std::string contenido = leeFicheroEntero(rutaBinario);
     if (contenido.empty()) {
         r.fallo = Failure::UnreadableBinary;
@@ -601,7 +631,8 @@ Result installLocal(const std::string& plataforma, const std::string& rutaBinari
     }
     // La MISMA sonda que se manda por SSH, ejecutada aquí. Antes de tocar nada.
     {
-        const ExecResult sonda = runExecCapture("sh", {"-c", openZfsProbeCommand()});
+        const ExecResult sonda = windows ? runLocalPowerShell(windowsOpenZfsProbeCommand())
+                                         : runExecCapture("sh", {"-c", openZfsProbeCommand()});
         const helpers::OpenZfsLectura zfs = readOpenZfsProbe(sonda.out + "\n" + sonda.err);
         if (zfs.soporte != helpers::OpenZfsSoporte::Ok) {
             r.fallo = Failure::UnsupportedOpenZfs;
@@ -618,6 +649,37 @@ Result installLocal(const std::string& plataforma, const std::string& rutaBinari
         r.version = agentversion::expected();
     } else {
         r.versionBehind = (r.version != agentversion::expected());
+    }
+    if (windows) {
+        // The same script `install` runs on a Windows machine, after putting the binary where
+        // it expects it (the running agent may hold the final path).
+        if (simular) {
+            if (traza) {
+                traza(DP::windowsNativeInstallCommand());
+            }
+            return r;
+        }
+        std::error_code ec;
+        std::filesystem::remove(DP::windowsUploadPath(), ec);
+        std::filesystem::copy_file(rutaBinario, DP::windowsUploadPath(), ec);
+        if (ec) {
+            r.fallo = Failure::UploadFailed;
+            r.detail = DP::windowsUploadPath() + ": " + ec.message();
+            return r;
+        }
+        const ExecResult ej = runLocalPowerShell(DP::windowsNativeInstallCommand());
+        if (ej.rc != 0 || ej.out.find("ZFSMGR_WIN_AGENT_OK") == std::string::npos) {
+            r.fallo = Failure::InstallFailed;
+            r.rc = ej.rc;
+            r.detail = trim(ej.err.empty() ? ej.out : ej.err);
+            return r;
+        }
+        if (traza && ej.out.find("ZFSMGR_WIN_AGENT_POWER_WARN") != std::string::npos) {
+            traza(i18n::tr("t_win_agente_bateria",
+                           "aviso: no se pudo quitar a la tarea del daemon la parada al pasar "
+                           "a batería; en un portátil, Windows lo detendrá al desenchufarlo"));
+        }
+        return r;
     }
     // EL MISMO guion que reciben las instalaciones remotas: una sola fuente de verdad para
     // dónde va el binario, qué gestor de servicios se usa y qué se comprueba después.

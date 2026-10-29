@@ -7,7 +7,7 @@
 # AppDir no necesita ninguna de las dos cosas.
 set -eu
 ZM_AQUI="$(cd "$(dirname "$0")" && pwd)"
-ZM_GUION="instalar-linux.sh"
+ZM_GUION="install-linux.sh"
 . "${ZM_AQUI}/lib/comun.sh"
 
 zm_opciones "$@"

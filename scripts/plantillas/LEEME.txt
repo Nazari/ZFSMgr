@@ -3,10 +3,10 @@ ZFSMgr @VERSION@  (@PAQUETE@)
 
 Ejecute el guion de SU sistema desde este directorio:
 
-  Linux (x86_64)                 sh instalar-linux.sh
-  macOS (Apple Silicon e Intel)  sh instalar-macos.sh
-  Windows (x64)                  instalar-windows.cmd   (doble clic, o desde una consola)
-  FreeBSD (amd64)                sh instalar-freebsd.sh      EXPERIMENTAL: probado solo en 15.1
+  Linux (x86_64)                 sh install-linux.sh
+  macOS (Apple Silicon e Intel)  sh install-macos.sh
+  Windows (x64)                  install-windows.cmd   (doble clic, o desde una consola)
+  FreeBSD (amd64)                sh install-freebsd.sh      EXPERIMENTAL: probado solo en 15.1
 
 Cada guion detecta la arquitectura, comprueba la integridad del paquete antes de copiar
 nada y, al terminar, comprueba que lo instalado arranca. Todos admiten:
@@ -18,13 +18,12 @@ nada y, al terminar, comprueba que lo instalado arranca. Todos admiten:
 
 OpenZFS: si la máquina lo tiene, debe ser @ZFSMIN@ o posterior. Si no lo tiene, ZFSMgr se
 instala igual, como cliente para manejar otras máquinas. Con un OpenZFS válido, los
-guiones de Unix ofrecen instalar también el daemon local (--con-daemon / --sin-daemon).
+guiones ofrecen instalar también el daemon local (--con-daemon / --sin-daemon;
+Windows: -ConDaemon / -SinDaemon).
 
 Linux: la interfaz se ha construido sobre glibc 2.43 y necesita esa versión o posterior.
 macOS: si instala el daemon, conceda «Acceso total al disco» a
        /usr/local/libexec/zfsmgr-agent (Configuración del Sistema → Privacidad y Seguridad).
-Windows: el daemon no se instala desde aquí; se instala con «install-daemon» desde otra
-       máquina, por SSH.
 
 La configuración del usuario (~/.config/ZFSMgr, %APPDATA%\ZFSMgr) nunca se toca.
 
@@ -37,24 +36,22 @@ ZFSMgr @VERSION@  (@PAQUETE@) — English
 
 Run the script for YOUR system from this directory:
 
-  Linux (x86_64)                 sh instalar-linux.sh
-  macOS (Apple Silicon & Intel)  sh instalar-macos.sh
-  Windows (x64)                  instalar-windows.cmd   (double-click, or from a console)
-  FreeBSD (amd64)                sh instalar-freebsd.sh      EXPERIMENTAL: tested on 15.1 only
+  Linux (x86_64)                 sh install-linux.sh
+  macOS (Apple Silicon & Intel)  sh install-macos.sh
+  Windows (x64)                  install-windows.cmd   (double-click, or from a console)
+  FreeBSD (amd64)                sh install-freebsd.sh      EXPERIMENTAL: tested on 15.1 only
 
 Each script detects the architecture, checks the package's integrity before copying
 anything and, at the end, checks that what it installed actually starts. All accept
 --simular (dry run), --desinstalar (uninstall), --solo-cli (no GUI) and --help.
 
 OpenZFS: if present, it must be @ZFSMIN@ or later. Without it ZFSMgr still installs, as a
-client for managing other machines. With a valid OpenZFS, the Unix scripts offer to
-install the local daemon too (--con-daemon / --sin-daemon).
+client for managing other machines. With a valid OpenZFS, the scripts offer to install
+the local daemon too (--con-daemon / --sin-daemon; Windows: -ConDaemon / -SinDaemon).
 
 Linux: the GUI is built on glibc 2.43 and needs that version or later.
 macOS: if you install the daemon, grant «Full Disk Access» to
        /usr/local/libexec/zfsmgr-agent (System Settings → Privacy & Security).
-Windows: the daemon is not installed from here; use «install-daemon» from another
-       machine, over SSH.
 
 Your configuration (~/.config/ZFSMgr, %APPDATA%\ZFSMgr) is never touched.
 

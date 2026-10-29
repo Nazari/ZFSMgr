@@ -279,7 +279,7 @@ arma() {
   done
   cp -f "${RAIZ}"/i18n/*.json "${arbol}/i18n/"
 
-  for g in instalar-linux.sh instalar-macos.sh instalar-freebsd.sh; do
+  for g in install-linux.sh install-macos.sh install-freebsd.sh; do
     plantilla "${PLANTILLAS}/${g}" "${arbol}/${g}" "${paquete}"
     chmod 0755 "${arbol}/${g}"
   done
@@ -287,10 +287,10 @@ arma() {
   plantilla "${PLANTILLAS}/LEEME.txt" "${arbol}/LEEME.txt" "${paquete}"
   # Windows. El .ps1 con BOM: sin él, Windows PowerShell 5.1 lo lee como ANSI y destroza
   # los acentos y las comillas «». El .cmd con CRLF, que es lo que cmd.exe espera.
-  plantilla "${PLANTILLAS}/instalar-windows.ps1" "${TRABAJO}/ps1.tmp" "${paquete}"
-  { printf '\xEF\xBB\xBF'; sed 's/$/\r/' "${TRABAJO}/ps1.tmp"; } > "${arbol}/instalar-windows.ps1"
-  plantilla "${PLANTILLAS}/instalar-windows.cmd" "${TRABAJO}/cmd.tmp" "${paquete}"
-  sed 's/$/\r/' "${TRABAJO}/cmd.tmp" > "${arbol}/instalar-windows.cmd"
+  plantilla "${PLANTILLAS}/install-windows.ps1" "${TRABAJO}/ps1.tmp" "${paquete}"
+  { printf '\xEF\xBB\xBF'; sed 's/$/\r/' "${TRABAJO}/ps1.tmp"; } > "${arbol}/install-windows.ps1"
+  plantilla "${PLANTILLAS}/install-windows.cmd" "${TRABAJO}/cmd.tmp" "${paquete}"
+  sed 's/$/\r/' "${TRABAJO}/cmd.tmp" > "${arbol}/install-windows.cmd"
 
   if [[ "${con_gui}" -eq 1 ]]; then
     # En .tar.gz DENTRO del zip: el .app (frameworks de Qt, `Versions/Current`) y el AppDir

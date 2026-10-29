@@ -418,6 +418,21 @@ LocalAgentConfig loadLocalAgentConfig(const std::string& path) {
     return parseLocalAgentConfig(ss.str());
 }
 
+std::string windowsPowerShellPrologue() {
+    return "$ProgressPreference='SilentlyContinue'; "
+           "$InformationPreference='SilentlyContinue'; "
+           "$WarningPreference='Continue'; "
+           "$zfsPaths=@("
+           "'C:\\\\Program Files\\\\OpenZFS On Windows\\\\bin',"
+           "'C:\\\\Program Files\\\\OpenZFS On Windows'"
+           "); "
+           "foreach($p in $zfsPaths){ "
+           "  if(Test-Path -LiteralPath $p){ "
+           "    if(-not (($env:Path -split ';') -contains $p)){ $env:Path = $p + ';' + $env:Path } "
+           "  } "
+           "}; ";
+}
+
 std::string wrapRemoteCommand(const ConnectionProfile& p, const std::string& remoteCmd) {
     if (!isWindowsConnection(p)) {
         return remoteCmd;
@@ -430,19 +445,7 @@ std::string wrapRemoteCommand(const ConnectionProfile& p, const std::string& rem
     // OpenZFS en $env:Path, que es lo único que ese prefijo aportaba.
     quitaPrologoPathUnix(trimmed);
 
-    std::string script =
-        "$ProgressPreference='SilentlyContinue'; "
-        "$InformationPreference='SilentlyContinue'; "
-        "$WarningPreference='Continue'; "
-        "$zfsPaths=@("
-        "'C:\\\\Program Files\\\\OpenZFS On Windows\\\\bin',"
-        "'C:\\\\Program Files\\\\OpenZFS On Windows'"
-        "); "
-        "foreach($p in $zfsPaths){ "
-        "  if(Test-Path -LiteralPath $p){ "
-        "    if(-not (($env:Path -split ';') -contains $p)){ $env:Path = $p + ';' + $env:Path } "
-        "  } "
-        "}; ";
+    std::string script = windowsPowerShellPrologue();
     script += trimmed;
 
     const std::string b64 = base64Encode(aUtf16Le(script));

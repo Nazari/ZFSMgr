@@ -43,10 +43,10 @@ The package carries the CLI and the daemon for every platform, and one installer
 
 | System | Installer | Notes |
 |---|---|---|
-| Linux | `sudo sh instalar-linux.sh [--con-daemon]` | x86_64 |
-| macOS | `sudo sh instalar-macos.sh [--con-daemon]` | Apple Silicon and Intel |
-| FreeBSD | `sudo sh instalar-freebsd.sh [--con-daemon]` | experimental |
-| Windows | `instalar-windows.cmd` | CLI only; the daemon is installed from another machine |
+| Linux | `sudo sh install-linux.sh [--con-daemon]` | x86_64 |
+| macOS | `sudo sh install-macos.sh [--con-daemon]` | Apple Silicon and Intel |
+| FreeBSD | `sudo sh install-freebsd.sh [--con-daemon]` | experimental |
+| Windows | `install-windows.cmd [-ConDaemon]` | x64 |
 
 Each installer checks the package before touching anything, needs **OpenZFS 2.3 or later**
 when the machine has OpenZFS, and with `--con-daemon` also installs the daemon of that machine.

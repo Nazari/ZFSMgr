@@ -5,10 +5,14 @@
 # de solo CLI, o -SoloCli— copia el CLI a las MISMAS rutas que usaría el Setup, para que una
 # instalación posterior con interfaz la encuentre y la reemplace.
 #
-# El daemon local no se ofrece: en Windows no hay instalación local de servicio, y el agente
-# se instala con «install-daemon» desde otra máquina, por SSH.
+# The local daemon: with a valid OpenZFS it is offered as on Unix, and the installed CLI sets
+# it up with `install-daemon-local`, the same scheduled task, firewall rule and TLS that
+# `install-daemon` sets up over SSH.
 param(
     [switch]$SoloCli,
+    [switch]$ConDaemon,
+    [switch]$SinDaemon,
+    [switch]$Forzar,
     [switch]$Silencioso,
     [switch]$Simular,
     [switch]$Desinstalar,
@@ -20,18 +24,30 @@ $Aqui = Split-Path -Parent $MyInvocation.MyCommand.Path
 $App = Join-Path $env:ProgramFiles 'ZFSMgr'
 $Bin = Join-Path $App 'bin'
 $Cli = Join-Path $Bin 'zfsmgr-cli.exe'
+# Where install-daemon-local puts the agent (daemonpayload.cpp, windowsBinPath).
+$Agente = 'C:\ProgramData\ZFSMgr\agent\zfsmgr-agent.exe'
 
 function Log([string]$m) { Write-Host "[zfsmgr] $m" }
 function Muere([string]$m) { Write-Host "[zfsmgr] $m" -ForegroundColor Red; exit 1 }
 function Corre([scriptblock]$b, [string]$que) {
     if ($Simular) { Write-Host "  [simulado] $que" } else { & $b }
 }
+# A question only when someone can answer it: never with -Silencioso or redirected input.
+function Pregunta([string]$texto, [bool]$porDefecto) {
+    if ($Silencioso -or [Console]::IsInputRedirected) { return $null }
+    $r = Read-Host "[zfsmgr] $texto"
+    if (-not $r) { return $porDefecto }
+    return ($r -match '^[sSyY]')
+}
 
 if ($Ayuda) {
     @"
-Uso: instalar-windows.cmd [-SoloCli] [-Silencioso] [-Simular] [-Desinstalar]
+Uso: install-windows.cmd [-SoloCli] [-ConDaemon] [-SinDaemon] [-Forzar] [-Silencioso] [-Simular] [-Desinstalar]
 
   -SoloCli      Solo la linea de ordenes, aunque el paquete traiga la interfaz
+  -ConDaemon    Instala o actualiza el daemon local sin preguntar
+  -SinDaemon    No toca el daemon local
+  -Forzar       Actualiza el daemon aunque tenga trabajos en curso (se cortan)
   -Silencioso   Sin ventanas del instalador (anade zfsmgr-cli al PATH)
   -Simular      Dice lo que haria, sin tocar nada
   -Desinstalar  Quita ZFSMgr. La configuracion de %APPDATA%\ZFSMgr no se toca
@@ -63,6 +79,14 @@ function Quita-DelPath([string]$dir) {
 
 if ($Desinstalar) {
     Log 'desinstalando'
+    # The daemon FIRST: the CLI removes it, and the CLI goes next.
+    if ((Test-Path $Agente) -and -not $SinDaemon -and (Test-Path $Cli)) {
+        $quita = if ($ConDaemon) { $true } else { Pregunta 'Quitar tambien el daemon de esta maquina? [s/N]' $false }
+        if ($null -eq $quita) { Log 'el daemon local se deja (sin consola para preguntar; -ConDaemon lo quita)' }
+        elseif ($quita) {
+            Corre { & $Cli uninstall-daemon-local; if ($LASTEXITCODE -ne 0) { Log 'aviso: el daemon no se pudo quitar del todo' } } "$Cli uninstall-daemon-local"
+        }
+    }
     # Si lo instalo el Setup, su desinstalador sabe todo lo que puso, accesos directos
     # incluidos. Si fue el CLI suelto, se quita a mano.
     $unins = Get-ChildItem -Path $App -Filter 'unins*.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -93,6 +117,18 @@ Log 'sumas comprobadas'
 # La marca de «descargado de Internet». Se hereda del ZIP a todo lo que sale de el, y con
 # ella SmartScreen para el Setup y PowerShell se niega a cargar lo que no esta firmado.
 if (-not $Simular) { Get-ChildItem -Recurse $Aqui | Unblock-File -ErrorAction SilentlyContinue }
+
+# Jobs in progress: reinstalling restarts the daemon and would cut them. Asked BEFORE copying
+# anything, with the new CLI from the package, so nothing is left half updated.
+$cliNuevo = Join-Path $Aqui 'cli\zfsmgr-cli-windows-x86_64.exe'
+if ((Test-Path $Agente) -and -not $SinDaemon -and -not $Simular -and -not $Forzar) {
+    & $cliNuevo install-daemon-local --comprobar
+    if ($LASTEXITCODE -eq 3) {
+        if ($ConDaemon) { Muere 'no se ha instalado nada. Espere a que terminen o repita con -Forzar.' }
+        Log 'el daemon NO se actualiza mientras tenga trabajos en curso (-Forzar lo haria).'
+        $SinDaemon = $true
+    }
+}
 
 $setup = Join-Path $Aqui "gui\windows-x86_64\ZFSMgr-Setup-$Version.exe"
 $conGui = (-not $SoloCli) -and (Test-Path $setup)
@@ -133,7 +169,10 @@ if ($conGui) {
     }
 }
 
-if ($Simular) { Log 'simulacro terminado; no se ha tocado nada'; exit 0 }
+if ($Simular) {
+    if (-not $SinDaemon) { Write-Host "  [simulado] $Cli install-daemon-local (si hay OpenZFS)" }
+    Log 'simulacro terminado; no se ha tocado nada'; exit 0
+}
 
 # Y se COMPRUEBA que arranca: lo unico que demuestra que la instalacion sirve.
 if (Test-Path $Cli) {
@@ -144,7 +183,31 @@ if (Test-Path $Cli) {
 } elseif ($conGui) {
     Log 'el CLI no se instalo: en el Setup no se marco la tarea de linea de ordenes.'
 }
-# Comillas rectas: las «» dependen de la página de códigos de la consola y por SSH
-# salían como «�».
-Log 'el daemon de esta maquina se instala desde otra, con "install-daemon" (necesita OpenSSH).'
+# The local daemon, with OpenZFS only: an agent without it answers and sees no pool.
+$zfs = Get-Command zfs -ErrorAction SilentlyContinue
+if (-not $zfs) {
+    foreach ($d in @("$env:ProgramFiles\OpenZFS On Windows\bin", "$env:ProgramFiles\OpenZFS On Windows")) {
+        if (Test-Path (Join-Path $d 'zfs.exe')) { $zfs = Join-Path $d 'zfs.exe'; break }
+    }
+}
+if ($SinDaemon) {
+    # nothing: asked not to touch it, or it has jobs in progress
+} elseif (-not $zfs) {
+    if ($ConDaemon) { Log 'aviso: -ConDaemon, pero sin OpenZFS el daemon no se instala.' }
+} elseif (-not (Test-Path $Cli)) {
+    Log 'el daemon no se instala: no hay CLI instalado que lo haga.'
+} else {
+    $instala = if ($ConDaemon) { $true }
+               elseif (Test-Path $Agente) { Pregunta 'Hay un daemon instalado en esta maquina. Actualizarlo a esta version? [S/n]' $true }
+               else { Pregunta 'Esta maquina tiene OpenZFS. Instalar el daemon, para manejarla desde otras? [s/N]' $false }
+    if ($null -eq $instala) {
+        Log 'para instalar o actualizar el daemon local: -ConDaemon'
+    } elseif ($instala) {
+        Log 'instalando el daemon local...'
+        $argsD = @('install-daemon-local')
+        if ($Forzar) { $argsD += '--force' }
+        & $Cli @argsD
+        if ($LASTEXITCODE -ne 0) { Muere 'el daemon NO se instalo (ver arriba)' }
+    }
+}
 exit 0

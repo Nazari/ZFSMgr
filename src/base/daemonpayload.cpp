@@ -115,6 +115,30 @@ std::string windowsNativeInstallCommand() {
         {windowsDirPath(), windowsBinPath(), windowsTaskName(), windowsUploadPath()});
 }
 
+// The reverse of windowsNativeInstallCommand, with its same paths: stops and deletes the task,
+// the firewall rule, the binary, its configuration and its TLS. The rest of the folder
+// (peers, schedule state, logs) stays, as /etc/zfsmgr keeps what is not ours on Unix.
+std::string windowsUninstallCommand() {
+    return format(
+        std::string(
+            "$dir='%1'; $bin='%2'; $task='%3'; "
+            "cmd /c \"schtasks /End /TN $task >nul 2>&1\" | Out-Null; "
+            "cmd /c \"schtasks /Delete /F /TN $task >nul 2>&1\" | Out-Null; "
+            "Get-Process zfsmgr-agent,zfsmgr_agent -ErrorAction SilentlyContinue | Stop-Process "
+            "-Force; "
+            "Start-Sleep -Milliseconds 500; "
+            "Remove-NetFirewallRule -Name 'ZFSMgr-Agent' -ErrorAction SilentlyContinue; "
+            "Remove-Item -Force -LiteralPath $bin -ErrorAction SilentlyContinue; "
+            "Remove-Item -Force -LiteralPath (Join-Path $dir 'agent.conf') -ErrorAction "
+            "SilentlyContinue; "
+            "Remove-Item -Recurse -Force -LiteralPath (Join-Path $dir 'tls') -ErrorAction "
+            "SilentlyContinue; "
+            "if (Test-Path -LiteralPath $bin) { Write-Output 'ZFSMGR_WIN_AGENT_REMOVE_FAIL'; "
+            "exit 1 } "
+            "Write-Output 'ZFSMGR_WIN_AGENT_OK'; exit 0"),
+        {windowsDirPath(), windowsBinPath(), windowsTaskName()});
+}
+
 std::string macLaunchdPlist() {
     return std::string(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"

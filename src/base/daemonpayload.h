@@ -26,6 +26,7 @@ std::string tlsClientKeyPath();
 std::string windowsBinPath();
 std::string windowsUploadPath();
 std::string windowsNativeInstallCommand();
+std::string windowsUninstallCommand();
 std::string macLaunchdPlist();
 std::string freeBsdRcScript();
 std::string linuxSystemdService();

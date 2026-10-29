@@ -6,7 +6,7 @@
 # confirmación. La interfaz gráfica de FreeBSD no se ha compilado nunca y no va en el paquete.
 set -eu
 ZM_AQUI="$(cd "$(dirname "$0")" && pwd)"
-ZM_GUION="instalar-freebsd.sh"
+ZM_GUION="install-freebsd.sh"
 ZM_USO_EXTRA="  --acepto-experimental Instala sin preguntar, sabiendo que es experimental"
 . "${ZM_AQUI}/lib/comun.sh"
 
