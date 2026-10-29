@@ -1,89 +1,90 @@
 #!/bin/sh
-# Instala ZFSMgr @VERSION@ en Linux x86_64: el CLI y, si el paquete la trae, la interfaz.
+# Installs ZFSMgr @VERSION@ on Linux x86_64: the CLI and, if the package has it, the GUI.
 #
-# La interfaz va como AppDir —el árbol que `linuxdeploy` despliega con Qt dentro— y no como
-# .deb ni como AppImage. El .deb enlaza el Qt de la distribución y no lo declara, así que
-# solo arranca donde casualmente lo haya; y una AppImage necesita FUSE para montarse. El
-# AppDir no necesita ninguna de las dos cosas.
+# The GUI comes as an AppDir —the tree `linuxdeploy` lays out with Qt inside— and not as a .deb
+# or an AppImage. The .deb links the distribution's Qt without declaring it, so it only starts
+# where it happens to be there; and an AppImage needs FUSE to mount itself. The AppDir needs
+# neither.
 set -eu
-ZM_AQUI="$(cd "$(dirname "$0")" && pwd)"
-ZM_GUION="install-linux.sh"
-. "${ZM_AQUI}/lib/comun.sh"
+ZM_HERE="$(cd "$(dirname "$0")" && pwd)"
+ZM_SCRIPT="install-linux.sh"
+. "${ZM_HERE}/lib/common.sh"
 
-zm_opciones "$@"
-zm_exige_sistema Linux
-zm_clave linux
+zm_options "$@"
+zm_require_system Linux
+zm_key linux
 
-ZM_GUI_DIR="${PREFIJO}/lib/zfsmgr/gui"
-ZM_GUI_BIN="${PREFIJO}/bin/zfsmgr-gui"
-ZM_DESKTOP="${PREFIJO}/share/applications/zfsmgr.desktop"
-ZM_ICONO="${PREFIJO}/share/icons/hicolor/512x512/apps/ZFSMgr.png"
+ZM_GUI_DIR="${PREFIX}/lib/zfsmgr/gui"
+ZM_GUI_BIN="${PREFIX}/bin/zfsmgr-gui"
+ZM_DESKTOP="${PREFIX}/share/applications/zfsmgr.desktop"
+ZM_ICON="${PREFIX}/share/icons/hicolor/512x512/apps/ZFSMgr.png"
 
-zm_eleva_para "${PREFIJO}/bin"
+zm_elevate_for "${PREFIX}/bin"
 
-if [ "${DESINSTALAR}" -eq 1 ]; then
-  zm_log "desinstalando de ${PREFIJO}"
-  # El daemon PRIMERO: lo quita el propio CLI, que hay que quitar después.
-  zm_desinstala_daemon "${ZM_BIN}"
-  zm_corre rm -f "${ZM_GUI_BIN}" "${ZM_DESKTOP}" "${ZM_ICONO}"
-  zm_corre rm -rf "${PREFIJO}/lib/zfsmgr"
-  # `mimeinfo.cache` NO se borra: lo comparten todas las aplicaciones de ese prefijo. Se
-  # regenera, para que deje de mencionar un .desktop que ya no está.
+if [ "${UNINSTALL}" -eq 1 ]; then
+  zm_log "$(zm_t "desinstalando de ${PREFIX}" "uninstalling from ${PREFIX}")"
+  # The daemon FIRST: the CLI removes it, and the CLI goes after.
+  zm_uninstall_daemon "${ZM_BIN}"
+  zm_run rm -f "${ZM_GUI_BIN}" "${ZM_DESKTOP}" "${ZM_ICON}"
+  zm_run rm -rf "${PREFIX}/lib/zfsmgr"
+  # `mimeinfo.cache` is NOT deleted: every application of that prefix shares it. It is
+  # regenerated, so it stops naming a .desktop that is gone.
   if [ -d "$(dirname "${ZM_DESKTOP}")" ] && command -v update-desktop-database >/dev/null 2>&1; then
-    zm_corre update-desktop-database "$(dirname "${ZM_DESKTOP}")" >/dev/null 2>&1 || true
+    zm_run update-desktop-database "$(dirname "${ZM_DESKTOP}")" >/dev/null 2>&1 || true
   fi
-  zm_desinstala_cli_suelto
-  zm_log "hecho. La configuración de ~/.config/ZFSMgr NO se toca."
+  zm_uninstall_cli
+  zm_done_uninstall
   exit 0
 fi
 
-zm_sumas
+zm_checksums
 zm_openzfs
-zm_comprueba_trabajos
+zm_check_jobs
 
-zm_instala_cli_suelto
-zm_prueba_cli
+zm_install_cli
+zm_test_cli
 
-if [ "${SOLO_CLI}" -eq 1 ]; then
-  zm_log "--solo-cli: la interfaz no se instala."
-elif ! zm_hay_gui; then
-  zm_log "este paquete es el de SOLO CLI: no trae la interfaz gráfica."
+if [ "${CLI_ONLY}" -eq 1 ]; then
+  zm_log "$(zm_t '--cli-only: la interfaz no se instala.' '--cli-only: the GUI is not installed.')"
+elif ! zm_has_gui; then
+  zm_log "$(zm_t 'este paquete es el de SOLO CLI: no trae la interfaz gráfica.' \
+                 'this is the CLI-ONLY package: it has no graphical interface.')"
 else
-  tarball="${ZM_AQUI}/gui/${ZM_CLAVE}/ZFSMgr-AppDir.tar.gz"
-  [ -f "${tarball}" ] || zm_muere "el paquete no trae la interfaz de ${ZM_CLAVE}"
-  zm_log "interfaz -> ${ZM_GUI_DIR}"
-  # Se REEMPLAZA entera: dejar bibliotecas de una versión anterior al lado de las nuevas
-  # es como acaba cargándose la que no toca.
-  zm_corre rm -rf "${ZM_GUI_DIR}"
-  zm_corre mkdir -p "${ZM_GUI_DIR}" "$(dirname "${ZM_DESKTOP}")" "$(dirname "${ZM_ICONO}")"
-  zm_corre tar -xzf "${tarball}" -C "${ZM_GUI_DIR}"
-  # El enlace apunta al binario y no a AppRun, que ya es otro enlace: uno menos que seguir.
-  # Funciona a través del enlace porque las bibliotecas se buscan por RPATH relativo
-  # ($ORIGIN) y `qt.conf` junto a la ruta REAL del ejecutable.
-  zm_corre ln -sf "${ZM_GUI_DIR}/usr/bin/zfsmgr-gui" "${ZM_GUI_BIN}"
-  zm_corre install -m 0644 "${ZM_GUI_DIR}/usr/share/icons/hicolor/512x512/apps/ZFSMgr.png" "${ZM_ICONO}"
-  # El .desktop con la ruta COMPLETA: el lanzador del escritorio no usa el PATH del
-  # terminal, y con un prefijo como ~/.local el `Exec=zfsmgr-gui` a secas no se encuentra.
-  escritorio="$(mktemp)"
-  cat > "${escritorio}" <<DESKTOP
+  tarball="${ZM_HERE}/gui/${ZM_KEY}/ZFSMgr-AppDir.tar.gz"
+  [ -f "${tarball}" ] || zm_die "$(zm_t "el paquete no trae la interfaz de ${ZM_KEY}" "the package has no GUI for ${ZM_KEY}")"
+  zm_log "$(zm_t 'interfaz' 'GUI') -> ${ZM_GUI_DIR}"
+  # REPLACED whole: leaving an older version's libraries beside the new ones is how the wrong
+  # one ends up loaded.
+  zm_run rm -rf "${ZM_GUI_DIR}"
+  zm_run mkdir -p "${ZM_GUI_DIR}" "$(dirname "${ZM_DESKTOP}")" "$(dirname "${ZM_ICON}")"
+  zm_run tar -xzf "${tarball}" -C "${ZM_GUI_DIR}"
+  # The link points at the binary and not at AppRun, which is another link: one less to
+  # follow. It works through the link because libraries are found by relative RPATH ($ORIGIN)
+  # and `qt.conf` beside the executable's REAL path.
+  zm_run ln -sf "${ZM_GUI_DIR}/usr/bin/zfsmgr-gui" "${ZM_GUI_BIN}"
+  zm_run install -m 0644 "${ZM_GUI_DIR}/usr/share/icons/hicolor/512x512/apps/ZFSMgr.png" "${ZM_ICON}"
+  # The .desktop with the FULL path: the desktop launcher does not use the terminal's PATH, and
+  # with a prefix like ~/.local a bare `Exec=zfsmgr-gui` is not found.
+  desktop="$(mktemp)"
+  cat > "${desktop}" <<DESKTOP
 [Desktop Entry]
 Type=Application
 Name=ZFSMgr
 Comment=OpenZFS manager
 Exec=${ZM_GUI_BIN}
-Icon=${ZM_ICONO}
+Icon=${ZM_ICON}
 Categories=System;Utility;
 Terminal=false
 DESKTOP
-  zm_corre install -m 0644 "${escritorio}" "${ZM_DESKTOP}"
-  rm -f "${escritorio}"
+  zm_run install -m 0644 "${desktop}" "${ZM_DESKTOP}"
+  rm -f "${desktop}"
   if command -v update-desktop-database >/dev/null 2>&1; then
-    zm_corre update-desktop-database "$(dirname "${ZM_DESKTOP}")" >/dev/null 2>&1 || true
+    zm_run update-desktop-database "$(dirname "${ZM_DESKTOP}")" >/dev/null 2>&1 || true
   fi
-  zm_prueba_gui "${ZM_GUI_BIN}"
+  zm_test_gui "${ZM_GUI_BIN}"
 fi
 
 zm_daemon "${ZM_BIN}"
 
-[ "${SIMULAR}" -eq 1 ] && zm_log "simulacro terminado; no se ha tocado nada"
+zm_done_dry_run
 exit 0

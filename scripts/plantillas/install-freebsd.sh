@@ -1,21 +1,23 @@
 #!/bin/sh
-# Instala el CLI de ZFSMgr @VERSION@ en FreeBSD amd64. EXPERIMENTAL.
+# Installs the ZFSMgr @VERSION@ CLI on FreeBSD amd64. EXPERIMENTAL.
 #
-# Se compila en cruzado desde Linux y se ha probado en UNA sola máquina: FreeBSD 15.1 con
-# OpenZFS 2.4.2, CLI y daemon, instalando y actualizando. Por eso sigue pidiendo
-# confirmación. La interfaz gráfica de FreeBSD no se ha compilado nunca y no va en el paquete.
+# Cross-compiled from Linux and tested on ONE machine: FreeBSD 15.1 with OpenZFS 2.4.2, CLI and
+# daemon, installing and updating. That is why it still asks for confirmation. The FreeBSD GUI
+# has never been built and is not in the package.
 set -eu
-ZM_AQUI="$(cd "$(dirname "$0")" && pwd)"
-ZM_GUION="install-freebsd.sh"
-ZM_USO_EXTRA="  --acepto-experimental Instala sin preguntar, sabiendo que es experimental"
-. "${ZM_AQUI}/lib/comun.sh"
+ZM_HERE="$(cd "$(dirname "$0")" && pwd)"
+ZM_SCRIPT="install-freebsd.sh"
+ZM_USAGE_EXTRA="  --accept-experimental Install without asking, knowing it is experimental"
+ZM_USAGE_EXTRA_ES="  --accept-experimental Instala sin preguntar, sabiendo que es experimental"
+. "${ZM_HERE}/lib/common.sh"
 
-zm_opciones "$@"
-zm_exige_sistema FreeBSD
-zm_clave freebsd
+zm_options "$@"
+zm_require_system FreeBSD
+zm_key freebsd
 
-if [ "${DESINSTALAR}" -eq 0 ] && [ "${ACEPTO_EXPERIMENTAL}" -eq 0 ]; then
-  cat <<'AVISO'
+if [ "${UNINSTALL}" -eq 0 ] && [ "${ACCEPT_EXPERIMENTAL}" -eq 0 ]; then
+  if [ "${ZM_LANG}" = es ]; then
+    cat <<'WARNING'
 
   ┌─────────────────────────────────────────────────────────────────────┐
   │  EXPERIMENTAL: probado en una sola máquina, FreeBSD 15.1 con         │
@@ -23,32 +25,43 @@ if [ "${DESINSTALAR}" -eq 0 ] && [ "${ACEPTO_EXPERIMENTAL}" -eq 0 ]; then
   │  cuéntelo.                                                           │
   └─────────────────────────────────────────────────────────────────────┘
 
-AVISO
-  [ -t 0 ] || zm_muere "sin terminal para confirmar: use --acepto-experimental"
-  printf '[zfsmgr] ¿Instalar igualmente? [s/N] '
-  read -r resp || resp=""
-  case "${resp}" in [sSyY]*) ;; *) zm_log "cancelado"; exit 0 ;; esac
+WARNING
+  else
+    cat <<'WARNING'
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  EXPERIMENTAL: tested on one machine only, FreeBSD 15.1 with         │
+  │  OpenZFS 2.4.2. Cross-compiled from Linux. If something fails,       │
+  │  please report it.                                                   │
+  └─────────────────────────────────────────────────────────────────────┘
+
+WARNING
+  fi
+  [ -t 0 ] || zm_die "$(zm_t 'sin terminal para confirmar: use --accept-experimental' \
+                             'no terminal to confirm: use --accept-experimental')"
+  zm_ask '¿Instalar igualmente?' 'Install anyway?' n || { zm_log "$(zm_t 'cancelado' 'cancelled')"; exit 0; }
 fi
 
-zm_eleva_para "${PREFIJO}/bin"
+zm_elevate_for "${PREFIX}/bin"
 
-if [ "${DESINSTALAR}" -eq 1 ]; then
-  zm_log "desinstalando de ${PREFIJO}"
-  zm_desinstala_daemon "${ZM_BIN}"
-  zm_desinstala_cli_suelto
-  zm_log "hecho. La configuración de ~/.config/ZFSMgr NO se toca."
+if [ "${UNINSTALL}" -eq 1 ]; then
+  zm_log "$(zm_t "desinstalando de ${PREFIX}" "uninstalling from ${PREFIX}")"
+  zm_uninstall_daemon "${ZM_BIN}"
+  zm_uninstall_cli
+  zm_done_uninstall
   exit 0
 fi
 
-zm_sumas
+zm_checksums
 zm_openzfs
-zm_comprueba_trabajos
-zm_instala_cli_suelto
-zm_prueba_cli
-if [ -d "${ZM_AQUI}/gui" ]; then
-  zm_log "la interfaz gráfica no existe para FreeBSD: solo se instala el CLI."
+zm_check_jobs
+zm_install_cli
+zm_test_cli
+if [ -d "${ZM_HERE}/gui" ]; then
+  zm_log "$(zm_t 'la interfaz gráfica no existe para FreeBSD: solo se instala el CLI.' \
+                 'there is no GUI for FreeBSD: only the CLI is installed.')"
 fi
 zm_daemon "${ZM_BIN}"
 
-[ "${SIMULAR}" -eq 1 ] && zm_log "simulacro terminado; no se ha tocado nada"
+zm_done_dry_run
 exit 0

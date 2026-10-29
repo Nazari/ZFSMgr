@@ -11,15 +11,18 @@ Ejecute el guion de SU sistema desde este directorio:
 Cada guion detecta la arquitectura, comprueba la integridad del paquete antes de copiar
 nada y, al terminar, comprueba que lo instalado arranca. Todos admiten:
 
-  --simular       dice lo que haría, sin tocar nada       (Windows: -Simular)
-  --desinstalar   quita lo instalado                      (Windows: -Desinstalar)
-  --solo-cli      sin la interfaz gráfica                 (Windows: -SoloCli)
-  --help          el resto de opciones
+  --dry-run       dice lo que haría, sin tocar nada       (Windows: -DryRun)
+  --uninstall     quita lo instalado                      (Windows: -Uninstall)
+  --cli-only      sin la interfaz gráfica                 (Windows: -CliOnly)
+  --help          el resto de opciones                    (Windows: -Help)
+
+Los mensajes salen en el idioma del sistema: en castellano si está en castellano, y si
+no, en inglés.
 
 OpenZFS: si la máquina lo tiene, debe ser @ZFSMIN@ o posterior. Si no lo tiene, ZFSMgr se
 instala igual, como cliente para manejar otras máquinas. Con un OpenZFS válido, los
-guiones ofrecen instalar también el daemon local (--con-daemon / --sin-daemon;
-Windows: -ConDaemon / -SinDaemon).
+guiones ofrecen instalar también el daemon local (--with-daemon / --no-daemon;
+Windows: -WithDaemon / -NoDaemon).
 
 Linux: la interfaz se ha construido sobre glibc 2.43 y necesita esa versión o posterior.
 macOS: si instala el daemon, conceda «Acceso total al disco» a
@@ -43,11 +46,13 @@ Run the script for YOUR system from this directory:
 
 Each script detects the architecture, checks the package's integrity before copying
 anything and, at the end, checks that what it installed actually starts. All accept
---simular (dry run), --desinstalar (uninstall), --solo-cli (no GUI) and --help.
+--dry-run, --uninstall, --cli-only (no GUI) and --help (on Windows: -DryRun, -Uninstall,
+-CliOnly, -Help). Messages come in the system's language: Spanish if it is Spanish,
+English otherwise.
 
 OpenZFS: if present, it must be @ZFSMIN@ or later. Without it ZFSMgr still installs, as a
 client for managing other machines. With a valid OpenZFS, the scripts offer to install
-the local daemon too (--con-daemon / --sin-daemon; Windows: -ConDaemon / -SinDaemon).
+the local daemon too (--with-daemon / --no-daemon; Windows: -WithDaemon / -NoDaemon).
 
 Linux: the GUI is built on glibc 2.43 and needs that version or later.
 macOS: if you install the daemon, grant «Full Disk Access» to

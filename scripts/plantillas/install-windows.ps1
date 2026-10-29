@@ -1,188 +1,218 @@
-# Instala ZFSMgr @VERSION@ en Windows x64: el CLI y, si el paquete la trae, la interfaz.
+# Installs ZFSMgr @VERSION@ on Windows x64: the CLI, the GUI if the package has it, and the
+# local daemon when OpenZFS is there.
 #
-# Con interfaz, lanza el Setup de Inno, que ya instala GUI + CLI + PATH + la tarea de OpenSSH:
-# repetir aquí esa lógica sería tener dos instaladores que divergen. Sin interfaz —el paquete
-# de solo CLI, o -SoloCli— copia el CLI a las MISMAS rutas que usaría el Setup, para que una
-# instalación posterior con interfaz la encuentre y la reemplace.
+# With the GUI, it runs the Inno Setup, which already installs GUI + CLI + PATH + the OpenSSH
+# task: repeating that logic here would make two installers that drift apart. Without it —the
+# CLI-only package, or -CliOnly— it copies the CLI to the SAME paths the Setup would use, so a
+# later installation with the GUI finds it and replaces it.
 #
-# The local daemon: with a valid OpenZFS it is offered as on Unix, and the installed CLI sets
-# it up with `install-daemon-local`, the same scheduled task, firewall rule and TLS that
-# `install-daemon` sets up over SSH.
+# The local daemon is offered as on Unix, and the installed CLI sets it up with
+# `install-daemon-local`: the same scheduled task, firewall rule and TLS that `install-daemon`
+# sets up over SSH.
+#
+# Messages in the system's language: Spanish when the UI culture is, English otherwise. Plain
+# quotes and no accents: «» and accents depend on the console code page and came out as «?»
+# over SSH.
 param(
-    [switch]$SoloCli,
-    [switch]$ConDaemon,
-    [switch]$SinDaemon,
-    [switch]$Forzar,
-    [switch]$Silencioso,
-    [switch]$Simular,
-    [switch]$Desinstalar,
-    [switch]$Ayuda
+    [switch]$CliOnly,
+    [switch]$WithDaemon,
+    [switch]$NoDaemon,
+    [switch]$Force,
+    [switch]$Quiet,
+    [switch]$DryRun,
+    [switch]$Uninstall,
+    [switch]$Help
 )
 $ErrorActionPreference = 'Stop'
 $Version = '@VERSION@'
-$Aqui = Split-Path -Parent $MyInvocation.MyCommand.Path
+$Here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $App = Join-Path $env:ProgramFiles 'ZFSMgr'
 $Bin = Join-Path $App 'bin'
 $Cli = Join-Path $Bin 'zfsmgr-cli.exe'
 # Where install-daemon-local puts the agent (daemonpayload.cpp, windowsBinPath).
-$Agente = 'C:\ProgramData\ZFSMgr\agent\zfsmgr-agent.exe'
+$Agent = 'C:\ProgramData\ZFSMgr\agent\zfsmgr-agent.exe'
+$Lang = if ((Get-UICulture).TwoLetterISOLanguageName -eq 'es') { 'es' } else { 'en' }
 
+# T <spanish> <english>: the text in the system's language.
+function T([string]$es, [string]$en) { if ($Lang -eq 'es') { $es } else { $en } }
 function Log([string]$m) { Write-Host "[zfsmgr] $m" }
-function Muere([string]$m) { Write-Host "[zfsmgr] $m" -ForegroundColor Red; exit 1 }
-function Corre([scriptblock]$b, [string]$que) {
-    if ($Simular) { Write-Host "  [simulado] $que" } else { & $b }
+function Die([string]$m) { Write-Host "[zfsmgr] $m" -ForegroundColor Red; exit 1 }
+function Run([scriptblock]$b, [string]$what) {
+    if ($DryRun) { Write-Host "  [dry-run] $what" } else { & $b }
 }
-# A question only when someone can answer it: never with -Silencioso or redirected input.
-function Pregunta([string]$texto, [bool]$porDefecto) {
-    if ($Silencioso -or [Console]::IsInputRedirected) { return $null }
-    $r = Read-Host "[zfsmgr] $texto"
-    if (-not $r) { return $porDefecto }
+# A question only when someone can answer it: never with -Quiet or redirected input. $null
+# means it could not be asked.
+function Ask([string]$es, [string]$en, [bool]$default) {
+    if ($Quiet -or [Console]::IsInputRedirected) { return $null }
+    $hint = if ($default) { T '[S/n]' '[Y/n]' } else { T '[s/N]' '[y/N]' }
+    $r = Read-Host "[zfsmgr] $(T $es $en) $hint"
+    if (-not $r) { return $default }
     return ($r -match '^[sSyY]')
 }
 
-if ($Ayuda) {
-    @"
-Uso: install-windows.cmd [-SoloCli] [-ConDaemon] [-SinDaemon] [-Forzar] [-Silencioso] [-Simular] [-Desinstalar]
+if ($Help) {
+    if ($Lang -eq 'es') {
+        @"
+Uso: install-windows.cmd [-CliOnly] [-WithDaemon] [-NoDaemon] [-Force] [-Quiet] [-DryRun] [-Uninstall]
 
-  -SoloCli      Solo la linea de ordenes, aunque el paquete traiga la interfaz
-  -ConDaemon    Instala o actualiza el daemon local sin preguntar
-  -SinDaemon    No toca el daemon local
-  -Forzar       Actualiza el daemon aunque tenga trabajos en curso (se cortan)
-  -Silencioso   Sin ventanas del instalador (anade zfsmgr-cli al PATH)
-  -Simular      Dice lo que haria, sin tocar nada
-  -Desinstalar  Quita ZFSMgr. La configuracion de %APPDATA%\ZFSMgr no se toca
+  -CliOnly      Solo la linea de ordenes, aunque el paquete traiga la interfaz
+  -WithDaemon   Instala o actualiza el daemon local sin preguntar
+  -NoDaemon     No toca el daemon local
+  -Force        Actualiza el daemon aunque tenga trabajos en curso (se cortan)
+  -Quiet        Sin preguntas ni ventanas del instalador (anade zfsmgr-cli al PATH)
+  -DryRun       Dice lo que haria, sin tocar nada
+  -Uninstall    Quita ZFSMgr. La configuracion de %APPDATA%\ZFSMgr no se toca
 "@
+    } else {
+        @"
+Usage: install-windows.cmd [-CliOnly] [-WithDaemon] [-NoDaemon] [-Force] [-Quiet] [-DryRun] [-Uninstall]
+
+  -CliOnly      Only the command line, even if the package has the GUI
+  -WithDaemon   Install or update the local daemon without asking
+  -NoDaemon     Leave the local daemon alone
+  -Force        Update the daemon even with jobs in progress (they are cut)
+  -Quiet        No questions and no installer windows (adds zfsmgr-cli to the PATH)
+  -DryRun       Say what would be done, touching nothing
+  -Uninstall    Remove ZFSMgr. The configuration in %APPDATA%\ZFSMgr is not touched
+"@
+    }
     exit 0
 }
 
-if (-not [Environment]::Is64BitOperatingSystem) { Muere 'ZFSMgr necesita Windows de 64 bits.' }
+if (-not [Environment]::Is64BitOperatingSystem) { Die (T 'ZFSMgr necesita Windows de 64 bits.' 'ZFSMgr needs 64-bit Windows.') }
 
-# Administrador: Program Files y el PATH de la maquina lo exigen. Si no lo es, se vuelve a
-# lanzar elevado con los mismos argumentos, y se ESPERA a que termine para devolver su codigo.
-$esAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+# Administrator: Program Files, the machine PATH and the daemon's task demand it. If not, it
+# relaunches itself elevated with the same arguments, and WAITS for it to return its code.
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
     [Security.Principal.WindowsBuiltInRole]::Administrator)
-if (-not $esAdmin -and -not $Simular) {
-    Log 'hace falta ser administrador: Windows pedira confirmacion.'
+if (-not $isAdmin -and -not $DryRun) {
+    Log (T 'hace falta ser administrador: Windows pedira confirmacion.' 'administrator rights are needed: Windows will ask for confirmation.')
     $args2 = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$($MyInvocation.MyCommand.Path)`"")
     foreach ($p in $PSBoundParameters.Keys) { $args2 += "-$p" }
     $proc = Start-Process powershell.exe -ArgumentList $args2 -Verb RunAs -Wait -PassThru
     exit $proc.ExitCode
 }
 
-function Quita-DelPath([string]$dir) {
-    $actual = [Environment]::GetEnvironmentVariable('Path', 'Machine')
-    $nuevo = ($actual -split ';' | Where-Object { $_ -and ($_.TrimEnd('\') -ne $dir.TrimEnd('\')) }) -join ';'
-    if ($nuevo -ne $actual) {
-        Corre { [Environment]::SetEnvironmentVariable('Path', $nuevo, 'Machine') } "quitar $dir del PATH"
+function Remove-FromPath([string]$dir) {
+    $current = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+    $new = ($current -split ';' | Where-Object { $_ -and ($_.TrimEnd('\') -ne $dir.TrimEnd('\')) }) -join ';'
+    if ($new -ne $current) {
+        Run { [Environment]::SetEnvironmentVariable('Path', $new, 'Machine') } "remove $dir from the PATH"
     }
 }
 
-if ($Desinstalar) {
-    Log 'desinstalando'
+if ($Uninstall) {
+    Log (T 'desinstalando' 'uninstalling')
     # The daemon FIRST: the CLI removes it, and the CLI goes next.
-    if ((Test-Path $Agente) -and -not $SinDaemon -and (Test-Path $Cli)) {
-        $quita = if ($ConDaemon) { $true } else { Pregunta 'Quitar tambien el daemon de esta maquina? [s/N]' $false }
-        if ($null -eq $quita) { Log 'el daemon local se deja (sin consola para preguntar; -ConDaemon lo quita)' }
-        elseif ($quita) {
-            Corre { & $Cli uninstall-daemon-local; if ($LASTEXITCODE -ne 0) { Log 'aviso: el daemon no se pudo quitar del todo' } } "$Cli uninstall-daemon-local"
+    if ((Test-Path $Agent) -and -not $NoDaemon -and (Test-Path $Cli)) {
+        $remove = if ($WithDaemon) { $true } else { Ask 'Quitar tambien el daemon de esta maquina?' "Remove this machine's daemon too?" $false }
+        if ($null -eq $remove) {
+            Log (T 'el daemon local se deja (sin consola para preguntar; -WithDaemon lo quita)' 'the local daemon is left (no console to ask; -WithDaemon removes it)')
+        } elseif ($remove) {
+            Run {
+                & $Cli --lang $Lang uninstall-daemon-local
+                if ($LASTEXITCODE -ne 0) { Log (T 'aviso: el daemon no se pudo quitar del todo' 'warning: the daemon could not be fully removed') }
+            } "$Cli uninstall-daemon-local"
         }
     }
-    # Si lo instalo el Setup, su desinstalador sabe todo lo que puso, accesos directos
-    # incluidos. Si fue el CLI suelto, se quita a mano.
+    # Installed by the Setup, its uninstaller knows all it put there, shortcuts included. The
+    # standalone CLI is removed by hand.
     $unins = Get-ChildItem -Path $App -Filter 'unins*.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($unins) {
-        Corre { Start-Process $unins.FullName -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait } "$($unins.FullName) /VERYSILENT"
+        Run { Start-Process $unins.FullName -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait } "$($unins.FullName) /VERYSILENT"
     } elseif (Test-Path $App) {
-        Corre { Remove-Item -Recurse -Force $App } "borrar $App"
+        Run { Remove-Item -Recurse -Force $App } "delete $App"
     }
-    Quita-DelPath $Bin
-    Log 'hecho. La configuracion de %APPDATA%\ZFSMgr NO se toca.'
+    Remove-FromPath $Bin
+    Log (T 'hecho. La configuracion de %APPDATA%\ZFSMgr NO se toca.' 'done. The configuration in %APPDATA%\ZFSMgr is NOT touched.')
     exit 0
 }
 
-# Las sumas ANTES de nada. Un ZIP bajado a medias se detiene aqui, no a mitad.
-$manifiesto = Join-Path $Aqui 'MANIFIESTO.sha256'
-if (-not (Test-Path $manifiesto)) { Muere 'falta MANIFIESTO.sha256: el paquete esta incompleto' }
-foreach ($linea in Get-Content $manifiesto) {
-    if (-not $linea.Trim()) { continue }
-    $suma, $rel = $linea -split '\s+', 2
-    $ruta = Join-Path $Aqui ($rel.TrimStart('*') -replace '/', '\')
-    if (-not (Test-Path $ruta)) { Muere "el paquete esta incompleto: falta $rel" }
-    if ((Get-FileHash -Algorithm SHA256 $ruta).Hash.ToLower() -ne $suma.ToLower()) {
-        Muere "el paquete esta danado: no cuadra $rel"
+# Checksums BEFORE anything. A ZIP downloaded halfway stops here, not halfway through.
+$manifest = Join-Path $Here 'MANIFIESTO.sha256'
+if (-not (Test-Path $manifest)) { Die (T 'falta MANIFIESTO.sha256: el paquete esta incompleto' 'MANIFIESTO.sha256 is missing: the package is incomplete') }
+foreach ($line in Get-Content $manifest) {
+    if (-not $line.Trim()) { continue }
+    $sum, $rel = $line -split '\s+', 2
+    $path = Join-Path $Here ($rel.TrimStart('*') -replace '/', '\')
+    if (-not (Test-Path $path)) { Die (T "el paquete esta incompleto: falta $rel" "the package is incomplete: $rel is missing") }
+    if ((Get-FileHash -Algorithm SHA256 $path).Hash.ToLower() -ne $sum.ToLower()) {
+        Die (T "el paquete esta danado: no cuadra $rel" "the package is damaged: $rel does not match")
     }
 }
-Log 'sumas comprobadas'
+Log (T 'sumas comprobadas' 'checksums verified')
 
-# La marca de «descargado de Internet». Se hereda del ZIP a todo lo que sale de el, y con
-# ella SmartScreen para el Setup y PowerShell se niega a cargar lo que no esta firmado.
-if (-not $Simular) { Get-ChildItem -Recurse $Aqui | Unblock-File -ErrorAction SilentlyContinue }
+# The «downloaded from the Internet» mark. Everything taken out of the ZIP inherits it, and
+# with it SmartScreen stops the Setup and PowerShell refuses to load what is not signed.
+if (-not $DryRun) { Get-ChildItem -Recurse $Here | Unblock-File -ErrorAction SilentlyContinue }
 
 # Jobs in progress: reinstalling restarts the daemon and would cut them. Asked BEFORE copying
 # anything, with the new CLI from the package, so nothing is left half updated.
-$cliNuevo = Join-Path $Aqui 'cli\zfsmgr-cli-windows-x86_64.exe'
-if ((Test-Path $Agente) -and -not $SinDaemon -and -not $Simular -and -not $Forzar) {
-    & $cliNuevo install-daemon-local --comprobar
+$newCli = Join-Path $Here 'cli\zfsmgr-cli-windows-x86_64.exe'
+if ((Test-Path $Agent) -and -not $NoDaemon -and -not $DryRun -and -not $Force) {
+    & $newCli --lang $Lang install-daemon-local --check-jobs
     if ($LASTEXITCODE -eq 3) {
-        if ($ConDaemon) { Muere 'no se ha instalado nada. Espere a que terminen o repita con -Forzar.' }
-        Log 'el daemon NO se actualiza mientras tenga trabajos en curso (-Forzar lo haria).'
-        $SinDaemon = $true
+        if ($WithDaemon) { Die (T 'no se ha instalado nada. Espere a que terminen o repita con -Force.' 'nothing was installed. Wait for them to end, or repeat with -Force.') }
+        Log (T 'el daemon NO se actualiza mientras tenga trabajos en curso (-Force lo haria).' 'the daemon is NOT updated while it has jobs in progress (-Force would).')
+        $NoDaemon = $true
     }
 }
 
-$setup = Join-Path $Aqui "gui\windows-x86_64\ZFSMgr-Setup-$Version.exe"
-$conGui = (-not $SoloCli) -and (Test-Path $setup)
-if ($SoloCli) { Log '-SoloCli: la interfaz no se instala.' }
-elseif (-not (Test-Path $setup)) { Log 'este paquete es el de SOLO CLI: no trae la interfaz grafica.' }
+$setup = Join-Path $Here "gui\windows-x86_64\ZFSMgr-Setup-$Version.exe"
+$withGui = (-not $CliOnly) -and (Test-Path $setup)
+if ($CliOnly) { Log (T '-CliOnly: la interfaz no se instala.' '-CliOnly: the GUI is not installed.') }
+elseif (-not (Test-Path $setup)) { Log (T 'este paquete es el de SOLO CLI: no trae la interfaz grafica.' 'this is the CLI-ONLY package: it has no graphical interface.') }
 
-if ($conGui) {
-    # /TASKS en silencioso: sin ventanas no hay casillas que marcar, y el CLI sin PATH es
-    # medio CLI. En modo normal el usuario elige en el propio Setup.
-    $argsSetup = if ($Silencioso) { @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/TASKS=addtopath') } else { @() }
-    Log "lanzando $setup"
-    if ($Simular) {
-        Write-Host "  [simulado] $setup $($argsSetup -join ' ')"
+if ($withGui) {
+    # /TASKS when quiet: without windows there are no boxes to tick, and a CLI without PATH is
+    # half a CLI. Otherwise the user picks in the Setup itself.
+    $setupArgs = if ($Quiet) { @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/TASKS=addtopath') } else { @() }
+    Log "$(T 'lanzando' 'running') $setup"
+    if ($DryRun) {
+        Write-Host "  [dry-run] $setup $($setupArgs -join ' ')"
     } else {
-        $p = Start-Process $setup -ArgumentList $argsSetup -Wait -PassThru
-        if ($p.ExitCode -ne 0) { Muere "el Setup termino con codigo $($p.ExitCode)" }
+        $p = Start-Process $setup -ArgumentList $setupArgs -Wait -PassThru
+        if ($p.ExitCode -ne 0) { Die (T "el Setup termino con codigo $($p.ExitCode)" "the Setup ended with code $($p.ExitCode)") }
     }
 } else {
-    $origen = Join-Path $Aqui 'cli\zfsmgr-cli-windows-x86_64.exe'
-    if (-not (Test-Path $origen)) { Muere 'el paquete no trae el CLI de Windows' }
+    $source = Join-Path $Here 'cli\zfsmgr-cli-windows-x86_64.exe'
+    if (-not (Test-Path $source)) { Die (T 'el paquete no trae el CLI de Windows' 'the package has no Windows CLI') }
     Log "CLI -> $Cli"
-    Corre { New-Item -ItemType Directory -Force -Path (Join-Path $Bin 'i18n') | Out-Null } "crear $Bin\i18n"
-    Corre { Copy-Item -Force $origen $Cli } "copiar $Cli"
-    Corre { Copy-Item -Force (Join-Path $Aqui 'i18n\*.json') (Join-Path $Bin 'i18n') } "copiar los catalogos"
-    # Los agentes en {app}\agents, que es bin\..\agents: donde el CLI los busca.
-    Corre { Copy-Item -Recurse -Force (Join-Path $Aqui 'agents') $App } "copiar los agentes"
-    # Y los CLI de todas las plataformas en {app}\cli\<plataforma>: los que install-daemon
-    # manda a otra maquina para ponerle al dia su zfsmgr-cli.
-    foreach ($c in Get-ChildItem (Join-Path $Aqui 'cli') -Filter 'zfsmgr-cli-*') {
+    Run { New-Item -ItemType Directory -Force -Path (Join-Path $Bin 'i18n') | Out-Null } "mkdir $Bin\i18n"
+    Run { Copy-Item -Force $source $Cli } "copy $Cli"
+    Run { Copy-Item -Force (Join-Path $Here 'i18n\*.json') (Join-Path $Bin 'i18n') } "copy the catalogues"
+    # The agents in {app}\agents, which is bin\..\agents: where the CLI looks for them.
+    Run { Copy-Item -Recurse -Force (Join-Path $Here 'agents') $App } "copy the agents"
+    # And the CLIs of every platform in {app}\cli\<platform>: the ones install-daemon sends to
+    # another machine to update its zfsmgr-cli.
+    foreach ($c in Get-ChildItem (Join-Path $Here 'cli') -Filter 'zfsmgr-cli-*') {
         $k = $c.BaseName -replace '^zfsmgr-cli-', ''
         $dirK = Join-Path (Join-Path $App 'cli') $k
-        Corre { New-Item -ItemType Directory -Force -Path $dirK | Out-Null } "crear $dirK"
-        Corre { Copy-Item -Force $c.FullName (Join-Path $dirK ('zfsmgr-cli' + $c.Extension)) } "copiar el CLI de $k"
+        Run { New-Item -ItemType Directory -Force -Path $dirK | Out-Null } "mkdir $dirK"
+        Run { Copy-Item -Force $c.FullName (Join-Path $dirK ('zfsmgr-cli' + $c.Extension)) } "copy the $k CLI"
     }
-    $actual = [Environment]::GetEnvironmentVariable('Path', 'Machine')
-    if (-not (($actual -split ';') | Where-Object { $_.TrimEnd('\') -eq $Bin.TrimEnd('\') })) {
-        Corre { [Environment]::SetEnvironmentVariable('Path', "$actual;$Bin", 'Machine') } "anadir $Bin al PATH"
+    $current = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+    if (-not (($current -split ';') | Where-Object { $_.TrimEnd('\') -eq $Bin.TrimEnd('\') })) {
+        Run { [Environment]::SetEnvironmentVariable('Path', "$current;$Bin", 'Machine') } "add $Bin to the PATH"
     }
 }
 
-if ($Simular) {
-    if (-not $SinDaemon) { Write-Host "  [simulado] $Cli install-daemon-local (si hay OpenZFS)" }
-    Log 'simulacro terminado; no se ha tocado nada'; exit 0
+if ($DryRun) {
+    if (-not $NoDaemon) { Write-Host "  [dry-run] $Cli install-daemon-local ($(T 'si hay OpenZFS' 'if OpenZFS is there'))" }
+    Log (T 'simulacro terminado; no se ha tocado nada' 'dry run finished; nothing was touched')
+    exit 0
 }
 
-# Y se COMPRUEBA que arranca: lo unico que demuestra que la instalacion sirve.
+# And it is CHECKED that it starts: the only proof that the installation works.
 if (Test-Path $Cli) {
-    $salida = & $Cli version 2>&1
-    if ($LASTEXITCODE -ne 0) { Muere "instalado en $Cli, pero NO arranca: $salida" }
-    Log "$salida  ->  $Cli"
-    Log 'abra una consola NUEVA para que coja el PATH.'
-} elseif ($conGui) {
-    Log 'el CLI no se instalo: en el Setup no se marco la tarea de linea de ordenes.'
+    $out = & $Cli version 2>&1
+    if ($LASTEXITCODE -ne 0) { Die (T "instalado en $Cli, pero NO arranca: $out" "installed at $Cli, but it does NOT start: $out") }
+    Log "$out  ->  $Cli"
+    Log (T 'abra una consola NUEVA para que coja el PATH.' 'open a NEW console for it to pick up the PATH.')
+} elseif ($withGui) {
+    Log (T 'el CLI no se instalo: en el Setup no se marco la tarea de linea de ordenes.' 'the CLI was not installed: the command line task was not ticked in the Setup.')
 }
+
 # The local daemon, with OpenZFS only: an agent without it answers and sees no pool.
 $zfs = Get-Command zfs -ErrorAction SilentlyContinue
 if (-not $zfs) {
@@ -190,24 +220,24 @@ if (-not $zfs) {
         if (Test-Path (Join-Path $d 'zfs.exe')) { $zfs = Join-Path $d 'zfs.exe'; break }
     }
 }
-if ($SinDaemon) {
+if ($NoDaemon) {
     # nothing: asked not to touch it, or it has jobs in progress
 } elseif (-not $zfs) {
-    if ($ConDaemon) { Log 'aviso: -ConDaemon, pero sin OpenZFS el daemon no se instala.' }
+    if ($WithDaemon) { Log (T 'aviso: -WithDaemon, pero sin OpenZFS el daemon no se instala.' 'warning: -WithDaemon, but without OpenZFS the daemon is not installed.') }
 } elseif (-not (Test-Path $Cli)) {
-    Log 'el daemon no se instala: no hay CLI instalado que lo haga.'
+    Log (T 'el daemon no se instala: no hay CLI instalado que lo haga.' 'the daemon is not installed: there is no installed CLI to do it.')
 } else {
-    $instala = if ($ConDaemon) { $true }
-               elseif (Test-Path $Agente) { Pregunta 'Hay un daemon instalado en esta maquina. Actualizarlo a esta version? [S/n]' $true }
-               else { Pregunta 'Esta maquina tiene OpenZFS. Instalar el daemon, para manejarla desde otras? [s/N]' $false }
-    if ($null -eq $instala) {
-        Log 'para instalar o actualizar el daemon local: -ConDaemon'
-    } elseif ($instala) {
-        Log 'instalando el daemon local...'
-        $argsD = @('install-daemon-local')
-        if ($Forzar) { $argsD += '--force' }
+    $install = if ($WithDaemon) { $true }
+               elseif (Test-Path $Agent) { Ask 'Hay un daemon instalado en esta maquina. Actualizarlo a esta version?' 'A daemon is installed on this machine. Update it to this version?' $true }
+               else { Ask 'Esta maquina tiene OpenZFS. Instalar el daemon, para manejarla desde otras?' 'This machine has OpenZFS. Install the daemon, to manage it from others?' $false }
+    if ($null -eq $install) {
+        Log (T 'para instalar o actualizar el daemon local: -WithDaemon' 'to install or update the local daemon: -WithDaemon')
+    } elseif ($install) {
+        Log (T 'instalando el daemon local...' 'installing the local daemon...')
+        $argsD = @('--lang', $Lang, 'install-daemon-local')
+        if ($Force) { $argsD += '--force' }
         & $Cli @argsD
-        if ($LASTEXITCODE -ne 0) { Muere 'el daemon NO se instalo (ver arriba)' }
+        if ($LASTEXITCODE -ne 0) { Die (T 'el daemon NO se instalo (ver arriba)' 'the daemon was NOT installed (see above)') }
     }
 }
 exit 0

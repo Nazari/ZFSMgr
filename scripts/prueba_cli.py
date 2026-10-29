@@ -2806,15 +2806,15 @@ def casos_version_openzfs(ctx):
         rc, vista = sh(ctx,
             f"ssh -o BatchMode=yes {remoto_q} 'cd /tmp && rm -rf zpprueba && mkdir zpprueba "
             f"&& cd zpprueba && (unzip -q ../{base}.zip 2>/dev/null || 7z x -y ../{base}.zip "
-            f">/dev/null) && cd {base} && sh install-linux.sh --prefijo \"$HOME/zpprueba\" "
-            f"--sin-daemon 2>&1; "
+            f">/dev/null) && cd {base} && LANG=es_ES.UTF-8 sh install-linux.sh "
+            f"--prefix \"$HOME/zpprueba\" --no-daemon 2>&1; "
             f"echo RC=$?; $HOME/zpprueba/bin/zfsmgr-cli version 2>&1'")
         problemas = []
         if "RC=0" not in vista:
             problemas.append(f"no se instaló: «{vista.strip()[-200:]}»")
         if "como CLIENTE" not in vista:
             problemas.append("no explica que se instala como cliente")
-        if "zfsmgr-cli 0." not in vista:
+        if not re.search(r"zfsmgr-cli \d+\.", vista):
             problemas.append("el binario instalado no arranca ahí")
         if problemas:
             ctx.fallos.append((nombre3, problemas, vista))
@@ -2825,7 +2825,7 @@ def casos_version_openzfs(ctx):
             ctx.pasados.append(nombre3)
             print(f"  ok     {nombre3}")
         sh(ctx, f"ssh -o BatchMode=yes {remoto_q} 'cd /tmp/zpprueba/{base} 2>/dev/null && "
-                f"sh install-linux.sh --prefijo \"$HOME/zpprueba\" --desinstalar --sin-daemon "
+                f"sh install-linux.sh --prefix \"$HOME/zpprueba\" --uninstall --no-daemon "
                 f">/dev/null 2>&1; "
                 f"rm -rf /tmp/zpprueba /tmp/{base}.zip \"$HOME/zpprueba\"'")
 
@@ -3109,24 +3109,28 @@ def casos_arranque(ctx):
     # simulacro lo imprime, así que se mira que sea el de systemd con la huella del agente
     # que va al lado: si alguien escribiera aquí una segunda versión de la lógica de
     # servicios, divergiría de la remota sin que nada lo dijera.
-    caso_argv(ctx, "install-daemon-local --simular: es el guion de install-daemon",
-              ["--lang", "es", "install-daemon-local", "--simular"], rc=0,
+    caso_argv(ctx, "install-daemon-local --check: es el guion de install-daemon",
+              ["--lang", "es", "install-daemon-local", "--check"], rc=0,
               espera=[r"systemctl (daemon-reload|enable)", r"VERSION='\d+\.\d+\.\d+\.\d+'",
                       r"/usr/local/libexec/zfsmgr-agent"])
-    caso_argv(ctx, "uninstall-daemon-local --simular: quita lo que el otro pone",
-              ["--lang", "es", "uninstall-daemon-local", "--simular"], rc=0,
+    caso_argv(ctx, "uninstall-daemon-local --check: quita lo que el otro pone",
+              ["--lang", "es", "uninstall-daemon-local", "--check"], rc=0,
               espera=[r"systemctl disable --now zfsmgr-agent\.service",
                       r"/usr/local/libexec/zfsmgr-agent", r"/etc/zfsmgr/tls"])
-    # Sin `--simular` y sin ser root, se niega ANTES de tocar nada.
+    # Sin `--check` y sin ser root, se niega ANTES de tocar nada.
     if os.geteuid() != 0:
         caso_argv(ctx, "install-daemon-local sin root se niega",
                   ["--lang", "es", "install-daemon-local"], rc=1, espera=[r"como root"])
-    # `--comprobar` es suya: el instalador la usa ANTES de tocar nada para no reinstalar un
+    # `--check-jobs` es suya: el instalador la usa ANTES de tocar nada para no reinstalar un
     # daemon con trabajos en curso. Sin root se niega como las demás, sin dar el «uso».
     if os.geteuid() != 0:
-        caso_argv(ctx, "install-daemon-local --comprobar se reconoce (y pide root)",
-                  ["--lang", "es", "install-daemon-local", "--comprobar"], rc=1,
+        caso_argv(ctx, "install-daemon-local --check-jobs se reconoce (y pide root)",
+                  ["--lang", "es", "install-daemon-local", "--check-jobs"], rc=1,
                   espera=[r"como root"], no_espera=[r"uso:"])
+    # Las opciones en castellano ya no existen (2026-10-29): sin alias.
+    caso_argv(ctx, "install-daemon-local: --simular ya no es una opción",
+              ["--lang", "es", "install-daemon-local", "--simular"], rc=2,
+              espera=[r"uso: zfsmgr-cli install-daemon-local \[--check\] \[--check-jobs\]"])
     # Sus opciones son SUYAS: antes, cualquier «--algo» detrás de la orden se tomaba por
     # opción global y se rechazaba sin llegar a preguntarle.
     caso_argv(ctx, "install-daemon-local: una opción que no es suya da el uso",

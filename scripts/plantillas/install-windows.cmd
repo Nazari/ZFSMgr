@@ -1,7 +1,7 @@
 @echo off
-rem Instala ZFSMgr @VERSION@ en Windows. Lanza install-windows.ps1, que es quien hace el trabajo.
+rem Installs ZFSMgr @VERSION@ on Windows. Runs install-windows.ps1, which does the work.
 rem
-rem -ExecutionPolicy Bypass SOLO para este proceso: la politica por defecto de Windows no deja
-rem ejecutar guiones descargados, y cambiarla para toda la maquina no es cosa de un instalador.
+rem -ExecutionPolicy Bypass ONLY for this process: Windows' default policy does not run
+rem downloaded scripts, and changing it for the whole machine is not an installer's business.
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0install-windows.ps1" %*
 exit /b %ERRORLEVEL%

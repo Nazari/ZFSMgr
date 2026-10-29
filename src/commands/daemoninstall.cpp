@@ -641,7 +641,8 @@ Result installLocal(const std::string& plataforma, const std::string& rutaBinari
             return r;
         }
         if (traza) {
-            traza("OpenZFS " + zfs.version + ": vale");
+            traza(format(i18n::tr("t_cmd_daemoninstall_zfs_local", "OpenZFS %1: vale"),
+                         {zfs.version}));
         }
     }
     r.version = agentversion::versionInBinary(rutaBinario);

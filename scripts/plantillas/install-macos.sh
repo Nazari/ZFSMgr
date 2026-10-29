@@ -1,99 +1,102 @@
 #!/bin/sh
-# Instala ZFSMgr @VERSION@ en macOS, Intel o Apple Silicon: el CLI y, si el paquete la trae,
-# la interfaz.
+# Installs ZFSMgr @VERSION@ on macOS, Intel or Apple Silicon: the CLI and, if the package has
+# it, the GUI.
 #
-# Con interfaz, el CLI NO se copia aparte: `<prefijo>/bin/zfsmgr-cli` es un ENLACE al que va
-# dentro de /Applications/ZFSMgr.app. El programa resuelve ese enlace al arrancar
-# (`std::filesystem::canonical`) y encuentra sus catálogos y agentes dentro del bundle. Una
-# sola copia, que se actualiza con el .app. Por eso el bundle se llama `ZFSMgr.app` sin
-# versión: si la llevara, cada actualización rompería el enlace.
+# With the GUI, the CLI is NOT copied apart: `<prefix>/bin/zfsmgr-cli` is a LINK to the one
+# inside /Applications/ZFSMgr.app. The program resolves that link when it starts
+# (`std::filesystem::canonical`) and finds its catalogues and agents inside the bundle. One
+# copy, updated with the .app. That is why the bundle is `ZFSMgr.app` without a version: with
+# one, every update would break the link.
 set -eu
-ZM_AQUI="$(cd "$(dirname "$0")" && pwd)"
-ZM_GUION="install-macos.sh"
-. "${ZM_AQUI}/lib/comun.sh"
+ZM_HERE="$(cd "$(dirname "$0")" && pwd)"
+ZM_SCRIPT="install-macos.sh"
+. "${ZM_HERE}/lib/common.sh"
 
-zm_opciones "$@"
-zm_exige_sistema Darwin
-zm_clave macos
+zm_options "$@"
+zm_require_system Darwin
+zm_key macos
 
 ZM_APP="/Applications/ZFSMgr.app"
 ZM_APP_CLI="${ZM_APP}/Contents/MacOS/zfsmgr-cli"
 ZM_APP_GUI="${ZM_APP}/Contents/MacOS/ZFSMgr"
 
-zm_eleva_para "${PREFIJO}/bin"
+zm_elevate_for "${PREFIX}/bin"
 
-if [ "${DESINSTALAR}" -eq 1 ]; then
-  zm_log "desinstalando"
-  # El daemon PRIMERO: lo quita el propio CLI, que hay que quitar después.
+if [ "${UNINSTALL}" -eq 1 ]; then
+  zm_log "$(zm_t 'desinstalando' 'uninstalling')"
+  # The daemon FIRST: the CLI removes it, and the CLI goes after.
   if [ -x "${ZM_BIN}" ]; then
-    zm_desinstala_daemon "${ZM_BIN}"
+    zm_uninstall_daemon "${ZM_BIN}"
   elif [ -x "${ZM_APP_CLI}" ]; then
-    zm_desinstala_daemon "${ZM_APP_CLI}"
+    zm_uninstall_daemon "${ZM_APP_CLI}"
   fi
-  zm_desinstala_cli_suelto
+  zm_uninstall_cli
   if [ -d "${ZM_APP}" ]; then
-    eleva_cli="${ZM_ELEVA}"
-    zm_eleva_para /Applications
-    zm_corre rm -rf "${ZM_APP}"
-    ZM_ELEVA="${eleva_cli}"
+    sudo_cli="${ZM_SUDO}"
+    zm_elevate_for /Applications
+    zm_run rm -rf "${ZM_APP}"
+    ZM_SUDO="${sudo_cli}"
   fi
-  zm_log "hecho. La configuración de ~/.config/ZFSMgr NO se toca."
+  zm_done_uninstall
   exit 0
 fi
 
-zm_sumas
+zm_checksums
 zm_openzfs
-zm_comprueba_trabajos
+zm_check_jobs
 
-con_gui=1
-if [ "${SOLO_CLI}" -eq 1 ]; then
-  zm_log "--solo-cli: la interfaz no se instala."
-  con_gui=0
-elif ! zm_hay_gui; then
-  zm_log "este paquete es el de SOLO CLI: no trae la interfaz gráfica."
-  con_gui=0
+with_gui=1
+if [ "${CLI_ONLY}" -eq 1 ]; then
+  zm_log "$(zm_t '--cli-only: la interfaz no se instala.' '--cli-only: the GUI is not installed.')"
+  with_gui=0
+elif ! zm_has_gui; then
+  zm_log "$(zm_t 'este paquete es el de SOLO CLI: no trae la interfaz gráfica.' \
+                 'this is the CLI-ONLY package: it has no graphical interface.')"
+  with_gui=0
 fi
 
-if [ "${con_gui}" -eq 0 ]; then
-  zm_instala_cli_suelto
+if [ "${with_gui}" -eq 0 ]; then
+  zm_install_cli
 else
-  tarball="${ZM_AQUI}/gui/${ZM_CLAVE}/ZFSMgr.app.tar.gz"
-  [ -f "${tarball}" ] || zm_muere "el paquete no trae la interfaz de ${ZM_CLAVE}"
+  tarball="${ZM_HERE}/gui/${ZM_KEY}/ZFSMgr.app.tar.gz"
+  [ -f "${tarball}" ] || zm_die "$(zm_t "el paquete no trae la interfaz de ${ZM_KEY}" "the package has no GUI for ${ZM_KEY}")"
   if pgrep -x ZFSMgr >/dev/null 2>&1; then
-    zm_err "aviso: ZFSMgr está abierto. Se reemplaza igual; ciérrelo y vuelva a abrirlo."
+    zm_err "$(zm_t 'aviso: ZFSMgr está abierto. Se reemplaza igual; ciérrelo y vuelva a abrirlo.' \
+                   'warning: ZFSMgr is open. It is replaced anyway; close it and open it again.')"
   fi
-  zm_log "interfaz -> ${ZM_APP}"
-  # Se descomprime APARTE y se cambia de una vez: si algo falla a medias, el .app que había
-  # sigue entero. Y con `tar`: el bundle lleva enlaces simbólicos (los frameworks de Qt) que
-  # un descompresor de ZIP no siempre respeta.
-  temporal="$(mktemp -d)"
-  tar -xzf "${tarball}" -C "${temporal}"
-  [ -x "${temporal}/ZFSMgr.app/Contents/MacOS/zfsmgr-cli" ] \
-    || { rm -rf "${temporal}"; zm_muere "el .app del paquete no trae el CLI dentro"; }
-  [ -d "${temporal}/ZFSMgr.app/Contents/Resources/agents" ] \
-    || zm_err "aviso: el .app no trae agentes: desde él no se podrán instalar daemons en otras máquinas"
-  eleva_cli="${ZM_ELEVA}"
-  zm_eleva_para /Applications
-  zm_corre rm -rf "${ZM_APP}"
-  zm_corre mv "${temporal}/ZFSMgr.app" "${ZM_APP}"
-  # La cuarentena. Lo que llegó por un navegador la arrastra, y Gatekeeper bloquea lo que
-  # no está notarizado: «no se puede abrir porque procede de un desarrollador no
-  # identificado», con la instalación por lo demás perfecta.
-  [ "${SIMULAR}" -eq 0 ] && ${ZM_ELEVA} xattr -dr com.apple.quarantine "${ZM_APP}" 2>/dev/null || true
-  ZM_ELEVA="${eleva_cli}"
-  rm -rf "${temporal}"
+  zm_log "$(zm_t 'interfaz' 'GUI') -> ${ZM_APP}"
+  # Unpacked APART and swapped in one go: if something fails halfway, the .app that was there
+  # stays whole. And with `tar`: the bundle carries symbolic links (Qt's frameworks) that a
+  # ZIP unpacker does not always respect.
+  tmp="$(mktemp -d)"
+  tar -xzf "${tarball}" -C "${tmp}"
+  [ -x "${tmp}/ZFSMgr.app/Contents/MacOS/zfsmgr-cli" ] \
+    || { rm -rf "${tmp}"; zm_die "$(zm_t 'el .app del paquete no trae el CLI dentro' 'the package'"'"'s .app has no CLI inside')"; }
+  [ -d "${tmp}/ZFSMgr.app/Contents/Resources/agents" ] \
+    || zm_err "$(zm_t 'aviso: el .app no trae agentes: desde él no se podrán instalar daemons en otras máquinas' \
+                      'warning: the .app has no agents: it will not install daemons on other machines')"
+  sudo_cli="${ZM_SUDO}"
+  zm_elevate_for /Applications
+  zm_run rm -rf "${ZM_APP}"
+  zm_run mv "${tmp}/ZFSMgr.app" "${ZM_APP}"
+  # The quarantine. What came through a browser carries it, and Gatekeeper blocks what is not
+  # notarised: «cannot be opened because it is from an unidentified developer», with the
+  # installation otherwise perfect.
+  [ "${DRY_RUN}" -eq 0 ] && ${ZM_SUDO} xattr -dr com.apple.quarantine "${ZM_APP}" 2>/dev/null || true
+  ZM_SUDO="${sudo_cli}"
+  rm -rf "${tmp}"
 
-  # El CLI: un enlace al del bundle. Si antes había un CLI suelto con su share/zfsmgr, se
-  # quita: se quedaría viejo al lado del bueno y desorientaría a quien lo encontrara.
-  zm_corre mkdir -p "${PREFIJO}/bin"
-  zm_corre rm -f "${ZM_BIN}"
-  zm_corre ln -s "${ZM_APP_CLI}" "${ZM_BIN}"
-  [ -d "${ZM_COMPARTIDO}" ] && zm_corre rm -rf "${ZM_COMPARTIDO}"
-  zm_prueba_gui "${ZM_APP_GUI}"
+  # The CLI: a link to the bundle's. A standalone CLI with its share/zfsmgr from before is
+  # removed: it would go stale beside the good one and mislead whoever found it.
+  zm_run mkdir -p "${PREFIX}/bin"
+  zm_run rm -f "${ZM_BIN}"
+  zm_run ln -s "${ZM_APP_CLI}" "${ZM_BIN}"
+  [ -d "${ZM_SHARE}" ] && zm_run rm -rf "${ZM_SHARE}"
+  zm_test_gui "${ZM_APP_GUI}"
 fi
 
-zm_prueba_cli
+zm_test_cli
 zm_daemon "${ZM_BIN}"
 
-[ "${SIMULAR}" -eq 1 ] && zm_log "simulacro terminado; no se ha tocado nada"
+zm_done_dry_run
 exit 0

@@ -283,7 +283,7 @@ arma() {
     plantilla "${PLANTILLAS}/${g}" "${arbol}/${g}" "${paquete}"
     chmod 0755 "${arbol}/${g}"
   done
-  plantilla "${PLANTILLAS}/lib/comun.sh" "${arbol}/lib/comun.sh" "${paquete}"
+  plantilla "${PLANTILLAS}/lib/common.sh" "${arbol}/lib/common.sh" "${paquete}"
   plantilla "${PLANTILLAS}/LEEME.txt" "${arbol}/LEEME.txt" "${paquete}"
   # Windows. El .ps1 con BOM: sin él, Windows PowerShell 5.1 lo lee como ANSI y destroza
   # los acentos y las comillas «». El .cmd con CRLF, que es lo que cmd.exe espera.

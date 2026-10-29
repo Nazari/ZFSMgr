@@ -356,7 +356,7 @@ int main(int argc, char** argv) {
             continue;
         }
         // Una opción que no es de las globales es error SOLO antes de nombrar la orden.
-        // Después pertenece a la orden, que la valida ella: `install-daemon-local --simular`
+        // Después pertenece a la orden, que la valida ella: `install-daemon-local --check`
         // tiene sus propias opciones, y tratarlas como globales las rechazaba sin llegar a
         // preguntarle. Las globales de arriba se siguen reconociendo en cualquier posición.
         if (!a.empty() && a[0] == '-' && op.orden.empty()) {
@@ -395,15 +395,18 @@ int main(int argc, char** argv) {
         bool comprobar = false;
         bool forzar = false;
         for (std::size_t i = 1; i < op.orden.size(); ++i) {
-            if (op.orden[i] == "--simular" || op.orden[i] == "--check") {
+            // --check is a dry run, as in `install-daemon --check`; --check-jobs only asks the
+            // running daemon for jobs in progress (the installers, before touching anything).
+            if (op.orden[i] == "--check") {
                 simular = true;
-            } else if (op.orden[i] == "--comprobar" && !quitar) {
+            } else if (op.orden[i] == "--check-jobs" && !quitar) {
                 comprobar = true;
             } else if (op.orden[i] == "--force" && !quitar) {
                 forzar = true;
             } else {
-                std::fprintf(stderr, TC("t_idl_uso3", "uso: %s %s [--simular] [--comprobar] [--force]\n"), kNombre,
-                             op.orden[0].c_str());
+                std::fprintf(stderr,
+                             TC("t_idl_uso4", "uso: %s %s [--check] [--check-jobs] [--force]\n"),
+                             kNombre, op.orden[0].c_str());
                 return 2;
             }
         }
@@ -443,7 +446,7 @@ int main(int argc, char** argv) {
         // **Con trabajos en curso no se reinstala**: reinstalar reinicia el servicio y lo que
         // estuviera copiando muere a medias. Se pregunta al daemon que está en marcha, con su
         // propio material TLS —esto corre como root—; si no hay daemon o no contesta, no hay
-        // trabajos que proteger. `--comprobar` solo hace esto: lo usa el instalador ANTES de
+        // trabajos que proteger. `--check-jobs` solo hace esto: lo usa el instalador ANTES de
         // tocar nada, para no dejar un CLI nuevo con el daemon viejo a medio camino.
         if ((comprobar || !forzar) && !simular) {
             const auto lee = [](const std::string& ruta) {
