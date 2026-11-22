@@ -504,6 +504,66 @@ def casos_overview(ctx):
         sh(ctx, f"rm -f {a} {b}")
 
 
+def casos_sudo_sin_argv(ctx):
+    """The sudo password never travels in a command line. An `ssh` and an `sh` that write
+    down their arguments go first in PATH: whatever the CLI launched through them is in the
+    log, and the password must not be, in clear or in octal. And sudo must still work: it
+    gets the password through stdin."""
+    bin_falso = os.path.join(ctx.dir_tmp, "bin-argv")
+    registro = os.path.join(ctx.dir_tmp, "argv.log")
+    os.makedirs(bin_falso, exist_ok=True)
+    for nombre, real in (("ssh", shutil.which("ssh")), ("sh", "/bin/sh")):
+        ruta = os.path.join(bin_falso, nombre)
+        with open(ruta, "w") as f:
+            f.write(f"#!/bin/bash\nprintf '%s\\n' \"{nombre} $*\" >> {shlex.quote(registro)}\n"
+                    f"exec {shlex.quote(real)} \"$@\"\n")
+        os.chmod(ruta, 0o755)
+    if os.path.exists(registro):
+        os.remove(registro)
+    snap = f"{POOL_LOCAL}@sudoargv"
+    sh(ctx, f"zfs snapshot {snap}", root=True)
+    objetivos = [("local", f"zfsm://local/{POOL_LOCAL}@sudoargv")]
+    if ctx.remoto:
+        rc, ultimo = sh(ctx, "zfs list -t snapshot -H -o name -s creation ppal/user/srvs | tail -1",
+                        en_remoto=True)
+        # sh() gives stderr after stdout, and ssh may add warnings there: the line wanted
+        # is the one that names a snapshot.
+        nombres = [l for l in ultimo.splitlines() if l.startswith("ppal/") and "@" in l]
+        if rc == 0 and nombres:
+            objetivos.append(("unib", "zfsm://unib/" + nombres[-1].strip()))
+    fichero = os.path.join(ctx.dir_tmp, ".maestra")
+    octal = "".join(f"\\0{b:o}" for b in ctx.sudo.encode())
+    try:
+        for maquina, url in objetivos:
+            orden = (f"export PATH={shlex.quote(bin_falso)}:$PATH; exec 9<{fichero}; "
+                     f"exec {CLI!r} --password-fd 9 --format text --lang es -y")
+            p = subprocess.run(["bash", "-c", orden], input=f"holds {url}\nexit\n",
+                               capture_output=True, text=True, timeout=120)
+            salida = p.stdout + p.stderr
+            visto = open(registro).read() if os.path.exists(registro) else ""
+            problemas = []
+            if p.returncode != 0:
+                problemas.append(f"rc={p.returncode}: holds con sudo debe funcionar")
+            if "sudo -k -S" not in visto:
+                problemas.append("el registro no recoge la orden con sudo: la prueba no mira nada")
+            if ctx.sudo in visto or octal in visto:
+                problemas.append("la contraseña de sudo aparece en los argumentos de un proceso")
+            nombre = f"sudo: la contraseña no va en ningún argumento ({maquina})"
+            if problemas:
+                ctx.fallos.append((nombre, problemas, salida))
+                print(f"  FALLO  {nombre}")
+                for x in problemas:
+                    print(f"         {x}")
+            else:
+                ctx.pasados.append(nombre)
+                print(f"  ok     {nombre}")
+            if os.path.exists(registro):
+                os.remove(registro)
+    finally:
+        sh(ctx, f"zfs destroy {snap}", root=True)
+        shutil.rmtree(bin_falso, ignore_errors=True)
+
+
 def casos_dedup(ctx):
     """La columna DEDUP del listado de POOLS, sobre un pool que deduplica de verdad.
 
@@ -3296,7 +3356,7 @@ def casos_arranque(ctx):
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
 LOCALES = [casos_arranque, casos_identidad, casos_devices, casos_ayuda, casos_version_openzfs, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
-           casos_volumenes, casos_dedup, casos_overview, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_send_level, casos_recepcion_a_medias, casos_send_fichero, casos_send_comprimido, casos_gsa, casos_sin_montar, casos_cp_destino, casos_load_key, casos_editor_ancho, casos_tab_continua, casos_pantalla, casos_monitor_conexiones, casos_path, casos_info_labelclear, casos_servicio, casos_servicio_conexiones, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
+           casos_volumenes, casos_dedup, casos_overview, casos_sudo_sin_argv, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_send_level, casos_recepcion_a_medias, casos_send_fichero, casos_send_comprimido, casos_gsa, casos_sin_montar, casos_cp_destino, casos_load_key, casos_editor_ancho, casos_tab_continua, casos_pantalla, casos_monitor_conexiones, casos_path, casos_info_labelclear, casos_servicio, casos_servicio_conexiones, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
 def rpc_directo(ctx, entrada, cmd, args):

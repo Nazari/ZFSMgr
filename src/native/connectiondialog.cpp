@@ -1,5 +1,6 @@
 #include "connectiondialog.h"
 #include "i18nmanager.h"
+#include "connectionstore.h"
 #include "mainwindow_helpers.h"
 
 #include "base/helpers.h"
@@ -621,6 +622,13 @@ bool ConnectionDialog::runSshProbe(const ConnectionProfile& p,
                                         .arg(program, oneLine(err)));
         return false;
     }
+    // The sudo password, when the command needs one, goes in stdin: see withSudoCommand.
+    const std::string entrada =
+        zfsmgr::base::helpers::sudoStdin(toBaseProfile(p), remoteCmd.toStdString(), std::string());
+    if (!entrada.empty()) {
+        proc.write(entrada.data(), static_cast<qint64>(entrada.size()));
+    }
+    proc.closeWriteChannel();
     if (!proc.waitForFinished(timeoutMs)) {
         proc.kill();
         proc.waitForFinished(1000);

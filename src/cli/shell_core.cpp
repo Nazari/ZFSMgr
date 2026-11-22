@@ -419,12 +419,12 @@ bool resuelve(const Estado& e, const std::string& texto, ZfsmUrl& out, std::stri
     return true;
 }
 
-// Una copia del perfil con las credenciales de sudo puestas si hacían falta y no estaban.
+// A copy of the profile with the sudo credentials filled in when they were needed and missing.
 //
-// Hace falta en los caminos que ejecutan una orden de shell —el listado de contenido—,
-// porque `withSudoCommand` mete la contraseña en la orden y sin ella `sudo` se queda
-// pidiéndola por un terminal que no está escuchando. El RPC del daemon no pasa por aquí:
-// allí quien eleva es el propio daemon.
+// Needed on the paths that run a shell command —the content listing—, because the transport
+// gives `sudo` the profile's password through stdin, and without it `sudo` keeps asking on a
+// terminal nobody is listening to. The daemon's RPC does not come this way: there the daemon
+// itself elevates.
 B::ConnectionProfile conSudo(Estado& e, const B::ConnectionProfile& p) {
     B::ConnectionProfile copia = p;
     if (!copia.useSudo || !copia.password.empty() || !T::isLocalConnection(copia)) {

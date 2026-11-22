@@ -315,16 +315,41 @@ void caso12() {
             comprobar(!contains(a, "ControlPath"), "sin multiplexado no hay ControlPath");
         }
 
-        // sudo: sin contrasena va -n; con contrasena, la clave viaja en octal y NUNCA
-        // en claro dentro de la orden.
+        // sudo: without a password, -n; with one, the password is NOT in the command in any
+        // form, and goes as the first line of stdin, before whatever the command reads.
         p.osType = "linux";
         p.useSudo = true;
         comprobar(contains(H::withSudoCommand(p, "zfs list"), "sudo -n sh -c"),
                   "sin contrasena se usa sudo -n");
+        igual(H::sudoStdin(p, H::withSudoCommand(p, "zfs list"), "x"), "x",
+              "sin contrasena la entrada no cambia");
         p.password = "rpq231";
         const std::string conPw = H::withSudoCommand(p, "zfs list");
         comprobar(!contains(conPw, "rpq231"), "la contrasena NO aparece en claro");
-        comprobar(contains(conPw, H::shPrintfOctalEscaped("rpq231")), "va escapada en octal");
+        comprobar(!contains(conPw, H::shPrintfOctalEscaped("rpq231")), "ni escapada en octal");
+        comprobar(H::readsSudoPasswordFromStdin(conPw), "la orden la lee de la entrada");
+        igual(H::sudoStdin(p, conPw, std::string()), "rpq231\n", "la contrasena, sola");
+        igual(H::sudoStdin(p, conPw, "BIN"), "rpq231\nBIN", "la contrasena, y detras los datos");
+        igual(H::sudoStdin(p, "zfs list", "BIN"), "BIN", "una orden sin sudo no la recibe");
+        {
+            // Both ends of a pipeline: both passwords in the pipeline's stdin, none in it.
+            zfsmgr::base::ConnectionProfile otro = p;
+            otro.password = "otraClave";
+            std::string entrada;
+            const std::string t = H::sudoPipeline(
+                p, "ssh a " + zfsmgr::base::shSingleQuote(H::withSudoCommand(p, "tar c")), otro,
+                H::withSudoCommand(otro, "recv"), entrada);
+            igual(entrada, "rpq231\notraClave\n", "las dos contrasenas, en orden");
+            comprobar(!contains(t, "rpq231") && !contains(t, "otraClave"), "ninguna en la tuberia");
+            // And it really runs: each end gets ITS password as its first line, and the
+            // receiving end gets the sender's output after it. The ends stand in for sudo
+            // by reading one line, as sudo -S does.
+            const std::string falsa =
+                H::sudoPipeline(p, "sh -c 'IFS= read -r x; echo \"S:$x\"'", otro,
+                                "sh -c 'IFS= read -r x; echo \"D:$x\"; cat'", entrada);
+            const auto r = zfsmgr::base::runExecStream("sh", {"-c", falsa}, entrada, 10000, {});
+            igual(r.out, "D:otraClave\nS:rpq231\n", "cada punta recibe su contrasena");
+        }
         // En Windows no hay sudo: la orden sale intacta.
         p.osType = "Windows 11";
         igual(H::withSudoCommand(p, "zfs list"), "zfs list", "en Windows no se envuelve en sudo");

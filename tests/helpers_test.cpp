@@ -346,14 +346,10 @@ int main() {
     if (!sudoStdinRx.match(sudoCmd).hasMatch() || !sudoCmd.contains("zpool list")) {
         return fail("withSudoCommand linux/password mismatch");
     }
-    const QString sudoStream = withSudoStreamInputCommand(sudoLinux, "zfs recv pool");
-    if (!sudoStream.contains("cat;") || !sudoStdinRx.match(sudoStream).hasMatch()) {
-        return fail("withSudoStreamInputCommand linux/password mismatch");
-    }
     ConnectionProfile win;
     win.osType = "Windows";
     win.useSudo = true;
-    if (withSudoCommand(win, "cmd") != "cmd" || withSudoStreamInputCommand(win, "cmd2") != "cmd2") {
+    if (withSudoCommand(win, "cmd") != "cmd") {
         return fail("withSudo* should no-op for windows");
     }
 
@@ -606,21 +602,16 @@ int main() {
         return fail("shPrintfOctalEscaped of an empty string must be empty");
     }
     {
-        // Y la orden real debe usar %b con la contraseña ya codificada.
+        // The password is never in the command, in any form: it goes through stdin.
         ConnectionProfile sp;
         sp.osType = "Linux";
         sp.useSudo = true;
         sp.password = QString::fromUtf8("añ'b");
         const QString c = withSudoCommand(sp, "zfs list");
-        if (!c.contains("printf \'%b\\n\' \'\\0141\\0303\\0261\\0047\\0142\'")) {
-            return fail("withSudoCommand should embed the password as octal escapes");
-        }
-        if (c.contains(QString::fromUtf8("ñ"))) {
-            return fail("withSudoCommand must not embed the password verbatim");
-        }
-        const QString cs = withSudoStreamInputCommand(sp, "zfs list");
-        if (!cs.contains("printf \'%b\\n\'") || cs.contains(QString::fromUtf8("ñ"))) {
-            return fail("withSudoStreamInputCommand should do the same");
+        if (!c.startsWith("sudo -k -S -p '' sh -c ") || c.contains("printf")
+            || c.contains(QString::fromUtf8("ñ"))
+            || c.contains(shPrintfOctalEscaped(QString::fromUtf8("añ'b")))) {
+            return fail("withSudoCommand must not carry the password");
         }
     }
 
@@ -650,11 +641,6 @@ int main() {
         // Y debe seguir llevando dentro tanto el PATH como el mandato.
         if (!c.contains("export PATH") || !c.contains("zfsmgr-agent --health")) {
             return fail("withSudoCommand lost the PATH prefix or the command");
-        }
-        // La variante con entrada por tubería ya lo hacía bien; que siga igual.
-        const QString cs = withSudoStreamInputCommand(np, "/usr/local/libexec/zfsmgr-agent --health");
-        if (!cs.startsWith("sudo -n sh -c ")) {
-            return fail("withSudoStreamInputCommand without a password regressed");
         }
     }
 
@@ -809,19 +795,11 @@ int main() {
         p.password = QStringLiteral("rpq231");
         const QVector<StorableSecret> secrets{StorableSecret{QStringLiteral("fc16"), p.password}};
 
-        // La forma real: la que produce withSudoCommand.
-        const QString real = withSudoCommand(
-            [&]() {
-                ConnectionProfile prof;
-                prof.password = p.password;
-                prof.useSudo = true;
-                prof.osType = QStringLiteral("linux");
-                return prof;
-            }(),
-            QStringLiteral("zfs list -H"));
-        if (!real.contains(shPrintfOctalEscaped(p.password))) {
-            return fail("el caso de prueba no reproduce la forma octal de withSudoCommand");
-        }
+        // The form withSudoCommand used to produce. It no longer does —the password goes
+        // through stdin—, but an action stored before still carries it, and the redaction
+        // must keep handling it.
+        const QString real = QStringLiteral("printf '%b\\n' '") + shPrintfOctalEscaped(p.password)
+                             + QStringLiteral("' | sudo -k -S -p '' sh -c 'zfs list -H'");
 
         bool ok = false;
         const QString stored = redactSecretsForStorage(real, secrets, &ok);

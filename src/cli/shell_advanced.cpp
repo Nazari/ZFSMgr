@@ -688,8 +688,11 @@ bool cmdFromDir(Estado& e, const LineaAnalizada& linea) {
         return H::sshBaseCommand(p) + " " + B::shSingleQuote(H::sshUserHost(p)) + " "
                + B::shSingleQuote(T::wrapRemoteCommand(p, cmd));
     };
-    const std::string tuberia = porSsh(src, H::withSudoCommand(src, tarOrigen)) + " | "
-                                + porSsh(dst, H::withSudoStreamInputCommand(dst, recibe));
+    // The sudo passwords of both ends travel in the pipeline's stdin: see sudoPipeline.
+    std::string entrada;
+    const std::string tuberia =
+        H::sudoPipeline(src, porSsh(src, H::withSudoCommand(src, tarOrigen)), dst,
+                        porSsh(dst, H::withSudoCommand(dst, recibe)), entrada);
 
     // Se ejecuta EN ESTA máquina: es la que tiene las credenciales de las dos puntas.
     B::ConnectionProfile aqui;
@@ -702,7 +705,7 @@ bool cmdFromDir(Estado& e, const LineaAnalizada& linea) {
     if (!T::runSsh(
             e.ses->transporte, aqui, tuberia, 0, out, err, rc,
             [](const std::string& l) { std::fprintf(stdout, "%s\n", l.c_str()); },
-            [](const std::string& l) { std::fprintf(stderr, "%s\n", l.c_str()); }, {}, {},
+            [](const std::string& l) { std::fprintf(stderr, "%s\n", l.c_str()); }, {}, entrada,
             /*allowAgentRpc=*/false, /*echoOutputToLog=*/e.ses->verboso)
         || rc != 0) {
         std::fprintf(stderr, TC("t_fromdir_fa_67991a", "fromdir falló (código %d)\n"), rc);

@@ -253,7 +253,7 @@ QString withSudoCommand(const ConnectionProfile& p, const QString& cmd) {
     return q(B::withSudoCommand(toBase(p), b(cmd)));
 }
 QString withSudoStreamInputCommand(const ConnectionProfile& p, const QString& cmd) {
-    return q(B::withSudoStreamInputCommand(toBase(p), b(cmd)));
+    return q(B::withSudoCommand(toBase(p), b(cmd)));
 }
 QString agentCommand(const ConnectionProfile& p, const QString& agentArgs) {
     return q(B::agentCommand(toBase(p), b(agentArgs)));
@@ -262,7 +262,7 @@ QString agentShellCommand(const ConnectionProfile& p, const QStringList& agentAr
     return q(B::agentShellCommand(toBase(p), bl(agentArgs)));
 }
 QString agentShellCommandStreamInput(const ConnectionProfile& p, const QStringList& agentArgs) {
-    return q(B::agentShellCommandStreamInput(toBase(p), bl(agentArgs)));
+    return q(B::agentShellCommand(toBase(p), bl(agentArgs)));
 }
 
 

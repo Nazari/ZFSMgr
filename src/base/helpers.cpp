@@ -499,6 +499,18 @@ std::vector<std::string> scpUploadArgs(const ConnectionProfile& p,
     return args;
 }
 
+namespace {
+
+// What withSudoCommand puts in front when sudo must read a password. The transport looks
+// for exactly this prefix to know that the first line of stdin is the password.
+constexpr const char* kSudoFromStdin = "sudo -k -S -p '' sh -c ";
+
+bool sudoNeedsPassword(const ConnectionProfile& p) {
+    return !isWindowsOsType(p.osType) && p.useSudo && !p.password.empty();
+}
+
+}  // namespace
+
 std::string withSudoCommand(const ConnectionProfile& p, const std::string& cmd) {
     if (isWindowsOsType(p.osType)) {
         return cmd;
@@ -508,11 +520,12 @@ std::string withSudoCommand(const ConnectionProfile& p, const std::string& cmd) 
         return preparedCmd;
     }
     if (!p.password.empty()) {
-        // %b + escapes octales: la contraseña viaja en ASCII puro. Ver
-        // shPrintfOctalEscaped: en macOS, Qt descompone los caracteres al pasar la
-        // orden al intérprete y sudo recibía otros bytes.
-        return format("printf '%b\\n' '%1' | sudo -k -S -p '' sh -c %2",
-                      {shPrintfOctalEscaped(p.password), shSingleQuote(preparedCmd)});
+        // The password is NOT in the command: whoever runs it puts it as the first line of
+        // stdin (see sudoStdin). In the command it ended up in the argv of the local ssh and
+        // of the remote `sh -c`, readable with `ps` by any user of either machine while it
+        // ran. sudo reads its password byte by byte up to the newline, so whatever follows
+        // in stdin reaches the command untouched: a binary, a stream to receive.
+        return kSudoFromStdin + shSingleQuote(preparedCmd);
     }
     // `sh -c` con la orden entrecomillada. Concatenar `sudo -n ` delante no valía:
     // withUnixSearchPathCommand antepone `PATH="..."; export PATH; `, y los punto y coma
@@ -522,19 +535,37 @@ std::string withSudoCommand(const ConnectionProfile& p, const std::string& cmd) 
     return format("sudo -n sh -c %1", {shSingleQuote(preparedCmd)});
 }
 
-std::string withSudoStreamInputCommand(const ConnectionProfile& p, const std::string& cmd) {
-    if (isWindowsOsType(p.osType)) {
-        return cmd;
+bool readsSudoPasswordFromStdin(const std::string& cmd) {
+    return startsWith(trim(cmd), kSudoFromStdin);
+}
+
+std::string sudoStdin(const ConnectionProfile& p, const std::string& cmd,
+                      const std::string& stdinPayload) {
+    if (!sudoNeedsPassword(p) || !readsSudoPasswordFromStdin(cmd)) {
+        return stdinPayload;
     }
-    const std::string preparedCmd = withUnixSearchPathCommand(cmd);
-    if (!p.useSudo) {
-        return preparedCmd;
-    }
-    if (!p.password.empty()) {
-        return format("{ printf '%b\\n' '%1'; cat; } | sudo -k -S -p '' sh -c %2",
-                      {shPrintfOctalEscaped(p.password), shSingleQuote(preparedCmd)});
-    }
-    return format("sudo -n sh -c %1", {shSingleQuote(preparedCmd)});
+    return p.password + "\n" + stdinPayload;
+}
+
+std::string sudoPipeline(const ConnectionProfile& src, const std::string& srcCmd,
+                         const ConnectionProfile& dst, const std::string& dstCmd,
+                         std::string& stdinOut) {
+    // Both ends may need a password, and the receiving end's stdin is the stream. So both
+    // passwords come in the pipeline's own stdin, are read into shell variables (never
+    // exported, never in an argv: `read` and `printf` are builtins), and each is given to
+    // its end as the first line of what that end reads.
+    //
+    // Decided by the profiles, not by the commands: the ends usually arrive already wrapped
+    // in `ssh host '…'`, so the sudo prefix is no longer at the start.
+    const bool pideOrigen = sudoNeedsPassword(src);
+    const bool pideDestino = sudoNeedsPassword(dst);
+    stdinOut = (pideOrigen ? src.password : std::string()) + "\n"
+               + (pideDestino ? dst.password : std::string()) + "\n";
+    const std::string origen =
+        pideOrigen ? "printf '%s\\n' \"$zm_ps\" | " + srcCmd : srcCmd + " </dev/null";
+    return "IFS= read -r zm_ps; IFS= read -r zm_pd; { "
+           + std::string(pideDestino ? "printf '%s\\n' \"$zm_pd\"; " : "") + origen + "; } | "
+           + dstCmd;
 }
 
 std::string agentCommand(const ConnectionProfile& p, const std::string& agentArgs) {
@@ -558,20 +589,6 @@ std::string agentShellCommand(const ConnectionProfile& p,
         quoted.push_back(isWindowsOsType(p.osType) ? a : shSingleQuote(a));
     }
     return agentCommand(p, join(quoted, " "));
-}
-
-std::string agentShellCommandStreamInput(const ConnectionProfile& p,
-                                         const std::vector<std::string>& agentArgs) {
-    if (isWindowsOsType(p.osType)) {
-        return agentShellCommand(p, agentArgs);
-    }
-    std::vector<std::string> quoted;
-    quoted.reserve(agentArgs.size());
-    for (const std::string& a : agentArgs) {
-        quoted.push_back(shSingleQuote(a));
-    }
-    return withSudoStreamInputCommand(
-        p, withUnixSearchPathCommand(daemonpayload::unixBinPath() + " " + join(quoted, " ")));
 }
 
 namespace {

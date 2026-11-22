@@ -212,7 +212,8 @@ bool runSshRaw(const ConnectionProfile& p,
     args.push_back(H::sshUserHost(p));
     args.push_back(H::asciiSafeShellCommand(remoteCmd));
 
-    const ExecResult r = runExecStream(program, args, std::string(),
+    // The sudo password, when the command needs one, goes in stdin: see withSudoCommand.
+    const ExecResult r = runExecStream(program, args, H::sudoStdin(p, remoteCmd, {}),
                                        timeoutMs > 0 ? timeoutMs : 15000, StreamCallbacks{});
     // Los dos fracasos que quien llama distingue, con el mismo texto que antes: aquí un
     // `false` no significa «el comando dijo que no», significa «no hubo comando».
@@ -859,7 +860,8 @@ bool runSsh(TransportSession& ses,
                                    onStdoutLine, onStderrLine, onIdleTimeoutRemaining};
         // Sin plazo propio del proceso: el control va en onTick, porque el tope es de
         // INACTIVIDAD y no de duración total.
-        const ExecResult res = runExecStream(program, args, stdinPayload, 0, vig.callbacks());
+        const ExecResult res = runExecStream(program, args, H::sudoStdin(p, localCmd, stdinPayload),
+                                             0, vig.callbacks());
         out = res.out;
         err = res.err;
         if (res.rc == 127 && !vig.porInactividad) {
@@ -1019,7 +1021,8 @@ bool runSsh(TransportSession& ses,
 
         VigilanteDeInactividad vig{ses,       p.id,          timeoutMs,          echoOutputToLog,
                                    onStdoutLine, onStderrLine, onIdleTimeoutRemaining};
-        const ExecResult res = runExecStream(programa, args, stdinPayload, 0, vig.callbacks());
+        const ExecResult res = runExecStream(
+            programa, args, H::sudoStdin(p, remoteCmd, stdinPayload), 0, vig.callbacks());
         aOut = res.out;
         aErr = res.err;
         if (res.rc == 127 && !vig.porInactividad) {

@@ -374,8 +374,8 @@ Result install(TransportSession& ses, const ConnectionProfile& perfil,
     // allowAgentRpc=false: se está INSTALANDO el agente; desviar esto al RPC del agente que
     // se quiere sustituir no tendría ningún sentido.
     const std::string guion = installScript(plataforma, r.version, api);
-    if (!T::runSsh(ses, perfil, H::withSudoStreamInputCommand(perfil, guion), 300000, out, err, rc,
-                   traza, traza, {}, contenido, false, verboso)
+    if (!T::runSsh(ses, perfil, H::withSudoCommand(perfil, guion), 300000, out, err, rc, traza,
+                   traza, {}, contenido, false, verboso)
         || rc != 0) {
         r.fallo = Failure::InstallFailed;
         r.rc = rc;
@@ -548,8 +548,8 @@ Result installCli(TransportSession& ses, const ConnectionProfile& perfil,
     std::string out;
     std::string errSsh;
     int rc = -1;
-    if (!T::runSsh(ses, perfil, H::withSudoStreamInputCommand(perfil, cliInstallScript(binPath)),
-                   300000, out, errSsh, rc, traza, traza, {}, tar, false, verboso)
+    if (!T::runSsh(ses, perfil, H::withSudoCommand(perfil, cliInstallScript(binPath)), 300000, out,
+                   errSsh, rc, traza, traza, {}, tar, false, verboso)
         || rc != 0) {
         r.fallo = Failure::InstallFailed;
         r.rc = rc;

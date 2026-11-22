@@ -470,12 +470,24 @@ std::vector<std::string> scpUploadArgs(const ConnectionProfile& p,
                                        const std::string& remotePath,
                                        bool multiplex);
 
+// `cmd` run with sudo when the profile asks for it. With a sudo password the command
+// expects that password as the FIRST line of its stdin, and never carries it: pass what
+// will be written to stdin through sudoStdin. The transport (runSsh, runSshRaw) already does.
 std::string withSudoCommand(const ConnectionProfile& p, const std::string& cmd);
-std::string withSudoStreamInputCommand(const ConnectionProfile& p, const std::string& cmd);
+// Whether `cmd`, as withSudoCommand built it, reads the sudo password from stdin.
+bool readsSudoPasswordFromStdin(const std::string& cmd);
+// What to write to the stdin of `cmd`: the sudo password first when `cmd` needs it, then
+// `stdinPayload`.
+std::string sudoStdin(const ConnectionProfile& p, const std::string& cmd,
+                      const std::string& stdinPayload);
+// A local shell pipeline `srcCmd | dstCmd` where each end is a withSudoCommand of its
+// profile (already wrapped in ssh if remote). `stdinOut` is what the pipeline must receive on stdin: the
+// passwords of both ends, which reach each end without passing through any argv.
+std::string sudoPipeline(const ConnectionProfile& src, const std::string& srcCmd,
+                         const ConnectionProfile& dst, const std::string& dstCmd,
+                         std::string& stdinOut);
 std::string agentCommand(const ConnectionProfile& p, const std::string& agentArgs);
 std::string agentShellCommand(const ConnectionProfile& p,
                               const std::vector<std::string>& agentArgs);
-std::string agentShellCommandStreamInput(const ConnectionProfile& p,
-                                         const std::vector<std::string>& agentArgs);
 
 }  // namespace zfsmgr::base::helpers
