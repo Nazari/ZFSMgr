@@ -123,7 +123,7 @@ Un campo nuevo se puede añadir sin avisar. Quitar o renombrar uno es un cambio 
 | `ls <dataset>#properties` | `{"properties":[{"property","value","source"}]}` |
 | `ls <dataset>#content[/<ruta>]` | `{"entries":[{"name","type","size","modified",…}]}`; `type`: `file`, `directory`… |
 | `breakdown --list --on <dataset>` | `{"directories":[{"dir","bytes","files"}]}` |
-| `install-daemon -a --check` | `{"items":[{"connection","daemon","action","cli","cli_action","code","cli_code"}]}`; `code`: `install`, `update`, `ok`, `ahead`, `disconnected`; `cli_code`: `update`, `ok`, `skip`. `action` y `cli_action` son texto para una persona |
+| `install-daemon -a --check` | `{"items":[{"connection","daemon","action","cli","cli_action","code","cli_code"}]}`; `code`: `install`, `update`, `ok`, `latest` (ya tiene el que hay para instalar), `ahead`, `disconnected`; `cli_code`: `update`, `ok`, `skip`. `action` y `cli_action` son texto para una persona |
 | `peers zfsm://<conexión>` | `{"peers":[{"id","host","port","uid","role"}]}`; `role` es `pull`, `full` o `-` (daemon anterior a saberlo) |
 | `ls <conexión/pool/dataset>` | `{"entries":[…]}`, una fila por hijo |
 | `overview [-a]` | `{"machines":[…],"warnings":[…]}`; ver abajo |
@@ -186,8 +186,9 @@ conexión desconectada. `create` sin `--os` usa la misma detección del sistema.
 
 - Códigos fijos: `os` (`Linux`, `macOS`, `FreeBSD`, `Windows`), `sudo` (`ok`,
   `wrong_password`, `needs_password`, `could_not_check`, `not_used`), `openzfs` (`ok`,
-  `too_old`, `not_loaded`, `missing`, `unknown`), `daemon` (`ok`, `outdated`, `ahead`,
-  `unknown`, `unreachable`, este con `daemon_detail`) y `status` (`ok`, `warning`, `error`).
+  `too_old`, `not_loaded`, `missing`, `unknown`), `daemon` (`ok`, `outdated`, `latest` —más
+  viejo que el cliente, pero el más nuevo que hay para instalar—, `ahead`, `unknown`,
+  `unreachable`, este con `daemon_detail`) y `status` (`ok`, `warning`, `error`).
 - Sin respuesta: `reachable: false` y `reason`, sin el resto.
 - `rc` es 1 cuando `status` es `error`: la conexión no sirve tal como está (el sistema no es el
   que dice, sudo no acepta la contraseña, falta OpenZFS…). Los `warnings` dicen qué hacer.

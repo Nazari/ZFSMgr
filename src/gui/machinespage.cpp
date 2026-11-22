@@ -77,6 +77,9 @@ QString probeWord(const QString& what, const QString& code) {
         if (code == QLatin1String("outdated")) {
             return L("▲ outdated", "▲ anticuado");
         }
+        if (code == QLatin1String("latest")) {
+            return L("● the newest there is to install", "● el más nuevo que hay para instalar");
+        }
         if (code == QLatin1String("unreachable")) {
             return L("✕ cannot be reached", "✕ no se llega a él");
         }
@@ -429,9 +432,13 @@ void MachinesPage::showMachine(const QString& id) {
     auto* daemon =
         button(L("Install or update the daemon…", "Instalar o actualizar el daemon…"), w);
     connect(daemon, &QPushButton::clicked, this, [this, id] {
-        m_probe.remove(id);
+        // Checked again when the installation has FINISHED: asked before, the answer came
+        // from the old daemon and stayed, so the button seemed to do nothing.
         act(QStringLiteral("install-daemon --on ") + url(id),
-            L("Daemon installed.", "Daemon instalado."));
+            L("Daemon installed.", "Daemon instalado."), false, [this, id] {
+                m_probe.remove(id);
+                showDetail();
+            });
     });
     buttons->addWidget(daemon);
     if (m_advanced && connected) {
@@ -1184,9 +1191,13 @@ QWidget* MachinesPage::datasetSummary(const QString& machine, const QString& dat
     return w;
 }
 
-void MachinesPage::act(const QString& line, const QString& done, bool reloadTree) {
-    m_store->general()->request(line, this, [this, done, reloadTree](const CliResult& r) {
+void MachinesPage::act(const QString& line, const QString& done, bool reloadTree,
+                       std::function<void()> then) {
+    m_store->general()->request(line, this, [this, done, reloadTree, then](const CliResult& r) {
         Q_EMIT message(r.ok() ? done : r.err.trimmed());
+        if (then) {
+            then();
+        }
         if (reloadTree) {
             // The open pools are asked again: what changed is in one of them.
             for (int i = 0; i < m_tree->topLevelItemCount(); ++i) {

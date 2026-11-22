@@ -89,6 +89,24 @@ int main(int argc, char** argv) {
     check(after == 1, "the queue goes on after a dropped answer");
     check(called == 0, "an answer for a deleted owner is not delivered");
 
+    // Destroying a service whose process is running —what happens to every service when the
+    // window closes— tells nobody: its owner may be half destroyed (the exit crash).
+    {
+        auto* t = new CliService(fake, QStringLiteral("en"));
+        bool up = false;
+        int failures = 0;
+        QObject::connect(t, &CliService::ready, [&up](const QString&) { up = true; });
+        QObject::connect(t, &CliService::failed, [&failures](const QString&, bool) { ++failures; });
+        t->start(QByteArray());
+        waitFor([&] { return up; });
+        int late = 0;
+        t->request(QStringLiteral("pwd"), &alive, [&late](const CliResult&) { ++late; });
+        delete t;
+        QCoreApplication::processEvents();
+        check(up && failures == 0, "destroying a running service does not emit failed");
+        check(late == 0, "nor delivers the answers still pending");
+    }
+
     if (g_fails == 0) {
         std::printf("gui2 service: all good\n");
     }

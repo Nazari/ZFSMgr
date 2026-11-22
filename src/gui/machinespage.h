@@ -9,6 +9,8 @@
 #include <QJsonObject>
 #include <QWidget>
 
+#include <functional>
+
 class QTreeWidget;
 class QTreeWidgetItem;
 class QScrollArea;
@@ -48,7 +50,9 @@ private:
     QWidget* propertiesTab(const QString& machine, const QString& dataset);
     QWidget* organizeTab(const QString& machine, const QString& dataset);
     // Runs a command line on the general service, says how it went and refreshes.
-    void act(const QString& line, const QString& done, bool reloadTree = true);
+    // `then`: what to do once it has finished —for instance, check the machine again—.
+    void act(const QString& line, const QString& done, bool reloadTree = true,
+             std::function<void()> then = {});
     void setDetail(QWidget* w);
     // The tree's item for a machine (empty pool) or for one of its pools; null if gone.
     QTreeWidgetItem* findItem(const QString& machine, const QString& pool) const;

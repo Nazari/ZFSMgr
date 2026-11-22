@@ -881,6 +881,11 @@ PlanCli planDelCli(Estado& e, const B::ConnectionProfile& perfil);
 std::string textoDePlanCli(const PlanCli& plan);
 bool actualizaCli(Estado& e, const B::ConnectionProfile& perfilConSudo, const PlanCli& plan);
 bool cmdInstalarDaemon(Estado& e, const LineaAnalizada& linea);
+// The version of the daemon this computer has to install on that machine (for its system and
+// architecture); empty if it has none. When the machine already runs that very one, there is
+// nothing to update, however far this client is ahead: a development build of the CLI is
+// newer than every daemon it carries.
+std::string versionParaInstalar(Estado& e, const B::ConnectionProfile& perfil);
 std::map<std::string, std::string> clavesDe(const std::string& texto);
 bool cmdJobs(Estado& e, const LineaAnalizada& linea);
 bool cmdJob(Estado& e, const LineaAnalizada& linea);

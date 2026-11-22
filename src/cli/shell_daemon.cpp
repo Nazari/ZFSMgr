@@ -49,6 +49,13 @@ PlanCli planDelCli(Estado& e, const B::ConnectionProfile& perfil) {
     return plan;
 }
 
+std::string versionParaInstalar(Estado& e, const B::ConnectionProfile& perfil) {
+    namespace DI = B::daemoninstall;
+    const std::string binario = rutaDelAgente(
+        DI::platformOf(perfil), DI::remoteArchitecture(e.ses->transporte, perfil, e.ses->verboso));
+    return binario.empty() ? std::string() : B::agentversion::versionInBinary(binario);
+}
+
 std::string textoDePlanCli(const PlanCli& plan) {
     switch (plan.accion) {
         case PlanCli::Accion::NoHay:
@@ -156,7 +163,10 @@ bool cmdInstalarDaemon(Estado& e, const LineaAnalizada& linea) {
                     accion = T("t_instala_accion_al_dia", "al día: no se toca");
                     break;
                 case B::agentversion::Verdict::Update:
-                    accion = T("t_instala_accion_actualizar", "actualizar");
+                    accion = version == versionParaInstalar(e, conSudo(e, *p))
+                                 ? T("t_instala_accion_ultimo",
+                                     "ya tiene el que hay para instalar: no se toca")
+                                 : T("t_instala_accion_actualizar", "actualizar");
                     break;
                 case B::agentversion::Verdict::Ahead:
                     accion =

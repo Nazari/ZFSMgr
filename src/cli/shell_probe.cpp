@@ -303,6 +303,12 @@ bool cmdProbe(Estado& e, const LineaAnalizada& linea) {
                 }
             }
         }
+        // Older than this client, but the newest there is to install: nothing to update. A
+        // development build of the CLI is newer than every daemon it carries, and «outdated»
+        // there only made «install» look like it did nothing.
+        if (daemon == "outdated" && version == versionParaInstalar(e, real)) {
+            daemon = "latest";
+        }
         doc.set("daemon_version", J::Value(version));
         doc.set("daemon", J::Value(daemon));
         if (daemon == "unreachable") {

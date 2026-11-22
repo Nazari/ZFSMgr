@@ -62,7 +62,13 @@ public:
                                        // The dialog on top, if one is open.
                                        QWidget* top = QApplication::activeModalWidget();
                                        (top ? top : w)->grab().save(capture);
-                                       QApplication::exit(0);
+                                       // Closed as a person closes it, not with exit(): that
+                                       // way every capture also goes through the window's
+                                       // destruction, where the exit crash was.
+                                       if (top) {
+                                           top->close();
+                                       }
+                                       w->close();
                                    });
             }
         });

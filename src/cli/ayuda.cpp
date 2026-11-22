@@ -1106,7 +1106,7 @@ const std::vector<Orden> kOrdenes = {
        "conectarla."},
       {"t_pr_det2", "En JSON cada estado es un código fijo: sudo (ok, wrong_password, "
        "needs_password, could_not_check, not_used), openzfs (ok, too_old, not_loaded, missing, "
-       "unknown), daemon (ok, outdated, ahead, unknown, unreachable)."}},
+       "unknown), daemon (ok, outdated, latest, ahead, unknown, unreachable)."}},
      Objetivo::Cualquiera, {}},
     {"disconnect", {"t_conexiones_3785cd", "Conexiones"}, {"t_destino_132a32", "[destino]"},
      {"t_la_aparta__62eeb8", "La aparta: el intérprete deja de hablar con ella y se cierra su túnel."},

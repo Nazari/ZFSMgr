@@ -481,7 +481,7 @@ bool instalaDaemonEnTodas(Estado& e, const LineaAnalizada& an,
         return false;
     }
     const std::string esperada = B::agentversion::expected();
-    enum class Accion { Instalar, Actualizar, AlDia, PorDelante, Desconectada };
+    enum class Accion { Instalar, Actualizar, AlDia, PorDelante, Desconectada, YaElUltimo };
     struct Fila {
         std::string id;
         std::string nombre;
@@ -519,7 +519,10 @@ bool instalaDaemonEnTodas(Estado& e, const LineaAnalizada& an,
                     fila.accion = Accion::AlDia;
                     break;
                 case B::agentversion::Verdict::Update:
-                    fila.accion = Accion::Actualizar;
+                    // Older than this client, but maybe the newest there is to install.
+                    fila.accion = fila.version == versionParaInstalar(e, conSudo(e, p))
+                                      ? Accion::YaElUltimo
+                                      : Accion::Actualizar;
                     break;
                 case B::agentversion::Verdict::Ahead:
                     fila.accion = Accion::PorDelante;
@@ -560,6 +563,10 @@ bool instalaDaemonEnTodas(Estado& e, const LineaAnalizada& an,
             case Accion::Desconectada:
                 accion = T("t_instala_accion_desconectada", "desconectada: se salta");
                 break;
+            case Accion::YaElUltimo:
+                accion =
+                    T("t_instala_accion_ultimo", "ya tiene el que hay para instalar: no se toca");
+                break;
         }
         const bool agenteToca =
             fila.accion == Accion::Instalar || fila.accion == Accion::Actualizar;
@@ -580,6 +587,7 @@ bool instalaDaemonEnTodas(Estado& e, const LineaAnalizada& an,
                                : fila.accion == Accion::Actualizar ? "update"
                                : fila.accion == Accion::AlDia      ? "ok"
                                : fila.accion == Accion::PorDelante ? "ahead"
+                               : fila.accion == Accion::YaElUltimo ? "latest"
                                                                    : "disconnected";
             const char* cliCode = desconectada                                ? "skip"
                                   : cliToca                                   ? "update"

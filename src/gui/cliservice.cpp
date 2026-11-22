@@ -51,6 +51,14 @@ CliService::CliService(QString cliPath, QString lang, QObject* parent)
 }
 
 CliService::~CliService() {
+    // Quiet first: while the window that owns this service is being destroyed, the process
+    // ending must not reach anyone. It emitted `failed` («the service ended») into a
+    // MainWindow half destroyed, which wrote on its status bar and crashed on every exit
+    // (2026-11-22). Pending answers are dropped too: whoever asked is going away.
+    m_proc.disconnect(this);
+    blockSignals(true);
+    m_queue.clear();
+    m_current.reset();
     if (m_proc.state() != QProcess::NotRunning) {
         // EOF ends the service with code 0; give it a moment before forcing it.
         m_proc.closeWriteChannel();

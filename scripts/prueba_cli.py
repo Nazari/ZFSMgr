@@ -547,7 +547,7 @@ def casos_json_gui(ctx):
     d, salida = doc(["install-daemon -a --check"])
     items = d.get("items", [])
     comprueba("json: install-daemon --check da códigos fijos además del texto",
-              [] if items and all(i.get("code") in ("install", "update", "ok", "ahead",
+              [] if items and all(i.get("code") in ("install", "update", "ok", "latest", "ahead",
                                                     "disconnected")
                                   and i.get("cli_code") in ("update", "ok", "skip") for i in items)
               else [f"{items[:1]}"], salida)
@@ -660,7 +660,7 @@ def casos_probe(ctx):
                     "openzfs": "ok"}
         problemas += [f"{k}={d.get(k)!r}, esperaba {v!r}" for k, v in esperado.items()
                       if d.get(k) != v]
-        if d.get("daemon") not in ("ok", "outdated"):
+        if d.get("daemon") not in ("ok", "outdated", "latest"):
             problemas.append(f"daemon={d.get('daemon')!r}")
         if not d.get("openzfs_version") or not d.get("os_detail"):
             problemas.append("faltan openzfs_version u os_detail")
