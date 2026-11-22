@@ -1590,6 +1590,23 @@ def casos_servicio_conexiones(ctx):
         r, _ = pide(5, "destroy zfsm://prueba-srv")
         comprueba("servicio: y se borra", [] if r and r["rc"] == 0 and perfil() is None
                   else [f"{r}"])
+
+        # Another process changes the configuration while the service runs (a terminal, the
+        # GUI's other shells): the service must see it on its next request, without restarting.
+        def fuera(orden):
+            fichero = os.path.join(ctx.dir_tmp, ".maestra")
+            return subprocess.run(
+                ["bash", "-c", f"exec 9<{fichero}; exec {CLI!r} --config-dir {shlex.quote(cfg)} "
+                               f"--password-fd 9 --format text --lang es -y"],
+                input=orden + "\nexit\n", capture_output=True, text=True, timeout=60)
+        fuera(f"create prueba-ext --type SSH --host 127.0.0.1 --user nadie --key {clave}")
+        r, _ = pide(6, "edit prueba-ext --family ipv4")
+        comprueba("servicio: ve una conexión que ha creado otro proceso",
+                  [] if r and r["rc"] == 0 else [f"{r}"])
+        fuera("destroy zfsm://prueba-ext")
+        r, _ = pide(7, "edit prueba-ext --family ipv4")
+        comprueba("servicio: y deja de verla cuando otro proceso la borra",
+                  [] if r and r["rc"] != 0 else [f"{r}"])
     finally:
         p.stdin.close()
         p.wait(timeout=60)

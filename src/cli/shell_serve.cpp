@@ -1,8 +1,10 @@
 #include "shell_internal.h"
 
 #include "json.h"
+#include "storefiles.h"
 
 #include <cstdio>
+#include <filesystem>
 #include <iostream>
 
 #ifdef _WIN32
@@ -32,6 +34,31 @@ namespace zfsmgr::cli {
 namespace {
 
 namespace J = zfsmgr::base::json;
+
+// What config.json looks like on disk: its modification time and size. Another process (a
+// terminal, the GUI's other shells) may add a connection or disconnect one while this service
+// runs; comparing this before each request is how the service notices without polling.
+struct HuellaConfig {
+    std::filesystem::file_time_type when{};
+    std::uintmax_t size{0};
+    bool exists{false};
+    bool operator==(const HuellaConfig& o) const {
+        return exists == o.exists && when == o.when && size == o.size;
+    }
+};
+
+HuellaConfig huellaConfig(const std::string& dirConfig) {
+    HuellaConfig h;
+    std::error_code ec;
+    const std::filesystem::path p = zfsmgr::base::store::configPath(dirConfig);
+    h.when = std::filesystem::last_write_time(p, ec);
+    if (ec) {
+        return h;
+    }
+    h.size = std::filesystem::file_size(p, ec);
+    h.exists = !ec;
+    return h;
+}
 
 // The client reads events from the ORIGINAL standard output, kept aside before any capture:
 // while a command runs, fd 1 points to its capture file.
@@ -121,6 +148,7 @@ int servirOrdenes(Sesion& ses) {
     e.ses = &ses;
     e.formato = Formato::Json;
     recarga(e);
+    HuellaConfig leida = huellaConfig(ses.dirConfig);
 
     double idActual = 0;
     // A confirmation: the question goes out as an event, the answer comes back as a line.
@@ -181,6 +209,11 @@ int servirOrdenes(Sesion& ses) {
             emite(res);
             continue;
         }
+        // The configuration changed under this service: read it again before running.
+        if (const HuellaConfig ahora = huellaConfig(ses.dirConfig); !(ahora == leida)) {
+            recarga(e);
+            leida = huellaConfig(ses.dirConfig);
+        }
         idActual = pet["id"].toDouble();
         res.set("id", pet["id"]);
         e.ultimoRc = 0;
@@ -199,6 +232,12 @@ int servirOrdenes(Sesion& ses) {
             captura.termina(out, errTexto);
         }
         e.formato = formatoSesion;
+        // Changed while the command ran —by the command itself or by another process—: read it
+        // again now, so the next request never runs on what was there before.
+        if (const HuellaConfig ahora = huellaConfig(ses.dirConfig); !(ahora == leida)) {
+            recarga(e);
+            leida = huellaConfig(ses.dirConfig);
+        }
         res.set("rc", J::Value(static_cast<double>(e.ultimoRc)));
         res.set("stdout", J::Value(out));
         res.set("stderr", J::Value(errTexto));
