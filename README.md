@@ -242,13 +242,12 @@ See `docs/cross-compiling-linux.md` for the toolchains.
 
 ## The graphical interface (2.0.0)
 
-The repository still contains the Qt 6 desktop application (`src/native`). It is **not
-released with 1.x**; its first release is planned for **2.0.0**.
+`zfsmgr-gui` (`src/gui`) is a Qt 6 window over the CLI. It is **not released with 1.x**; its
+first release is planned for **2.0.0**.
 
-Its review started in 1.3.0. The window is being rebuilt as a thin layer over the CLI: it
-starts `zfsmgr-cli --serve` and every action and every read is a shell command line, so it
-has no business logic and no transport of its own, and it does exactly what the same command
-does in the shell. Until 2.0.0 it is a work in progress.
+It links only Qt and launches one process, `zfsmgr-cli --serve`: every action and every read
+is a shell command line, so it has no business logic and no transport of its own, and it does
+exactly what the same command does in the shell. The protocol is in `docs/protocolo_serve.md`.
 
 ## Keywords
 

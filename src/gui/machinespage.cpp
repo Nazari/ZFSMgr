@@ -14,6 +14,8 @@
 #include <QListWidget>
 #include <QLineEdit>
 #include <QComboBox>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QCheckBox>
 #include <QTabWidget>
 #include <QInputDialog>
@@ -415,20 +417,26 @@ void MachinesPage::showMachine(const QString& id) {
         }
     }
 
-    auto* buttons = new QHBoxLayout();
+    // In rows of three, like a pool's: in one row they pushed the page wider than the window.
+    auto* buttons = new QGridLayout();
+    int placed = 0;
+    const auto place = [buttons, &placed](QPushButton* b) {
+        buttons->addWidget(b, placed / 3, placed % 3);
+        ++placed;
+    };
     auto* again = button(L("Check again", "Comprobar de nuevo"), w);
     connect(again, &QPushButton::clicked, this, [this, id] {
         m_probe.remove(id);
         showDetail();
     });
-    buttons->addWidget(again);
+    place(again);
     const bool connected = mv ? mv->connected : true;
     auto* conn = button(connected ? L("Disconnect", "Desconectar") : L("Connect", "Conectar"), w);
     connect(conn, &QPushButton::clicked, this, [this, id, connected] {
         act((connected ? QStringLiteral("disconnect ") : QStringLiteral("connect ")) + url(id),
             connected ? L("Disconnected.", "Desconectada.") : L("Connected.", "Conectada."));
     });
-    buttons->addWidget(conn);
+    place(conn);
     auto* daemon =
         button(L("Install or update the daemon…", "Instalar o actualizar el daemon…"), w);
     connect(daemon, &QPushButton::clicked, this, [this, id] {
@@ -440,22 +448,88 @@ void MachinesPage::showMachine(const QString& id) {
                 showDetail();
             });
     });
-    buttons->addWidget(daemon);
+    place(daemon);
     if (m_advanced && connected) {
         auto* create = button(L("Create a pool…", "Crear un pool…"), w);
         connect(create, &QPushButton::clicked, this,
                 [this, id] { Q_EMIT createPoolRequested(id); });
-        buttons->addWidget(create);
+        place(create);
         auto* import = button(L("Import a pool…", "Importar un pool…"), w);
         connect(import, &QPushButton::clicked, this, [this, id] { importPool(id); });
-        buttons->addWidget(import);
+        place(import);
     }
+    // Advanced: what is done between machines and after something was cut short.
+    if (m_advanced && connected) {
+        auto* mounts = button(L("Temporary mountpoints…", "Montajes temporales…"), w);
+        mounts->setToolTip(L("Datasets an interrupted action left mounted somewhere else.",
+                             "Datasets que una acción interrumpida dejó montados en otro sitio."));
+        connect(mounts, &QPushButton::clicked, this, [this, id] {
+            showOutput(id, QStringLiteral("repair-mounts --on ") + url(id),
+                       L("Left on a temporary mountpoint", "Dejados en un montaje temporal"));
+        });
+        place(mounts);
+        auto* log = button(L("Daemon log", "Log del daemon"), w);
+        connect(log, &QPushButton::clicked, this, [this, id] {
+            showOutput(id, QStringLiteral("log --lines 500 --on ") + url(id),
+                       L("What the daemon of %1 did", "Qué ha hecho el daemon de %1").arg(id));
+        });
+        place(log);
+        auto* repair = button(L("Put them back", "Devolverlos a su sitio"), w);
+        connect(repair, &QPushButton::clicked, this, [this, id] {
+            act(QStringLiteral("repair-mounts --apply --on ") + url(id),
+                L("Put back where they belong.", "Devueltos a su sitio."));
+        });
+        place(repair);
+        QStringList others;
+        for (const MachineView& m : m_store->machines()) {
+            if (m.id != id && m.connected) {
+                others << m.id;
+            }
+        }
+        const auto toAnother = [this, id, others](const QString& title, const QString& text,
+                                                  const QString& verb, const QString& done) {
+            auto* d = new QInputDialog(this);
+            d->setAttribute(Qt::WA_DeleteOnClose);
+            d->setWindowTitle(title);
+            d->setLabelText(text);
+            d->setComboBoxItems(others);
+            connect(d, &QInputDialog::textValueSelected, this,
+                    [this, id, verb, done](const QString& other) {
+                        act(QStringLiteral("%1 %2 --on %3").arg(verb, quoted(other), url(id)),
+                            done.arg(other), false);
+                    });
+            d->open();
+        };
+        auto* trust = button(L("Take the trust store to…", "Llevar el trust-store a…"), w);
+        trust->setEnabled(!others.isEmpty());
+        connect(trust, &QPushButton::clicked, this, [toAnother] {
+            toAnother(L("Trust store", "Trust-store"),
+                      L("The client opened on that machine will talk to the same daemons. It "
+                        "carries private keys.",
+                        "El cliente que se abra en esa máquina hablará con los mismos daemons. "
+                        "Lleva claves privadas."),
+                      QStringLiteral("export-trust"),
+                      L("Trust store copied to %1.", "Trust-store copiado a %1."));
+        });
+        place(trust);
+        auto* key = button(L("Authorize its SSH key on…", "Autorizar su clave SSH en…"), w);
+        key->setEnabled(!others.isEmpty());
+        connect(key, &QPushButton::clicked, this, [toAnother] {
+            toAnother(L("SSH key", "Clave SSH"),
+                      L("After this, this machine logs into that one without a password.",
+                        "Después, esta máquina entra en aquella sin contraseña."),
+                      QStringLiteral("authorize-key"),
+                      L("Key authorized on %1.", "Clave autorizada en %1."));
+        });
+        place(key);
+    }
+
     auto* remove = button(L("Remove…", "Quitar…"), w);
     connect(remove, &QPushButton::clicked, this, [this, id] {
         act(QStringLiteral("destroy ") + url(id), L("Connection removed.", "Conexión quitada."));
     });
-    buttons->addWidget(remove);
-    buttons->addStretch(1);
+    place(remove);
+    buttons->setColumnStretch(3, 1);
     l->addLayout(buttons);
     l->addStretch(1);
     setDetail(w);
@@ -608,12 +682,33 @@ void MachinesPage::showPool(const QString& machine, const QString& pool) {
             {QStringLiteral("export"), L("Export…", "Exportar…"),
              L("Exported: its disks can go to another machine.",
                "Exportado: sus discos pueden ir a otra máquina.")},
+            {QStringLiteral("export -f"), L("Export by force…", "Exportar a la fuerza…"),
+             L("Exported: its disks can go to another machine.",
+               "Exportado: sus discos pueden ir a otra máquina.")},
+            {QStringLiteral("scrub -p"), L("Pause the check", "Pausar la comprobación"),
+             L("Check paused: checking again resumes it.",
+               "Comprobación en pausa: comprobar de nuevo la reanuda.")},
+            {QStringLiteral("scrub -s"), L("Stop the check", "Parar la comprobación"),
+             L("Check stopped.", "Comprobación parada.")},
+            {QStringLiteral("flush"),
+             L("Write pending data (sync)", "Escribir lo pendiente (sync)"),
+             L("Pending writes are on disk.", "Lo pendiente ya está en disco.")},
+            {QStringLiteral("initialize"),
+             L("Initialize free space…", "Inicializar el espacio libre…"),
+             L("Initializing: it writes over the unused space.",
+               "Inicializando: escribe sobre el espacio sin usar.")},
+            {QStringLiteral("destroy"), L("Destroy the pool…", "Destruir el pool…"),
+             L("Pool destroyed.", "Pool destruido.")},
         };
         for (const More& m : more) {
             auto* b = button(m.text, w);
-            const QString line = m.verb + QStringLiteral(" --on ") + url(machine, pool);
+            // destroy takes the pool as its target; the maintenance verbs only with --on.
+            const QString line = m.verb == QLatin1String("destroy")
+                                     ? QStringLiteral("destroy ") + url(machine, pool)
+                                     : m.verb + QStringLiteral(" --on ") + url(machine, pool);
             const QString done = m.done;
-            const bool leaves = m.verb == QLatin1String("export");
+            const bool leaves =
+                m.verb.startsWith(QLatin1String("export")) || m.verb == QLatin1String("destroy");
             connect(b, &QPushButton::clicked, this, [this, again, line, done, leaves, machine] {
                 if (leaves) {
                     forgetPools(machine);
@@ -622,6 +717,12 @@ void MachinesPage::showPool(const QString& machine, const QString& pool) {
             });
             place(b);
         }
+        auto* history = button(L("History", "Historial"), w);
+        connect(history, &QPushButton::clicked, this, [this, machine, pool] {
+            showOutput(machine, QStringLiteral("history --on ") + url(machine, pool),
+                       L("What was done to %1", "Qué se le ha hecho a %1").arg(pool));
+        });
+        place(history);
     }
     actions->setColumnStretch(3, 1);
     l->addLayout(actions);
@@ -655,19 +756,40 @@ void MachinesPage::importPool(const QString& machine) {
                         .arg(machine));
                 return;
             }
-            auto* d = new QInputDialog(this);
+            auto* d = new QDialog(this);
             d->setAttribute(Qt::WA_DeleteOnClose);
             d->setWindowTitle(L("Import a pool", "Importar un pool"));
-            d->setLabelText(
-                L("Pools that can be imported on %1:", "Pools que se pueden importar en %1:")
-                    .arg(machine));
-            d->setComboBoxItems(names);
-            connect(d, &QInputDialog::textValueSelected, this,
-                    [this, machine](const QString& name) {
-                        forgetPools(machine);
-                        act(QStringLiteral("import %1 --on %2").arg(name, url(machine)),
-                            L("Pool %1 imported.", "Pool %1 importado.").arg(name), false);
-                    });
+            auto* lay = new QVBoxLayout(d);
+            auto* form = new QFormLayout();
+            auto* which = new QComboBox(d);
+            which->addItems(names);
+            form->addRow(L("Pool", "Pool"), which);
+            auto* as = new QLineEdit(d);
+            as->setPlaceholderText(L("optional: import it under another name",
+                                     "opcional: importarlo con otro nombre"));
+            form->addRow(L("New name", "Nombre nuevo"), as);
+            auto* force = new QCheckBox(L("Even if another machine seems to be using it (-f)",
+                                          "Aunque otra máquina parezca estar usándolo (-f)"),
+                                        d);
+            form->addRow(QString(), force);
+            lay->addLayout(form);
+            auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, d);
+            lay->addWidget(bb);
+            connect(bb, &QDialogButtonBox::rejected, d, &QDialog::reject);
+            connect(bb, &QDialogButtonBox::accepted, d, [this, d, which, as, force, machine] {
+                const QString name = which->currentText();
+                QString line = QStringLiteral("import ") + quoted(name);
+                if (!as->text().trimmed().isEmpty()) {
+                    line += QStringLiteral(" --as ") + quoted(as->text().trimmed());
+                }
+                if (force->isChecked()) {
+                    line += QStringLiteral(" -f");
+                }
+                forgetPools(machine);
+                act(line + QStringLiteral(" --on ") + url(machine),
+                    L("Pool %1 imported.", "Pool %1 importado.").arg(name), false);
+                d->accept();
+            });
             d->open();
         });
 }
@@ -680,6 +802,8 @@ void MachinesPage::showDataset(const QString& machine, const QString& dataset) {
     tabs->addTab(filesTab(machine, dataset), L("Files", "Ficheros"));
     if (m_advanced) {
         tabs->addTab(propertiesTab(machine, dataset), L("Properties", "Propiedades"));
+        tabs->addTab(manageTab(machine, dataset), L("Manage", "Gestionar"));
+        tabs->addTab(sendTab(machine, dataset), L("Send", "Enviar"));
         tabs->addTab(organizeTab(machine, dataset), L("Organize", "Organizar"));
     }
     tabs->setCurrentIndex(qMin(m_datasetTab, tabs->count() - 1));
@@ -1093,6 +1217,10 @@ QWidget* MachinesPage::datasetSummary(const QString& machine, const QString& dat
         act(QStringLiteral("destroy -r ") + url(machine, dataset), L("Destroyed.", "Destruido."));
     });
     actions->addWidget(destroy);
+    auto* child = button(L("New dataset inside…", "Dataset nuevo dentro…"), w);
+    connect(child, &QPushButton::clicked, this,
+            [this, machine, dataset] { newDataset(machine, dataset); });
+    actions->addWidget(child);
     actions->addStretch(1);
     l->addLayout(actions);
 
@@ -1125,6 +1253,42 @@ QWidget* MachinesPage::datasetSummary(const QString& machine, const QString& dat
     form->addRow(
         L("Copies", "Copias"),
         label(copies.isEmpty() ? L("none", "ninguna") : copies.join(QStringLiteral("\n")), w));
+    // Automatic snapshots: its own schedule (alone, or the one a pushed copy sends). A pulled
+    // copy's snapshots are the origin's: they are changed in Copies.
+    {
+        QJsonObject keep;
+        bool has = false;
+        bool pulled = false;
+        for (const ScheduleRow& r : scheduleRows(m_store->machines())) {
+            if (r.machineId == machine && r.dataset == dataset) {
+                if (r.kind == QLatin1String("pull")) {
+                    pulled = true;
+                } else {
+                    keep = r.keep;
+                    has = true;
+                }
+            }
+        }
+        if (!pulled) {
+            auto* row = new QHBoxLayout();
+            row->addWidget(label(has ? keepText(keep) : L("none", "ninguno"), w), 1);
+            auto* change = button(has ? L("Change…", "Cambiar…") : L("Schedule…", "Programar…"), w);
+            connect(change, &QPushButton::clicked, this, [this, machine, dataset, keep] {
+                askKeep(this, L("Automatic snapshots", "Snapshots automáticos"),
+                        L("How many of each are kept; the older ones are deleted. All at 0: "
+                          "none are taken.",
+                          "Cuántos de cada se guardan; los más viejos se borran. Todos a 0: no "
+                          "se hace ninguno."),
+                        keep, [this, machine, dataset](const QString& flags) {
+                            act(QStringLiteral("schedule ") + flags + QStringLiteral(" --on ")
+                                    + url(machine, dataset),
+                                L("Schedule changed.", "Programación cambiada."), false);
+                        });
+            });
+            row->addWidget(change);
+            form->addRow(L("Automatic snapshots", "Snapshots automáticos"), row);
+        }
+    }
     l->addLayout(form);
 
     l->addWidget(heading(L("Snapshots", "Snapshots"), w));
@@ -1186,6 +1350,12 @@ QWidget* MachinesPage::datasetSummary(const QString& machine, const QString& dat
         snapActions->addWidget(del);
         snapActions->addStretch(1);
         l->addLayout(snapActions);
+        if (m_advanced) {
+            auto* more = new QHBoxLayout();
+            snapshotExtras(more, w, machine, dataset, chosen);
+            more->addStretch(1);
+            l->addLayout(more);
+        }
     }
     l->addStretch(1);
     return w;

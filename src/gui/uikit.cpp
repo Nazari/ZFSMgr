@@ -2,9 +2,19 @@
 
 #include "text.h"
 
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QFont>
+#include <QFontDatabase>
+#include <QFormLayout>
 #include <QFrame>
 #include <QLabel>
 #include <QPalette>
+#include <QPlainTextEdit>
+#include <QSpinBox>
+#include <QVBoxLayout>
+
+#include <QVector>
 
 namespace zfsmgr::gui {
 
@@ -77,6 +87,63 @@ QFrame* card(QWidget* parent) {
     f->setFrameShape(QFrame::StyledPanel);
     f->setObjectName(QStringLiteral("card"));
     return f;
+}
+
+void showText(QWidget* parent, const QString& title, const QString& text) {
+    auto* d = new QDialog(parent);
+    d->setAttribute(Qt::WA_DeleteOnClose);
+    d->setWindowTitle(title);
+    auto* lay = new QVBoxLayout(d);
+    auto* t = new QPlainTextEdit(d);
+    t->setReadOnly(true);
+    t->setLineWrapMode(QPlainTextEdit::NoWrap);
+    t->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    t->setPlainText(text.trimmed().isEmpty() ? L("(nothing)", "(nada)") : text);
+    lay->addWidget(t);
+    auto* bb = new QDialogButtonBox(QDialogButtonBox::Close, d);
+    QObject::connect(bb, &QDialogButtonBox::rejected, d, &QDialog::reject);
+    lay->addWidget(bb);
+    d->resize(760, 460);
+    d->open();
+}
+
+void askKeep(QWidget* parent, const QString& title, const QString& note, const QJsonObject& keep,
+             std::function<void(const QString& flags)> done) {
+    auto* d = new QDialog(parent);
+    d->setAttribute(Qt::WA_DeleteOnClose);
+    d->setWindowTitle(title);
+    auto* lay = new QVBoxLayout(d);
+    if (!note.isEmpty()) {
+        lay->addWidget(muted(note, d));
+    }
+    auto* form = new QFormLayout();
+    QVector<QPair<QString, QSpinBox*>> spins;
+    const QVector<QPair<QString, QString>> classes = {
+        {QStringLiteral("hourly"), L("Hourly", "Por hora")},
+        {QStringLiteral("daily"), L("Daily", "Diarias")},
+        {QStringLiteral("weekly"), L("Weekly", "Semanales")},
+        {QStringLiteral("monthly"), L("Monthly", "Mensuales")},
+        {QStringLiteral("yearly"), L("Yearly", "Anuales")}};
+    for (const auto& c : classes) {
+        auto* s = new QSpinBox(d);
+        s->setRange(0, 999);
+        s->setValue(keep.value(c.first).toInt());
+        form->addRow(c.second, s);
+        spins.push_back({c.first, s});
+    }
+    lay->addLayout(form);
+    auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, d);
+    lay->addWidget(bb);
+    QObject::connect(bb, &QDialogButtonBox::rejected, d, &QDialog::reject);
+    QObject::connect(bb, &QDialogButtonBox::accepted, d, [d, spins, done] {
+        QStringList flags;
+        for (const auto& s : spins) {
+            flags << QStringLiteral("--%1 %2").arg(s.first).arg(s.second->value());
+        }
+        done(flags.join(QLatin1Char(' ')));
+        d->accept();
+    });
+    d->open();
 }
 
 }  // namespace zfsmgr::gui

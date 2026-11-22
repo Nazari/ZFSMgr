@@ -155,7 +155,7 @@ int main(int argc, char** argv) {
     check(!copyProblem(bad).isEmpty(), "a kept copy keeps something");
 
     if (g_fails == 0) {
-        std::printf("gui2 status model: all good\n");
+        std::printf("gui status model: all good\n");
     }
     return g_fails == 0 ? 0 : 1;
 }

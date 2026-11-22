@@ -261,45 +261,15 @@ void CopiesPage::showDetail() {
 void CopiesPage::changeKeep(const QString& on, const ScheduleRow& r) {
     // How many the copy keeps. For a pushed copy these are the origin's numbers too: it keeps
     // exactly what the origin keeps.
-    auto* d = new QDialog(this);
-    d->setAttribute(Qt::WA_DeleteOnClose);
-    d->setWindowTitle(L("What the copy keeps", "Lo que guarda la copia"));
-    auto* lay = new QVBoxLayout(d);
-    if (r.kind == QLatin1String("push")) {
-        lay->addWidget(
-            muted(L("The origin sends it: these are also the snapshots the origin keeps.",
-                    "La envía el origen: son también los snapshots que guarda el "
-                    "origen."),
-                  d));
-    }
-    auto* form = new QFormLayout();
-    QVector<QPair<QString, QSpinBox*>> spins;
-    const QVector<QPair<QString, QString>> clases = {
-        {QStringLiteral("hourly"), L("Hourly", "Por hora")},
-        {QStringLiteral("daily"), L("Daily", "Diarias")},
-        {QStringLiteral("weekly"), L("Weekly", "Semanales")},
-        {QStringLiteral("monthly"), L("Monthly", "Mensuales")},
-        {QStringLiteral("yearly"), L("Yearly", "Anuales")}};
-    for (const auto& c : clases) {
-        auto* s = new QSpinBox(d);
-        s->setRange(0, 999);
-        s->setValue(r.keep.value(c.first).toInt());
-        form->addRow(c.second, s);
-        spins.push_back({c.first, s});
-    }
-    lay->addLayout(form);
-    auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, d);
-    lay->addWidget(bb);
-    connect(bb, &QDialogButtonBox::rejected, d, &QDialog::reject);
-    connect(bb, &QDialogButtonBox::accepted, d, [this, d, on, spins] {
-        QString line = QStringLiteral("schedule");
-        for (const auto& s : spins) {
-            line += QStringLiteral(" --%1 %2").arg(s.first).arg(s.second->value());
-        }
-        act(line + QStringLiteral(" --on ") + on, L("Changed.", "Cambiado."));
-        d->accept();
-    });
-    d->open();
+    askKeep(this, L("What the copy keeps", "Lo que guarda la copia"),
+            r.kind == QLatin1String("push")
+                ? L("The origin sends it: these are also the snapshots the origin keeps.",
+                    "La envía el origen: son también los snapshots que guarda el origen.")
+                : QString(),
+            r.keep, [this, on](const QString& flags) {
+                act(QStringLiteral("schedule ") + flags + QStringLiteral(" --on ") + on,
+                    L("Changed.", "Cambiado."));
+            });
 }
 
 void CopiesPage::act(const QString& line, const QString& done) {

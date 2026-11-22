@@ -915,7 +915,11 @@ bool cmdMontaje(Estado& e, const LineaAnalizada& linea, bool montar) {
     if (!zfsGeneric(e, destino, argv)) {
         return false;
     }
-    std::fprintf(stderr, "%s %s\n", montar ? "montado" : "desmontado", destino.dataset.c_str());
+    std::fprintf(
+        stderr, "%s\n",
+        B::format(montar ? T("t_montado_ds", "montado %1") : T("t_desmontado_ds", "desmontado %1"),
+                  {destino.dataset})
+            .c_str());
     return true;
 }
 

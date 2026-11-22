@@ -1,12 +1,14 @@
 #include "adminpage.h"
 
 #include "addmachinedialog.h"
+#include "buildstamp.h"
 #include "cliservice.h"
 #include "statestore.h"
 #include "text.h"
 #include "uikit.h"
 
 #include <QCheckBox>
+#include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFormLayout>
@@ -19,6 +21,7 @@
 #include <QPushButton>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QSettings>
 #include <QSpinBox>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -189,7 +192,7 @@ void AdminPage::render() {
 
     // ── Programs: zfsmgr-agent and zfsmgr-cli on each machine, each in its own columns —in
     // one row, «up to date» for one and «update» for the other read as a contradiction—, and
-    // zfsmgr-gui2 with the zfsmgr-cli it runs, on this computer.
+    // zfsmgr-gui with the zfsmgr-cli it runs, on this computer.
     {
         int daemons = 0;
         int clis = 0;
@@ -223,14 +226,11 @@ void AdminPage::render() {
         }
         lay->addLayout(head);
         // The two of THIS computer: the interface itself and the zfsmgr-cli it runs.
-#ifdef ZFSMGR_APP_VERSION
-        const QString gui = QStringLiteral(ZFSMGR_APP_VERSION);
-#else
-        const QString gui = QStringLiteral("?");
-#endif
+        // Both with their build's fingerprint: built together, they read the same.
+        const QString gui = buildStamp();
         const QString cli = m_store->general()->cliVersion();
-        lay->addWidget(label(L("On this computer: zfsmgr-gui2 %1, which runs zfsmgr-cli %2.",
-                               "En este ordenador: zfsmgr-gui2 %1, que usa zfsmgr-cli %2.")
+        lay->addWidget(label(L("On this computer: zfsmgr-gui %1, which runs zfsmgr-cli %2.",
+                               "En este ordenador: zfsmgr-gui %1, que usa zfsmgr-cli %2.")
                                  .arg(gui, cli.isEmpty() ? QStringLiteral("?") : cli),
                              body));
         QFrame* box = card(body);
@@ -272,12 +272,12 @@ void AdminPage::render() {
         lay->addWidget(muted(L("zfsmgr-agent is the daemon that does the work on each machine; "
                                "updating it restarts it, and it is checked first that it is not "
                                "copying anything. zfsmgr-cli is the command line program; updating "
-                               "it restarts nothing. zfsmgr-gui2, this window, is only on this "
+                               "it restarts nothing. zfsmgr-gui, this window, is only on this "
                                "computer.",
                                "zfsmgr-agent es el daemon que hace el trabajo en cada máquina; "
                                "actualizarlo lo reinicia, y antes se comprueba que no esté "
                                "copiando nada. zfsmgr-cli es el programa de línea de órdenes; "
-                               "actualizarlo no reinicia nada. zfsmgr-gui2, esta ventana, solo "
+                               "actualizarlo no reinicia nada. zfsmgr-gui, esta ventana, solo "
                                "está en este ordenador."),
                              body));
     }
@@ -348,6 +348,27 @@ void AdminPage::render() {
                     "A la que otras envían: por omisión su daemon solo atiende en la propia "
                     "máquina. El daemon se reinicia."),
                   body));
+    }
+
+    // ── Language: the system's unless one is chosen; it applies on the next start, since every
+    // text —the CLI's too— is chosen once.
+    {
+        lay->addWidget(heading(L("Language", "Idioma"), body));
+        auto* row = new QHBoxLayout();
+        auto* lang = new QComboBox(body);
+        lang->addItem(L("The system's", "El del sistema"), QString());
+        lang->addItem(QStringLiteral("Español"), QStringLiteral("es"));
+        lang->addItem(QStringLiteral("English"), QStringLiteral("en"));
+        lang->setCurrentIndex(
+            qMax(0, lang->findData(QSettings().value(QStringLiteral("gui/lang")).toString())));
+        connect(lang, &QComboBox::currentIndexChanged, this, [this, lang] {
+            QSettings().setValue(QStringLiteral("gui/lang"), lang->currentData().toString());
+            Q_EMIT message(L("The language changes the next time ZFSMgr is opened.",
+                             "El idioma cambia la próxima vez que se abra ZFSMgr."));
+        });
+        row->addWidget(lang);
+        row->addStretch(1);
+        lay->addLayout(row);
     }
 
     m_scroll->setWidget(body);

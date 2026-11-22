@@ -108,7 +108,7 @@ int main(int argc, char** argv) {
     }
 
     if (g_fails == 0) {
-        std::printf("gui2 service: all good\n");
+        std::printf("gui service: all good\n");
     }
     return g_fails == 0 ? 0 : 1;
 }

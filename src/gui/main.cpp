@@ -1,21 +1,25 @@
-// zfsmgr-gui2: the new graphical interface. A client of `zfsmgr-cli --serve` and nothing
+// zfsmgr-gui: the graphical interface. A client of `zfsmgr-cli --serve` and nothing
 // else: it links only Qt, launches no process but that one, and every rule lives in the CLI.
 //
 // Start-up: a service is started with an EMPTY master password first —with nothing
 // encrypted, no question is needed—; only if it answers «wrong master password» is the
 // person asked, and asked again while it keeps being wrong.
 
+#include "buildstamp.h"
 #include "cliservice.h"
 #include "mainwindow.h"
 #include "text.h"
 
 #include <QApplication>
 #include <QFile>
+#include <QIcon>
 #include <QInputDialog>
 #include <QTimer>
 #include <QLineEdit>
 #include <QMessageBox>
+#include <QSettings>
 
+#include <cstdio>
 #include <memory>
 
 using namespace zfsmgr::gui;
@@ -118,12 +122,29 @@ private:
 int main(int argc, char** argv) {
     QApplication app(argc, argv);
     QApplication::setApplicationName(QStringLiteral("ZFSMgr"));
-    // Preferences in ~/.config/ZFSMgr/zfsmgr-gui2.conf, beside the CLI's configuration.
+    // `--version`: the only way to check WITHOUT A SCREEN that the interface starts. After
+    // creating QApplication on purpose: by then Qt's libraries and the platform plugin are
+    // loaded, which is what fails in a broken installation. The installers call it with
+    // QT_QPA_PLATFORM=offscreen.
+    if (QApplication::arguments().contains(QStringLiteral("--version"))) {
+        std::fprintf(stdout, "ZFSMgr %s\n", buildStamp().toUtf8().constData());
+        std::fflush(stdout);
+        return 0;
+    }
+    app.setWindowIcon(QIcon(QStringLiteral(":/icons/ZFSMgr-512.png")));
+    // Preferences in ~/.config/ZFSMgr/zfsmgr-gui.conf, beside the CLI's configuration.
     QApplication::setOrganizationName(QStringLiteral("ZFSMgr"));
-    QApplication::setApplicationName(QStringLiteral("zfsmgr-gui2"));
+    QApplication::setApplicationName(QStringLiteral("zfsmgr-gui"));
     // Without windows open while the password is being asked, closing the last dialog must
     // not end the program before the main window exists.
     QApplication::setQuitOnLastWindowClosed(false);
+    // The language chosen in Administration, if one was: before any text is written, since
+    // uiLang() decides once. Without it, the system's.
+    if (const QString lang = QSettings().value(QStringLiteral("gui/lang")).toString();
+        lang == QLatin1String("es") || lang == QLatin1String("en")) {
+        QLocale::setDefault(
+            QLocale(lang == QLatin1String("es") ? QLocale::Spanish : QLocale::English));
+    }
 
     const QString cli = findCli();
     if (cli.isEmpty()) {

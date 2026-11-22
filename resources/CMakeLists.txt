@@ -25,14 +25,6 @@ endif()
 
 set(ZFSMGR_APP_VERSION_STRING "1.4.3")
 set(ZFSMGR_LINUX_DESKTOP_FILE "${CMAKE_CURRENT_BINARY_DIR}/zfsmgr.desktop")
-file(SHA256 "${CMAKE_CURRENT_SOURCE_DIR}/../src/native/mainwindow_connections.cpp" ZFSMGR_GSA_SOURCE_SHA)
-string(SUBSTRING "${ZFSMGR_GSA_SOURCE_SHA}" 0 9 ZFSMGR_GSA_VERSION_SUFFIX)
-string(REGEX REPLACE "[aA]" "1" ZFSMGR_GSA_VERSION_SUFFIX "${ZFSMGR_GSA_VERSION_SUFFIX}")
-string(REGEX REPLACE "[bB]" "2" ZFSMGR_GSA_VERSION_SUFFIX "${ZFSMGR_GSA_VERSION_SUFFIX}")
-string(REGEX REPLACE "[cC]" "3" ZFSMGR_GSA_VERSION_SUFFIX "${ZFSMGR_GSA_VERSION_SUFFIX}")
-string(REGEX REPLACE "[dD]" "4" ZFSMGR_GSA_VERSION_SUFFIX "${ZFSMGR_GSA_VERSION_SUFFIX}")
-string(REGEX REPLACE "[eE]" "5" ZFSMGR_GSA_VERSION_SUFFIX "${ZFSMGR_GSA_VERSION_SUFFIX}")
-string(REGEX REPLACE "[fF]" "6" ZFSMGR_GSA_VERSION_SUFFIX "${ZFSMGR_GSA_VERSION_SUFFIX}")
 set(ZFSMGR_AGENT_SCHEMA_MARKER [=[linux-service:/etc/systemd/system/zfsmgr-agent.service
 linux-bin:/usr/local/libexec/zfsmgr-agent
 linux-config:/etc/zfsmgr/agent.toml
@@ -148,7 +140,7 @@ set(ZFSMGR_AGENT_VERSION_STRING "${ZFSMGR_APP_VERSION_STRING}.${ZFSMGR_AGENT_VER
 # En una cabecera generada, y NO como macro de cada objetivo.
 #
 # Ahora la versión cambia con cualquier retoque del agente, y como macro de target obligaba a
-# recompilar entero todo lo que la recibía —incluido `zfsmgr_core`, o sea la interfaz— con
+# recompilar entero todo lo que la recibía —incluida la interfaz de entonces— con
 # cada edición. En cabecera solo se recompilan los dos ficheros que de verdad la nombran.
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/agentversion_generated.h.in"
                "${CMAKE_BINARY_DIR}/generated/zfsmgr/agentversion_generated.h" @ONLY)
@@ -246,10 +238,9 @@ add_library(zfsmgr_base STATIC
 # falla en el sitio. Es la misma garantía que la de no enlazar Qt, y por el mismo motivo:
 # una regla que solo está escrita en un documento se incumple sin que nadie se entere.
 #
-# Aquí es donde debe acabar concentrándose la construcción de cada orden del agente. Hoy los
-# dos clientes arman el mismo argv por su cuenta —`--mutate-advanced-assemble` está escrito
-# en `cli/shell_*.cpp` y en `native/mainwindow_advanced.cpp`—, y con él sus reglas, que por eso
-# no viven en ninguna parte.
+# Aquí es donde debe acabar concentrándose la construcción de cada orden del agente: la
+# interfaz ya no arma ninguna —todo pasa por el CLI—, y lo que el CLI arma por su cuenta en
+# `cli/shell_*.cpp` debe ir viniendo aquí, con sus reglas.
 add_library(zfsmgr_commands STATIC
     ../src/commands/copyspec.cpp
     ../src/commands/copyspec.h
@@ -398,7 +389,7 @@ if(ZFSMGR_AGENT_ONLY)
     return()
 endif()
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Widgets Core Gui Concurrent Network Test)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Widgets Core Gui Test)
 
 # --- El «-framework AGL» que Qt añade aunque no exista.
 #
@@ -429,77 +420,6 @@ if(APPLE AND TARGET WrapOpenGL::WrapOpenGL)
         endif()
     endif()
 endif()
-
-set(ZFSMGR_CORE_SOURCES
-    ../src/native/mainwindow.cpp
-    ../src/native/mainwindow_helpers.cpp
-    ../src/native/mainwindow_ui_logic.cpp
-    ../src/native/connectioncapabilities.cpp
-    ../src/native/mainwindow_ui.cpp
-    ../src/native/mainwindow_pane_detail.cpp
-    ../src/native/mainwindow_dialogs.cpp
-    ../src/native/mainwindow_connections.cpp
-    ../src/native/mainwindow_pools.cpp
-    ../src/native/mainwindow_pool_create.cpp
-    ../src/native/mainwindow_selection.cpp
-    ../src/native/mainwindow_dataset_tree.cpp
-    ../src/native/mainwindow_permissions.cpp
-    ../src/native/mainwindow_filebrowser.cpp
-    ../src/native/mainwindow_dataset_props.cpp
-    ../src/native/mainwindow_dataset_actions.cpp
-    ../src/native/mainwindow_dataset_manage.cpp
-    ../src/native/mainwindow_transfer.cpp
-    ../src/native/mainwindow_state_ui.cpp
-    ../src/native/mainwindow_advanced.cpp
-    ../src/native/mainwindow_advanced_dir.cpp
-    ../src/native/mainwindow_refresh.cpp
-    ../src/native/mainwindow_runtime_ui.cpp
-    ../src/native/mainwindow_statusbar.cpp
-    ../src/native/mainwindow_logwindows.cpp
-    ../src/native/mainwindow_jobs.cpp
-    ../src/native/mainwindow_schedules_tab.cpp
-    ../src/native/mainwindow_cli.cpp
-    ../src/native/mainwindow_cli_actions.cpp
-    ../src/native/cliservice.cpp
-    ../src/native/cliservice.h
-    ../src/native/clireader.cpp
-    ../src/native/clireader.h
-    ../src/native/mainwindow_remote.cpp
-    ../src/native/mainwindow_table_utils.cpp
-    ../src/native/mainwindow_settings.cpp
-    ../src/native/mainwindow_logging.cpp
-    ../src/native/mainwindow_help.cpp
-    ../src/native/mainwindow.h
-    ../src/native/connectionmodel.h
-    ../src/native/connectionregistry.h
-    ../src/native/transportsession.h
-    ../src/native/transport.h
-    ../src/native/connectiondatasettreepane.cpp
-    ../src/native/connectiondatasettreepane.h
-    ../src/native/connectiondatasettreecontroller.cpp
-    ../src/native/connectiondatasettreecontroller.h
-    ../src/native/connectiondatasettreecoordinator.cpp
-    ../src/native/connectiondatasettreecoordinator.h
-    ../src/native/connectiondatasettreewidget.cpp
-    ../src/native/connectiondatasettreewidget.h
-    ../src/native/mainwindow_connectiondatasettreedelegate.cpp
-    ../src/native/mainwindow_connectiondatasettreedelegate.h
-    ../src/native/connectionstore.cpp
-    ../src/native/connectionstore.h
-    ../src/native/connectiondialog.cpp
-    ../src/native/connectiondialog.h
-    ../src/native/masterpassworddialog.cpp
-    ../src/native/masterpassworddialog.h
-    ../src/native/i18nmanager.cpp
-    ../src/native/i18nmanager.h
-    ../src/native/secretcipher.cpp
-    ../src/native/secretcipher.h
-    ../src/native/agentversion.cpp
-    ../src/native/agentversion.h
-    ../src/native/daemonpayload.cpp
-    ../src/native/daemonpayload.h
-    resources.qrc
-)
 
 set_target_properties(zfsmgr_base PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
@@ -582,44 +502,13 @@ target_compile_definitions(zfsmgr-cli PRIVATE
     # esquema. El CLI la necesita para escribir agent.conf al instalar el daemon.
 )
 
-qt_add_library(zfsmgr_core STATIC ${ZFSMGR_CORE_SOURCES})
-
-# OpenSSL::SSL además de Crypto aunque el código no la use directamente: hace que
-# libssl quede enlazada y, por tanto, cargada al arrancar y copiada al bundle por el
-# despliegue de macOS. Sin ella, el plugin TLS de OpenSSL de Qt no puede cargarse y
-# en macOS solo queda SecureTransport, que pide la clave del cliente en el llavero e
-# ignora la CA que se le pasa.
-target_link_libraries(zfsmgr_core PUBLIC zfsmgr_commands Qt6::Widgets Qt6::Core Qt6::Gui Qt6::Concurrent Qt6::Network OpenSSL::SSL OpenSSL::Crypto zfsmgr_base)
-
-if(WIN32)
-    # OpenSSL static builds on MinGW may require explicit Win32 system libs.
-    target_link_libraries(zfsmgr_core PUBLIC ws2_32 crypt32 iphlpapi ncrypt bcrypt)
-endif()
-
-target_include_directories(zfsmgr_core PUBLIC ../src ../src/native ../src/base ../src/commands)
-
-target_compile_definitions(zfsmgr_core PUBLIC
-    QT_NO_KEYWORDS
-    ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
-    ZFSMGR_GSA_VERSION_SUFFIX="${ZFSMGR_GSA_VERSION_SUFFIX}"
-)
-
+# The interface (src/gui). It links ONLY Qt —no zfsmgr_base, no zfsmgr_commands— and the only
+# process it launches is `zfsmgr-cli --serve`: every rule lives in the CLI. That link line is
+# the rule written where it cannot be forgotten.
 qt_add_executable(zfsmgr-gui
-    ../src/native/main.cpp
-    # La lectura de secretos por descriptor la comparte con el intérprete: es la misma
-    # regla —nunca por argumento ni por entorno— y copiarla sería garantizar que las dos
-    # se separen.
-    ../src/cli/secretinput.cpp
-)
-
-target_link_libraries(zfsmgr-gui PRIVATE zfsmgr_core)
-
-# The new interface (src/gui). It links ONLY Qt —no zfsmgr_base, no zfsmgr_commands— and the
-# only process it launches is `zfsmgr-cli --serve`: every rule lives in the CLI. That link
-# line is the rule written where it cannot be forgotten. Not installed until it replaces
-# zfsmgr-gui.
-qt_add_executable(zfsmgr-gui2
     ../src/gui/main.cpp
+    ../src/gui/buildstamp.cpp
+    ../src/gui/buildstamp.h
     ../src/gui/cliservice.cpp
     ../src/gui/mainwindow.cpp
     ../src/gui/questiondialog.cpp
@@ -632,12 +521,17 @@ qt_add_executable(zfsmgr-gui2
     ../src/gui/copyplan.cpp
     ../src/gui/newcopywizard.cpp
     ../src/gui/machinespage.cpp
+    ../src/gui/machinespage_manage.cpp
     ../src/gui/addmachinedialog.cpp
     ../src/gui/adminpage.cpp
     ../src/gui/createpooldialog.cpp
+    gui.qrc
 )
-target_link_libraries(zfsmgr-gui2 PRIVATE Qt6::Widgets)
-target_compile_definitions(zfsmgr-gui2 PRIVATE QT_NO_KEYWORDS
+target_link_libraries(zfsmgr-gui PRIVATE Qt6::Widgets)
+# The generated header with the build's fingerprint (buildstamp.cpp): the packager checks the
+# interface carries the same one as the CLI and the agents beside it.
+target_include_directories(zfsmgr-gui PRIVATE "${CMAKE_BINARY_DIR}/generated")
+target_compile_definitions(zfsmgr-gui PRIVATE QT_NO_KEYWORDS
                            ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}")
 
 add_executable(zfsmgr_agent
@@ -827,22 +721,6 @@ Terminal=false
 endif()
 
 if(BUILD_TESTING)
-    add_executable(zfsmgr_helpers_test
-        ../tests/helpers_test.cpp
-        ../src/native/mainwindow_helpers.cpp
-        # agentCommand() toma la ruta del binario de daemonpayload en vez de repetirla:
-        # quien construye la invocación y quien la reconoce para convertirla en RPC deben
-        # hablar de la misma ruta, o el comando se va por SSH en crudo sin avisar.
-        ../src/native/daemonpayload.cpp
-    )
-    target_include_directories(zfsmgr_helpers_test PRIVATE ../src ../src ../src/base ../src/commands ../src/native)
-    target_link_libraries(zfsmgr_helpers_test PRIVATE Qt6::Core Qt6::Widgets zfsmgr_commands)
-    target_compile_definitions(zfsmgr_helpers_test PRIVATE
-        QT_NO_KEYWORDS
-        ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
-    )
-    add_test(NAME zfsmgr_helpers_test COMMAND zfsmgr_helpers_test)
-
     # SIN Qt a propósito: ni Qt6::Core. Es la comprobación de que la capa base está
     # realmente limpia; si alguien mete un QString ahí, esto deja de enlazar y el fallo
     # sale en el commit que lo introduce, no meses después.
@@ -863,74 +741,27 @@ if(BUILD_TESTING)
         ../src/commands/remotetree.cpp
         ../src/commands/fsmeta.cpp
     )
-    target_include_directories(zfsmgr_copytree_test PRIVATE ../src ../src ../src/base ../src/commands ../src/native)
+    target_include_directories(zfsmgr_copytree_test PRIVATE ../src ../src/base ../src/commands)
     target_link_libraries(zfsmgr_copytree_test PRIVATE Qt6::Core Qt6::Test OpenSSL::Crypto)
     target_compile_definitions(zfsmgr_copytree_test PRIVATE QT_NO_KEYWORDS)
     add_test(NAME zfsmgr_copytree_test COMMAND zfsmgr_copytree_test)
 
-    qt_add_executable(zfsmgr_capabilities_test
-        ../tests/capabilities_test.cpp
-        ../src/native/connectioncapabilities.cpp
-    )
-    target_include_directories(zfsmgr_capabilities_test PRIVATE ../src ../src ../src/base ../src/commands ../src/native)
-    target_link_libraries(zfsmgr_capabilities_test PRIVATE Qt6::Core Qt6::Test)
-    target_compile_definitions(zfsmgr_capabilities_test PRIVATE
-        QT_NO_KEYWORDS
-        ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
-    )
-    add_test(NAME zfsmgr_capabilities_test COMMAND zfsmgr_capabilities_test)
-
-    qt_add_executable(zfsmgr_ui_logic_test
-        ../tests/ui_logic_test.cpp
-        ../src/native/mainwindow_ui_logic.cpp
-    )
-    target_include_directories(zfsmgr_ui_logic_test PRIVATE ../src ../src ../src/base ../src/commands ../src/native)
-    target_link_libraries(zfsmgr_ui_logic_test PRIVATE Qt6::Core Qt6::Test zfsmgr_commands)
-    target_compile_definitions(zfsmgr_ui_logic_test PRIVATE
-        QT_NO_KEYWORDS
-        ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
-    )
-    add_test(NAME zfsmgr_ui_logic_test COMMAND zfsmgr_ui_logic_test)
-
-    # Los temas de ayuda TIENEN que estar dentro del recurso. Añadir uno exige tocar
-    # resources.qrc, y olvidarlo no rompe la compilación: el menú abre «Ayuda no
-    # disponible» y nadie se entera hasta que un usuario lo pulsa.
-    qt_add_executable(zfsmgr_help_resources_test
-        ../tests/help_resources_test.cpp
-        resources.qrc
-    )
-    target_link_libraries(zfsmgr_help_resources_test PRIVATE Qt6::Core)
-    target_compile_definitions(zfsmgr_help_resources_test PRIVATE QT_NO_KEYWORDS)
-    add_test(NAME zfsmgr_help_resources_test COMMAND zfsmgr_help_resources_test)
-
-    # The new interface's status model: from the CLI's answers to what the panel counts.
+    # The interface's status model: from the CLI's answers to what the panel counts.
     # Qt Core only, like the interface itself never links anything of ours.
-    add_executable(zfsmgr_gui2_status_test ../tests/gui2_status_test.cpp ../src/gui/statusmodel.cpp
+    add_executable(zfsmgr_gui_status_test ../tests/gui_status_test.cpp ../src/gui/statusmodel.cpp
                    ../src/gui/copyplan.cpp)
-    target_link_libraries(zfsmgr_gui2_status_test PRIVATE Qt6::Core)
-    target_compile_definitions(zfsmgr_gui2_status_test PRIVATE QT_NO_KEYWORDS)
-    add_test(NAME zfsmgr_gui2_status_test COMMAND zfsmgr_gui2_status_test)
+    target_link_libraries(zfsmgr_gui_status_test PRIVATE Qt6::Core)
+    target_compile_definitions(zfsmgr_gui_status_test PRIVATE QT_NO_KEYWORDS)
+    add_test(NAME zfsmgr_gui_status_test COMMAND zfsmgr_gui_status_test)
 
     # The interface's service against a fake `zfsmgr-cli --serve`: an answer for an owner that
     # no longer exists is dropped. Not on Windows: the fake is a shell script.
     if(NOT WIN32)
-        add_executable(zfsmgr_gui2_service_test ../tests/gui2_service_test.cpp
+        add_executable(zfsmgr_gui_service_test ../tests/gui_service_test.cpp
                        ../src/gui/cliservice.cpp ../src/gui/cliservice.h)
-        target_link_libraries(zfsmgr_gui2_service_test PRIVATE Qt6::Core)
-        target_compile_definitions(zfsmgr_gui2_service_test PRIVATE QT_NO_KEYWORDS)
-        add_test(NAME zfsmgr_gui2_service_test COMMAND zfsmgr_gui2_service_test)
-    endif()
-
-    # Los textos que saldrían en castellano con la interfaz en inglés.
-    #
-    # No compila nada: lee las llamadas a `trk()` y el catálogo. Es la comprobación que
-    # faltaba —dejarse el inglés de una llamada no rompe la compilación ni falla en
-    # ejecución: el rótulo sale en español y ya está—.
-    find_package(Python3 COMPONENTS Interpreter QUIET)
-    if(Python3_Interpreter_FOUND)
-        add_test(NAME zfsmgr_i18n_fallback_test
-                 COMMAND ${Python3_EXECUTABLE}
-                         ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/revisa_i18n_fallback.py)
+        target_link_libraries(zfsmgr_gui_service_test PRIVATE Qt6::Core)
+        target_compile_definitions(zfsmgr_gui_service_test PRIVATE QT_NO_KEYWORDS)
+        add_test(NAME zfsmgr_gui_service_test COMMAND zfsmgr_gui_service_test)
     endif()
 
     # La gramática del intérprete: que analice lo que se cree, y que toda firma declarada
@@ -946,33 +777,7 @@ if(BUILD_TESTING)
         ../src/cli/secretinput.cpp
         ../src/cli/creacion.cpp
     )
-    target_include_directories(zfsmgr_gramatica_cli_test PRIVATE ../src/cli ../src/cli/generado ../src/base ../src ../src/base ../src/commands ../src/native)
+    target_include_directories(zfsmgr_gramatica_cli_test PRIVATE ../src/cli ../src/cli/generado ../src/base ../src ../src/commands)
     target_link_libraries(zfsmgr_gramatica_cli_test PRIVATE zfsmgr_commands)
     add_test(NAME zfsmgr_gramatica_cli_test COMMAND zfsmgr_gramatica_cli_test)
-
-    qt_add_executable(zfsmgr_gui_mainwindow_test
-        ../tests/gui_mainwindow_test.cpp
-    )
-    target_include_directories(zfsmgr_gui_mainwindow_test PRIVATE ../src ../src ../src/base ../src/commands ../src/native)
-    target_link_libraries(zfsmgr_gui_mainwindow_test PRIVATE zfsmgr_core Qt6::Test)
-    target_compile_definitions(zfsmgr_gui_mainwindow_test PRIVATE
-        QT_NO_KEYWORDS
-        ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
-        # The shell the window drives (CliService), for the test that runs it for real.
-        ZFSMGR_TEST_CLI_PATH="$<TARGET_FILE:zfsmgr-cli>"
-    )
-    add_dependencies(zfsmgr_gui_mainwindow_test zfsmgr-cli)
-    add_test(NAME zfsmgr_gui_mainwindow_test COMMAND zfsmgr_gui_mainwindow_test)
-    set_tests_properties(zfsmgr_gui_mainwindow_test PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;ZFSMGR_TEST_MODE=1")
-
-    qt_add_executable(zfsmgr_ui_doc_capture
-        ../tests/ui_doc_capture.cpp
-    )
-    target_include_directories(zfsmgr_ui_doc_capture PRIVATE ../src ../src ../src/base ../src/commands ../src/native)
-    target_link_libraries(zfsmgr_ui_doc_capture PRIVATE zfsmgr_core)
-    target_compile_definitions(zfsmgr_ui_doc_capture PRIVATE
-        QT_NO_KEYWORDS
-        ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}"
-    )
 endif()

@@ -21,7 +21,7 @@ split or move is a good moment to translate it whole.
 | `src/base`, `src/commands` | The core: rules as pure functions with tests, typed results, no Qt. Clients and the agent link it. |
 | `src/daemon` | The agent (`zfsmgr-agent`). `verbs.cpp` holds the ONE verb table both its doors use (RPC and command line). |
 | `src/cli` | The command line client (`zfsmgr-cli`). |
-| `src/native` | The Qt interface, frozen until 2.0. |
+| `src/gui` | The Qt interface (`zfsmgr-gui`): a client of `zfsmgr-cli --serve` that links only Qt. |
 | `tests` | Unit tests. `scripts/prueba_cli.py` is the end-to-end battery against real machines. |
 
 Rules belong in the core, not in a client: if two clients would need the same decision, it
