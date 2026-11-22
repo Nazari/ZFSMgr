@@ -272,9 +272,17 @@ void NewCopyWizard::load() {
     }
 }
 
+void NewCopyWizard::preselect(const QString& machine, const QString& dataset) {
+    m_wantMachine = machine;
+    m_wantDataset = dataset;
+    fillOrigins();
+}
+
 void NewCopyWizard::fillOrigins() {
-    const QString keep =
-        chosenOrigin() ? chosenOrigin()->machine + chosenOrigin()->name : QString();
+    QString keep = chosenOrigin() ? chosenOrigin()->machine + chosenOrigin()->name : QString();
+    if (keep.isEmpty() && !m_wantDataset.isEmpty()) {
+        keep = m_wantMachine + m_wantDataset;
+    }
     const QString f = m_filter->text().trimmed();
     m_origins->clear();
     for (int i = 0; i < m_datasets.size(); ++i) {

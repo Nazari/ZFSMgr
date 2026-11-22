@@ -150,7 +150,16 @@ void StatusPage::render() {
             l->setStyleSheet(
                 QStringLiteral("color:%1")
                     .arg(colourOf(a.error ? QStringLiteral("error") : QStringLiteral("warning"))));
-            lay->addWidget(l);
+            auto* row = new QHBoxLayout();
+            row->addWidget(l, 1);
+            // Where to look at it: the machine, in Machines.
+            auto* see = new QPushButton(L("See", "Ver"), box);
+            see->setFlat(true);
+            see->setCursor(Qt::PointingHandCursor);
+            const QString id = a.connection;
+            connect(see, &QPushButton::clicked, this, [this, id] { Q_EMIT machineRequested(id); });
+            row->addWidget(see, 0, Qt::AlignTop);
+            lay->addLayout(row);
         }
         m_bodyLayout->addWidget(box);
     }

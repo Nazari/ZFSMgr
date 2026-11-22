@@ -30,7 +30,10 @@ public:
     CliService* serviceFor(const QString& machine);
     // 0 Status, 1 Copies, 2 Machines, 3 Jobs.
     void showPage(int index);
-    void openNewCopy();
+    void openNewCopy(const QString& machine = {}, const QString& dataset = {});
+    void openAddMachine();
+    // The Machines page, opened down to that machine or dataset.
+    void showMachine(const QString& machine, const QString& dataset = {});
 
 private:
     void wire(CliService* s);
@@ -45,6 +48,7 @@ private:
     QStackedWidget* m_pages{nullptr};
     StateStore* m_store{nullptr};
     StatusPage* m_status{nullptr};
+    class MachinesPage* m_machines{nullptr};
 };
 
 }  // namespace zfsmgr::gui

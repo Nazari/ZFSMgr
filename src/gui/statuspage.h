@@ -28,6 +28,7 @@ public:
 Q_SIGNALS:
     // How many things need attention, for the navigation badge.
     void attentionChanged(int count);
+    void machineRequested(const QString& id);
 
 private:
     void render();

@@ -31,6 +31,8 @@ class NewCopyWizard : public QDialog {
     Q_OBJECT
 public:
     explicit NewCopyWizard(StateStore* store, QWidget* parent = nullptr);
+    // Chooses this origin as soon as the machines have listed it («Copy…» on a dataset).
+    void preselect(const QString& machine, const QString& dataset);
 
 Q_SIGNALS:
     void created();
@@ -92,6 +94,8 @@ private:
     QStringList m_toRun;
     int m_running{-1};
     QString m_stamp;
+    QString m_wantMachine;
+    QString m_wantDataset;
 };
 
 }  // namespace zfsmgr::gui

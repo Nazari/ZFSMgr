@@ -1,7 +1,9 @@
 #include "mainwindow.h"
 
 #include "copiespage.h"
+#include "addmachinedialog.h"
 #include "jobspage.h"
+#include "machinespage.h"
 #include "newcopywizard.h"
 #include "questiondialog.h"
 #include "statestore.h"
@@ -17,24 +19,6 @@
 #include <QStatusBar>
 
 namespace zfsmgr::gui {
-
-namespace {
-
-// A page that is not there yet: says so, instead of an empty space.
-QWidget* comingLater(const QString& what, QWidget* parent) {
-    auto* w = new QWidget(parent);
-    auto* lay = new QVBoxLayout(w);
-    auto* l = new QLabel(L("%1 comes in a later phase. Meanwhile, the CLI does it.",
-                           "%1 llega en una fase posterior. Mientras, lo hace el CLI.")
-                             .arg(what),
-                         w);
-    l->setWordWrap(true);
-    lay->addWidget(l);
-    lay->addStretch(1);
-    return w;
-}
-
-}  // namespace
 
 MainWindow::MainWindow(QString cliPath, QByteArray masterPassword, CliService* general,
                        QWidget* parent)
@@ -61,12 +45,20 @@ MainWindow::MainWindow(QString cliPath, QByteArray masterPassword, CliService* g
     auto* jobs = new JobsPage(m_store, m_pages);
     m_pages->addWidget(m_status);
     m_pages->addWidget(copies);
-    m_pages->addWidget(comingLater(L("Machines", "Máquinas"), m_pages));
+    auto* machines = new MachinesPage(m_store, m_pages);
+    m_machines = machines;
+    m_pages->addWidget(machines);
     m_pages->addWidget(jobs);
     const auto say = [this](const QString& text) { statusBar()->showMessage(text, 15000); };
     connect(copies, &CopiesPage::message, this, say);
     connect(jobs, &JobsPage::message, this, say);
-    connect(copies, &CopiesPage::newCopyRequested, this, &MainWindow::openNewCopy);
+    connect(machines, &MachinesPage::message, this, say);
+    connect(m_status, &StatusPage::machineRequested, this,
+            [this](const QString& id) { showMachine(id); });
+    connect(machines, &MachinesPage::addMachineRequested, this, &MainWindow::openAddMachine);
+    connect(machines, &MachinesPage::copyRequested, this,
+            [this](const QString& m, const QString& ds) { openNewCopy(m, ds); });
+    connect(copies, &CopiesPage::newCopyRequested, this, [this] { openNewCopy(); });
     lay->addWidget(m_pages, 1);
     setCentralWidget(central);
     connect(m_nav, &QListWidget::currentRowChanged, m_pages, &QStackedWidget::setCurrentIndex);
@@ -82,11 +74,26 @@ MainWindow::~MainWindow() {
     m_master.fill('\0');
 }
 
-void MainWindow::openNewCopy() {
+void MainWindow::openNewCopy(const QString& machine, const QString& dataset) {
     auto* w = new NewCopyWizard(m_store, this);
     w->setAttribute(Qt::WA_DeleteOnClose);
     connect(w, &NewCopyWizard::created, m_store, &StateStore::refresh);
+    if (!dataset.isEmpty()) {
+        w->preselect(machine, dataset);
+    }
     w->open();
+}
+
+void MainWindow::showMachine(const QString& machine, const QString& dataset) {
+    showPage(2);
+    m_machines->reveal(machine, dataset);
+}
+
+void MainWindow::openAddMachine() {
+    auto* d = new AddMachineDialog(m_store, this);
+    d->setAttribute(Qt::WA_DeleteOnClose);
+    connect(d, &AddMachineDialog::added, m_store, &StateStore::refresh);
+    d->open();
 }
 
 void MainWindow::showPage(int index) {

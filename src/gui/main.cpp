@@ -43,6 +43,11 @@ public:
             const QString capture = qEnvironmentVariable("ZFSMGR_GUI_CAPTURE");
             if (!capture.isEmpty()) {
                 w->showPage(qEnvironmentVariableIntValue("ZFSMGR_GUI_PAGE"));
+                if (const QString r = qEnvironmentVariable("ZFSMGR_GUI_REVEAL"); !r.isEmpty()) {
+                    // «machine» or «machine/pool/dataset»: the Machines page, opened there.
+                    w->showMachine(r.section(QLatin1Char('/'), 0, 0),
+                                   r.section(QLatin1Char('/'), 1));
+                }
                 if (qEnvironmentVariable("ZFSMGR_GUI_OPEN") == QLatin1String("newcopy")) {
                     // After the first answers, as a person would: the assistant reads them.
                     QTimer::singleShot(4000, w, [w] { w->openNewCopy(); });

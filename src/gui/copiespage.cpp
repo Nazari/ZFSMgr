@@ -6,6 +6,10 @@
 #include "uikit.h"
 
 #include <QDateTime>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QFormLayout>
+#include <QSpinBox>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -235,6 +239,9 @@ void CopiesPage::showDetail() {
             L("Resumed.", "Reanudada."));
     });
     buttons->addWidget(pause);
+    auto* change = new QPushButton(L("Change…", "Cambiar…"), m_detail);
+    connect(change, &QPushButton::clicked, this, [this, on, r] { changeKeep(on, r); });
+    buttons->addWidget(change);
     auto* stopIt = new QPushButton(L("Stop copying…", "Dejar de copiar…"), m_detail);
     connect(stopIt, &QPushButton::clicked, this, [this, on, r] {
         // Pulled: the copier's schedule goes (the CLI asks first); what was copied stays.
@@ -249,6 +256,50 @@ void CopiesPage::showDetail() {
     buttons->addStretch(1);
     m_detailLayout->addLayout(buttons);
     m_detailLayout->addStretch(1);
+}
+
+void CopiesPage::changeKeep(const QString& on, const ScheduleRow& r) {
+    // How many the copy keeps. For a pushed copy these are the origin's numbers too: it keeps
+    // exactly what the origin keeps.
+    auto* d = new QDialog(this);
+    d->setAttribute(Qt::WA_DeleteOnClose);
+    d->setWindowTitle(L("What the copy keeps", "Lo que guarda la copia"));
+    auto* lay = new QVBoxLayout(d);
+    if (r.kind == QLatin1String("push")) {
+        lay->addWidget(
+            muted(L("The origin sends it: these are also the snapshots the origin keeps.",
+                    "La envía el origen: son también los snapshots que guarda el "
+                    "origen."),
+                  d));
+    }
+    auto* form = new QFormLayout();
+    QVector<QPair<QString, QSpinBox*>> spins;
+    const QVector<QPair<QString, QString>> clases = {
+        {QStringLiteral("hourly"), L("Hourly", "Por hora")},
+        {QStringLiteral("daily"), L("Daily", "Diarias")},
+        {QStringLiteral("weekly"), L("Weekly", "Semanales")},
+        {QStringLiteral("monthly"), L("Monthly", "Mensuales")},
+        {QStringLiteral("yearly"), L("Yearly", "Anuales")}};
+    for (const auto& c : clases) {
+        auto* s = new QSpinBox(d);
+        s->setRange(0, 999);
+        s->setValue(r.keep.value(c.first).toInt());
+        form->addRow(c.second, s);
+        spins.push_back({c.first, s});
+    }
+    lay->addLayout(form);
+    auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, d);
+    lay->addWidget(bb);
+    connect(bb, &QDialogButtonBox::rejected, d, &QDialog::reject);
+    connect(bb, &QDialogButtonBox::accepted, d, [this, d, on, spins] {
+        QString line = QStringLiteral("schedule");
+        for (const auto& s : spins) {
+            line += QStringLiteral(" --%1 %2").arg(s.first).arg(s.second->value());
+        }
+        act(line + QStringLiteral(" --on ") + on, L("Changed.", "Cambiado."));
+        d->accept();
+    });
+    d->open();
 }
 
 void CopiesPage::act(const QString& line, const QString& done) {

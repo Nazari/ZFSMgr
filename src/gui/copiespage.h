@@ -33,6 +33,7 @@ private:
     void render();
     void showDetail();
     void act(const QString& line, const QString& done);
+    void changeKeep(const QString& on, const ScheduleRow& r);
     QVector<ScheduleRow> copies() const;
 
     StateStore* m_store;
