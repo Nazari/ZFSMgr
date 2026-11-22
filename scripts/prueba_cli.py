@@ -76,7 +76,11 @@ def sh(ctx, orden, en_remoto=False, root=False):
     entrada = (ctx.sudo + "\n") if root else None
     p = subprocess.run(["bash", "-c", orden], input=entrada, capture_output=True,
                        text=True, timeout=300)
-    return p.returncode, (p.stdout + p.stderr)
+    # ssh's own noise when a security key listed in the config is not plugged in: it is about
+    # this machine's keys, not about the command, and broke checks that expect no output.
+    err = "".join(l for l in p.stderr.splitlines(True)
+                  if not l.startswith("sign_and_send_pubkey: signing failed"))
+    return p.returncode, (p.stdout + err)
 
 
 def cli(ctx, ordenes, timeout=180, idioma=None, frase=None):
