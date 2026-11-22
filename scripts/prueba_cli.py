@@ -1505,9 +1505,34 @@ def casos_servicio(ctx):
         except (ValueError, TypeError, KeyError):
             filas = None
         comprueba("servicio: ls responde en JSON", [] if filas else [f"{r}"])
+
+        # The rest of the contract in docs/protocolo_serve.md.
+        comprueba("servicio: el resultado lleva el id de la petición",
+                  [] if r and r.get("id") == 6 and r.get("type") == "result" else [f"{r}"])
+        p.stdin.write("esto no es json\n")
+        p.stdin.flush()
+        r = evento()
+        comprueba("servicio: una petición mal formada da rc 2 y el servicio sigue",
+                  [] if r and r.get("rc") == 2 and "bad request" in r.get("stderr", "") else [f"{r}"])
+        p.stdin.write(json.dumps({"id": 8, "line": f"ls zfsm://local/{P}", "format": "text"}) + "\n")
+        p.stdin.flush()
+        r = evento()
+        comprueba("servicio: «format» de una petición cambia solo esa salida",
+                  [] if r and r.get("id") == 8 and r["rc"] == 0 and not r["stdout"].lstrip().startswith("{")
+                  else [f"{r}"])
+        r, _ = pide(9, f"ls zfsm://local/{P}")
+        comprueba("servicio: y la siguiente vuelve a ser JSON",
+                  [] if r and r["stdout"].lstrip().startswith("{") else [f"{r}"])
     finally:
         p.stdin.close()
         p.wait(timeout=60)
+
+    # A wrong master password: an error event and exit code 1, no `ready`.
+    q = subprocess.run([CLI, "--serve", "--lang", "es"], input="no-es-la-maestra\n",
+                       capture_output=True, text=True, timeout=60)
+    comprueba("servicio: con una maestra que no abre, evento de error y código 1",
+              [] if q.returncode == 1 and '"type":"error"' in q.stdout.replace(" ", "")
+              and "ready" not in q.stdout else [f"rc={q.returncode} {q.stdout!r}"])
 
 
 def casos_servicio_conexiones(ctx):
