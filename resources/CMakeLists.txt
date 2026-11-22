@@ -614,6 +614,21 @@ qt_add_executable(zfsmgr-gui
 
 target_link_libraries(zfsmgr-gui PRIVATE zfsmgr_core)
 
+# The new interface (src/gui). It links ONLY Qt —no zfsmgr_base, no zfsmgr_commands— and the
+# only process it launches is `zfsmgr-cli --serve`: every rule lives in the CLI. That link
+# line is the rule written where it cannot be forgotten. Not installed until it replaces
+# zfsmgr-gui.
+qt_add_executable(zfsmgr-gui2
+    ../src/gui/main.cpp
+    ../src/gui/cliservice.cpp
+    ../src/gui/mainwindow.cpp
+    ../src/gui/questiondialog.cpp
+    ../src/gui/statusmodel.cpp
+    ../src/gui/statuspage.cpp
+)
+target_link_libraries(zfsmgr-gui2 PRIVATE Qt6::Widgets)
+target_compile_definitions(zfsmgr-gui2 PRIVATE QT_NO_KEYWORDS)
+
 add_executable(zfsmgr_agent
     ../src/daemon/main.cpp
     ../src/daemon/core.cpp
@@ -876,6 +891,13 @@ if(BUILD_TESTING)
     target_link_libraries(zfsmgr_help_resources_test PRIVATE Qt6::Core)
     target_compile_definitions(zfsmgr_help_resources_test PRIVATE QT_NO_KEYWORDS)
     add_test(NAME zfsmgr_help_resources_test COMMAND zfsmgr_help_resources_test)
+
+    # The new interface's status model: from the CLI's answers to what the panel counts.
+    # Qt Core only, like the interface itself never links anything of ours.
+    add_executable(zfsmgr_gui2_status_test ../tests/gui2_status_test.cpp ../src/gui/statusmodel.cpp)
+    target_link_libraries(zfsmgr_gui2_status_test PRIVATE Qt6::Core)
+    target_compile_definitions(zfsmgr_gui2_status_test PRIVATE QT_NO_KEYWORDS)
+    add_test(NAME zfsmgr_gui2_status_test COMMAND zfsmgr_gui2_status_test)
 
     # Los textos que saldrían en castellano con la interfaz en inglés.
     #

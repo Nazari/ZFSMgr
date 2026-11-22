@@ -115,6 +115,7 @@ Un campo nuevo se puede añadir sin avisar. Quitar o renombrar uno es un cambio 
 
 | Orden | Documento |
 |---|---|
+| `ls zfsm://` | `{"connections":[{"id","name","connected","type","os",…}]}`: las máquinas |
 | `ls <conexión/pool/dataset>` | `{"entries":[…]}`, una fila por hijo |
 | `overview [-a]` | `{"machines":[…],"warnings":[…]}`; ver abajo |
 | `probe <conexión>` | un objeto con lo que hay al otro lado; ver abajo |
