@@ -536,6 +536,7 @@ add_executable(zfsmgr-cli
     ../src/cli/shell_admin.cpp
     ../src/cli/shell_schedules.cpp
     ../src/cli/shell_overview.cpp
+    ../src/cli/shell_probe.cpp
     ../src/cli/shell_advanced.cpp
     ../src/cli/shell_send.cpp
     ../src/cli/shell_daemon.cpp

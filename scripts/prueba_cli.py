@@ -568,6 +568,99 @@ def casos_sudo_sin_argv(ctx):
         shutil.rmtree(bin_falso, ignore_errors=True)
 
 
+def casos_probe(ctx):
+    """`probe`: whether a connection works and what is on the other side, as fixed codes. And
+    `create` without --os asks the machine. On a COPY of the configuration."""
+    cfg = os.path.join(ctx.dir_tmp, "cfg-probe")
+    if os.path.isdir(cfg):
+        shutil.rmtree(cfg)
+    shutil.copytree(os.path.expanduser("~/.config/ZFSMgr"), cfg)
+    fichero = os.path.join(ctx.dir_tmp, ".maestra")
+
+    def corre(guion, idioma="es"):
+        orden = (f"exec 9<{fichero}; exec {CLI!r} --password-fd 9 --config-dir {shlex.quote(cfg)} "
+                 f"--lang {idioma} --format text -y")
+        p = subprocess.run(["bash", "-c", orden], input=guion + "\nexit\n", capture_output=True,
+                           text=True, timeout=120)
+        return p.returncode, p.stdout + p.stderr
+
+    def comprueba(nombre, problemas, salida):
+        if problemas:
+            ctx.fallos.append((nombre, problemas, salida))
+            print(f"  FALLO  {nombre}")
+            for x in problemas:
+                print(f"         {x}")
+        else:
+            ctx.pasados.append(nombre)
+            print(f"  ok     {nombre}")
+
+    def sonda(conexion):
+        rc, salida = corre(f"format json\nprobe zfsm://{conexion}")
+        try:
+            return rc, json_de(salida), salida
+        except ValueError:
+            return rc, {}, salida
+
+    maquinas = ["local"] + (["unib"] if ctx.remoto else [])
+    for m in maquinas:
+        rc, d, salida = sonda(m)
+        problemas = []
+        esperado = {"reachable": True, "os": "Linux", "os_matches": True, "sudo": "ok",
+                    "openzfs": "ok"}
+        problemas += [f"{k}={d.get(k)!r}, esperaba {v!r}" for k, v in esperado.items()
+                      if d.get(k) != v]
+        if d.get("daemon") not in ("ok", "outdated"):
+            problemas.append(f"daemon={d.get('daemon')!r}")
+        if not d.get("openzfs_version") or not d.get("os_detail"):
+            problemas.append("faltan openzfs_version u os_detail")
+        if d.get("status") == "error" or rc != 0:
+            problemas.append(f"status={d.get('status')!r} rc={rc}: nada debería ser un error")
+        comprueba(f"probe: {m} responde, Linux, sudo, OpenZFS y daemon", problemas, salida)
+
+    rc, salida = corre("probe zfsm://local", idioma="en")
+    comprueba("probe: el texto en inglés", [] if re.search(r"^system\s+\S", salida, re.M)
+              else ["no sale la fila «system»"], salida)
+
+    if ctx.remoto:
+        usuario, _, maquina = ctx.remoto.partition("@")
+        clave = os.path.expanduser("~/.ssh/id_ed25519")
+        rc, salida = corre(f"create pbdet --host {maquina} --user {usuario} --key {clave}")
+        _, d, _ = sonda("pbdet")
+        problemas = [] if rc == 0 and re.search(r"sistema detectado: ", salida) else [
+            f"rc={rc}, sin «sistema detectado»"]
+        if d.get("configured_os") != "Linux":
+            problemas.append(f"guardada con os={d.get('configured_os')!r}")
+        comprueba("create sin --os: el sistema se pregunta a la máquina", problemas, salida)
+
+        corre(f"create pbmal --host {maquina} --user {usuario} --key {clave} --os FreeBSD")
+        rc, d, salida = sonda("pbmal")
+        avisos = [w.get("subject") for w in d.get("warnings", [])]
+        problemas = []
+        if d.get("os_matches") is not False or d.get("status") != "error" or "os" not in avisos:
+            problemas.append(f"os_matches={d.get('os_matches')!r} status={d.get('status')!r} "
+                             f"avisos={avisos}")
+        if rc == 0:
+            problemas.append("rc 0 con un sistema que no es el de la conexión")
+        if d.get("daemon") != "unreachable" or not d.get("daemon_detail"):
+            problemas.append(f"sin sudo el daemon no se alcanza, y debe decir por qué: "
+                             f"daemon={d.get('daemon')!r}")
+        comprueba("probe: un sistema que no es el de la conexión es un error", problemas, salida)
+
+    clave_falsa = os.path.join(ctx.dir_tmp, "clave-probe")
+    with open(clave_falsa, "w") as f:
+        f.write("x")
+    rc, salida = corre(f"create pbnada --host 192.0.2.1 --user x --key {clave_falsa}")
+    os.remove(clave_falsa)
+    _, d, _ = sonda("pbnada")
+    problemas = []
+    if rc == 0 or not re.search(r"no se pudo detectar el sistema .*no se ha creado nada", salida):
+        problemas.append(f"rc={rc}: debía negarse diciendo por qué")
+    if d:
+        problemas.append("la conexión quedó creada")
+    comprueba("create sin --os: una máquina que no responde no se da de alta", problemas, salida)
+    shutil.rmtree(cfg)
+
+
 def casos_dedup(ctx):
     """La columna DEDUP del listado de POOLS, sobre un pool que deduplica de verdad.
 
@@ -1714,7 +1807,7 @@ def casos_servicio_conexiones(ctx):
     try:
         p.stdout.readline()   # ready
         r, secretos = pide(1, "create prueba-srv --type SSH --host 127.0.0.1 --user nadie "
-                              "--sudo --family ipv6", secreto="clave-srv")
+                              "--sudo --family ipv6 --os Linux", secreto="clave-srv")
         c = perfil()
         comprueba("servicio: create de conexión pide la contraseña como evento y la guarda",
                   [] if r and r["rc"] == 0 and secretos == 1 and c and c.get("password")
@@ -1744,7 +1837,7 @@ def casos_servicio_conexiones(ctx):
                 ["bash", "-c", f"exec 9<{fichero}; exec {CLI!r} --config-dir {shlex.quote(cfg)} "
                                f"--password-fd 9 --format text --lang es -y"],
                 input=orden + "\nexit\n", capture_output=True, text=True, timeout=60)
-        fuera(f"create prueba-ext --type SSH --host 127.0.0.1 --user nadie --key {clave}")
+        fuera(f"create prueba-ext --type SSH --host 127.0.0.1 --user nadie --key {clave} --os Linux")
         r, _ = pide(6, "edit prueba-ext --family ipv4")
         comprueba("servicio: ve una conexión que ha creado otro proceso",
                   [] if r and r["rc"] == 0 else [f"{r}"])
@@ -3360,7 +3453,7 @@ def casos_arranque(ctx):
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
 LOCALES = [casos_arranque, casos_identidad, casos_devices, casos_ayuda, casos_version_openzfs, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
-           casos_volumenes, casos_dedup, casos_overview, casos_sudo_sin_argv, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_send_level, casos_recepcion_a_medias, casos_send_fichero, casos_send_comprimido, casos_gsa, casos_sin_montar, casos_cp_destino, casos_load_key, casos_editor_ancho, casos_tab_continua, casos_pantalla, casos_monitor_conexiones, casos_path, casos_info_labelclear, casos_servicio, casos_servicio_conexiones, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
+           casos_volumenes, casos_dedup, casos_overview, casos_sudo_sin_argv, casos_probe, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_send_level, casos_recepcion_a_medias, casos_send_fichero, casos_send_comprimido, casos_gsa, casos_sin_montar, casos_cp_destino, casos_load_key, casos_editor_ancho, casos_tab_continua, casos_pantalla, casos_monitor_conexiones, casos_path, casos_info_labelclear, casos_servicio, casos_servicio_conexiones, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
 def rpc_directo(ctx, entrada, cmd, args):

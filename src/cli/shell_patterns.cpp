@@ -419,6 +419,7 @@ const std::map<std::string, ReglaPatron>& reglasDePatron() {
         {"holds", {Politica::Varios, {}}},
         {"schedules", {Politica::Varios, {}}},
         {"overview", {Politica::Varios, {}}},
+        {"probe", {Politica::Varios, {}}},
         {"log", {Politica::Varios, {}}},
         {"jobs", {Politica::Varios, {}}},
         {"peers", {Politica::Varios, {}}},

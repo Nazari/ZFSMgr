@@ -386,6 +386,16 @@ bool cmdAccounts(Estado& e, const LineaAnalizada& linea);
 bool cmdLog(Estado& e, const LineaAnalizada& linea);
 bool cmdSchedules(Estado& e, const LineaAnalizada& linea);
 bool cmdOverview(Estado& e, const LineaAnalizada& linea);
+bool cmdProbe(Estado& e, const LineaAnalizada& linea);
+
+// What runs on the other side of a connection, by asking it (shell_probe.cpp).
+struct Sistema {
+    bool alcanzable{false};  // ssh got there, whatever answered
+    std::string os;          // «Linux», «macOS», «FreeBSD» or «Windows»; empty if unknown
+    std::string detalle;     // «Fedora Linux 42», «macOS 15.5», «Windows 11 Pro 24H2»
+};
+// False when the machine does not answer or its system is not recognised; `motivo` says why.
+bool detectarSistema(Sesion& ses, const B::ConnectionProfile& p, Sistema& s, std::string& motivo);
 B::gsa::ConnectionState estadoDeProgramaciones(Sesion& ses, const B::ConnectionProfile& p,
                                                int timeoutMs);
 std::string horaLocal(long long epoch);

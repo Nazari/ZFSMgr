@@ -512,6 +512,13 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
       {"overview -a --format json",
        {"t_ej_overview_3", "lo mismo para un programa: lo que enseña un panel de estado"}},
      }},
+    {"probe",
+     {
+      {"probe zfsm://unib",
+       {"t_ej_probe_1", "si la conexión funciona: sistema, sudo, OpenZFS y daemon"}},
+      {"probe",
+       {"t_ej_probe_2", "la conexión en la que estás"}},
+     }},
     {"change-key",
      {
       {"change-key",
@@ -1089,6 +1096,18 @@ const std::vector<Orden> kOrdenes = {
     {"connect", {"t_conexiones_3785cd", "Conexiones"}, {"t_destino_132a32", "[destino]"}, {"t_marca_la_c_c52a74", "Marca la conexión como usable."}, {}, {},
      Objetivo::Conexion,
      {}},
+    {"probe", {"t_conexiones_3785cd", "Conexiones"}, {"t_destino_132a32", "[destino]"},
+     {"t_pr_res", "Comprueba una conexión: si responde, qué sistema hay, si sudo acepta la "
+      "contraseña, qué OpenZFS y qué daemon."},
+     {},
+     {{"t_pr_det1", "Avisa si el sistema no es el que dice la conexión, si sudo no acepta la "
+       "contraseña guardada, si falta OpenZFS o es antiguo, y si no se llega al daemon o está "
+       "anticuado. Funciona también con una conexión desconectada: es como se decide "
+       "conectarla."},
+      {"t_pr_det2", "En JSON cada estado es un código fijo: sudo (ok, wrong_password, "
+       "needs_password, could_not_check, not_used), openzfs (ok, too_old, not_loaded, missing, "
+       "unknown), daemon (ok, outdated, ahead, unknown, unreachable)."}},
+     Objetivo::Cualquiera, {}},
     {"disconnect", {"t_conexiones_3785cd", "Conexiones"}, {"t_destino_132a32", "[destino]"},
      {"t_la_aparta__62eeb8", "La aparta: el intérprete deja de hablar con ella y se cierra su túnel."},
      {},

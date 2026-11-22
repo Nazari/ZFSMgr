@@ -45,7 +45,7 @@ static const struct { const char* nombre; int token; } kVerbos[] = {
     {"mount", V_MOUNT}, {"unmount", V_UNMOUNT}, {"promote", V_PROMOTE},
     {"get", V_GET}, {"set", V_SET}, {"inherit", V_INHERIT}, {"load-key", V_LOAD_KEY}, {"unload-key", V_UNLOAD_KEY},
     {"change-key", V_CHANGE_KEY},
-    {"schedule", V_SCHEDULE}, {"schedules", V_SCHEDULES}, {"overview", V_OVERVIEW},
+    {"schedule", V_SCHEDULE}, {"schedules", V_SCHEDULES}, {"overview", V_OVERVIEW}, {"probe", V_PROBE},
     {"log", V_LOG}, {"peers", V_PEERS}, {"accounts", V_ACCOUNTS}, {"repair-mounts", V_REPAIR_MOUNTS},
     {"authorize-key", V_AUTHORIZE_KEY}, {"export-trust", V_EXPORT_TRUST},
     {"rollback", V_ROLLBACK}, {"holds", V_HOLDS}, {"hold", V_HOLD}, {"release", V_RELEASE},

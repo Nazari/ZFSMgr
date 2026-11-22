@@ -250,12 +250,14 @@ static bool familiaDeDireccion(const Peticion& pet, std::string& familia) {
 
 bool cmdCrearConexion(Estado& e, const Peticion& pet) {
     if (pet.lista("texto").empty()) {
-        std::fputs(TC("t_uso_create_ac2703",
-                      "uso: create <identificador> [--name <n>] [--type LOCAL|SSH] [--os <so>]\n"
-                      "            [--host <h>] [--port <p>] [--user <u>] [--key <ruta>]\n"
-                      "            [--sudo] [--password-fd <n>]\n"
-                      "  Da de alta una conexión. Lo que no se dé por opciones se pregunta.\n"),
-                   stderr);
+        std::fputs(
+            TC("t_uso_create_ac2703",
+               "uso: create <identificador> [--name <n>] [--type LOCAL|SSH] [--os <so>]\n"
+               "            [--host <h>] [--port <p>] [--user <u>] [--key <ruta>]\n"
+               "            [--sudo] [--password-fd <n>]\n"
+               "  Da de alta una conexión. Lo que no se dé por opciones se pregunta; el sistema,\n"
+               "  a la máquina.\n"),
+            stderr);
         return false;
     }
     B::ConnectionProfile p;
@@ -286,16 +288,12 @@ bool cmdCrearConexion(Estado& e, const Peticion& pet) {
             && !pide(TC("t_p_tipo_conexion", "Tipo (LOCAL/SSH)"), "SSH", p.connType))
             return false;
         p.connType = B::toUpperAscii(p.connType);
-        if (p.osType.empty()
-            && !pide(TC("t_p_sistema_operativo", "Sistema operativo"), "Linux", p.osType))
-            return false;
     }
     if (p.name.empty())
         p.name = p.id;
     if (p.connType.empty())
         p.connType = "SSH";
-    if (p.osType.empty())
-        p.osType = "Linux";
+    // No `--os`: it is asked to the machine once the credentials are known (below).
 
     const bool local = B::toLowerAscii(p.connType) == "local";
     if (!local) {
@@ -408,6 +406,40 @@ bool cmdCrearConexion(Estado& e, const Peticion& pet) {
             return false;
         }
         p.password = clave;
+    }
+    // The system, when not given: asked to the machine, with the credentials just collected.
+    // Only if it cannot be asked is it asked to the person; without a terminal that is an
+    // error, not a guess: a wrong system means wrong commands on every operation after.
+    if (p.osType.empty()) {
+        Sistema sis;
+        std::string motivo;
+        if (detectarSistema(*e.ses, p, sis, motivo)) {
+            p.osType = sis.os;
+            std::fprintf(
+                stderr, "%s\n",
+                B::format(T("t_os_detectado", "sistema detectado: %1"), {sis.detalle}).c_str());
+        } else if (interactivo) {
+            std::fprintf(
+                stderr, "%s\n",
+                B::format(T("t_os_no_detectado_preg", "no se pudo detectar el sistema (%1)"),
+                          {motivo})
+                    .c_str());
+            if (!pide(TC("t_p_sistema_operativo", "Sistema operativo"), "Linux", p.osType)) {
+                return false;
+            }
+        } else {
+            std::fprintf(stderr, "%s\n",
+                         B::format(T("t_os_no_detectado",
+                                     "no se pudo detectar el sistema (%1): dalo con --os, o "
+                                     "comprueba la conexión; no se ha creado nada"),
+                                   {motivo})
+                             .c_str());
+            for (char& c : p.password) {
+                c = 0;
+            }
+            e.ultimoRc = 1;
+            return false;
+        }
     }
     std::string error;
     if (!guardarConexion(*e.ses, p, error)) {

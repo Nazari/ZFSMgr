@@ -101,6 +101,7 @@ Un campo nuevo se puede añadir sin avisar. Quitar o renombrar uno es un cambio 
 |---|---|
 | `ls <conexión/pool/dataset>` | `{"entries":[…]}`, una fila por hijo |
 | `overview [-a]` | `{"machines":[…],"warnings":[…]}`; ver abajo |
+| `probe <conexión>` | un objeto con lo que hay al otro lado; ver abajo |
 
 *(Esta tabla crece con cada orden que use la interfaz nueva.)*
 
@@ -136,3 +137,29 @@ Un campo nuevo se puede añadir sin avisar. Quitar o renombrar uno es un cambio 
   decide el CLI: el cliente solo los enseña.
 - Para un panel, mejor `overview <conexión>` en el `--serve` de cada máquina, en paralelo, que
   un solo `overview -a`: así una máquina apagada no retrasa a las demás.
+
+### `probe`
+
+Lo que pregunta el asistente de conexión nueva: si la máquina responde y qué hay en ella. Va por
+SSH y no al daemon, porque en una máquina nueva todavía no lo hay. Funciona también con una
+conexión desconectada. `create` sin `--os` usa la misma detección del sistema.
+
+```json
+{
+  "connection": "unib", "configured_os": "Linux", "reachable": true,
+  "os": "Linux", "os_detail": "Arch Linux", "os_matches": true,
+  "sudo": "ok", "sudo_detail": "",
+  "openzfs": "ok", "openzfs_version": "2.4.4",
+  "daemon": "ok", "daemon_version": "1.4.3.959941325",
+  "status": "ok",
+  "warnings": [{"level": "warning", "subject": "daemon", "text": "…"}]
+}
+```
+
+- Códigos fijos: `os` (`Linux`, `macOS`, `FreeBSD`, `Windows`), `sudo` (`ok`,
+  `wrong_password`, `needs_password`, `could_not_check`, `not_used`), `openzfs` (`ok`,
+  `too_old`, `not_loaded`, `missing`, `unknown`), `daemon` (`ok`, `outdated`, `ahead`,
+  `unknown`, `unreachable`, este con `daemon_detail`) y `status` (`ok`, `warning`, `error`).
+- Sin respuesta: `reachable: false` y `reason`, sin el resto.
+- `rc` es 1 cuando `status` es `error`: la conexión no sirve tal como está (el sistema no es el
+  que dice, sudo no acepta la contraseña, falta OpenZFS…). Los `warnings` dicen qué hacer.
