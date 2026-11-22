@@ -33,7 +33,7 @@ jobs:
           - os: ubuntu-latest
             key: linux-x86_64
             artifact: builds/agents-only/zfsmgr_agent
-          - os: macos-14
+          - os: macos-15
             key: macos-universal
             artifact: builds/agents-only/zfsmgr_agent
     runs-on: ${{ matrix.os }}
@@ -349,13 +349,12 @@ jobs:
             builds/freebsd/zfsmgr_agent
           if-no-files-found: error
 
-  # macos-14 y no macos-latest porque en Sequoia el enlazado murió con
-  # "ld: framework 'AGL' not found". OJO, la causa NO está identificada: se atribuyó
-  # al SDK de Xcode 16, pero macos-15-intel usaba Xcode 16.4 y compilaba sin
-  # problema. Antes de volver a macos-latest hay que averiguar de dónde sale
-  # realmente la referencia a AGL (sospecha: el FindOpenGL de CMake).
+  # macos-15: GitHub retired macos-14 (2026-11, «The configuration
+  # 'macos-14-arm64-us-default' is not supported»). The «framework 'AGL' not found» that
+  # pinned it there is understood now and handled in resources/CMakeLists.txt: Qt's
+  # FindWrapOpenGL links AGL even when the SDK does not have it.
   build-macos:
-    runs-on: macos-14
+    runs-on: macos-15
     needs: agent-bundle
     steps:
       - name: Checkout
