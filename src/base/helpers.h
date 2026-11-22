@@ -320,6 +320,33 @@ OpenZfsLectura leeSoporteOpenZfs(const std::string& salidaCruda);
 // El texto que explica un veredicto, ya listo para enseñar. Vacío cuando es `Ok`.
 std::string textoDeSoporteOpenZfs(const OpenZfsLectura& l);
 
+// One row of the tree under `config:` in `zpool status`.
+struct PoolStatusRow {
+    std::string name;
+    std::string state;  // ONLINE, DEGRADED, UNAVAIL…; empty in a section row («logs»)
+    std::string read;   // the error counters, as printed («0», «1.2K»); empty if absent
+    std::string write;
+    std::string cksum;
+    std::string note;  // what follows the counters: «was /dev/sdc1», «(resilvering)»…
+    int depth{0};      // 0 = the pool itself or a section; 1 = top-level vdev; 2 = inside…
+    bool leaf{true};   // a real device, not a grouping (mirror-0, raidz1-0, logs…)
+};
+
+struct PoolStatusInfo {
+    std::string pool;
+    std::string state;
+    std::string status;  // zpool's explanation, joined in one line; empty when healthy
+    std::string action;  // what zpool recommends; empty when nothing
+    std::string scan;    // the last scrub or resilver
+    std::string errors;  // «No known data errors» or what it lists
+    std::vector<PoolStatusRow> rows;
+};
+
+// Reads the output of `zpool status [-v] <pool>`: the same text on the four platforms, which
+// is why it is parsed and not asked as `-j` (only OpenZFS 2.3 and later have it). Fields it
+// does not know are skipped; a missing part stays empty.
+PoolStatusInfo parseZpoolStatus(const std::string& text);
+
 // Splits the output of `zpool import`.
 std::vector<ImportablePoolInfo> parseZpoolImportOutput(const std::string& text);
 

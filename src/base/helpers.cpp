@@ -1485,6 +1485,106 @@ DedupDdt parseDedupDdt(const std::string& text) {
     return d;
 }
 
+PoolStatusInfo parseZpoolStatus(const std::string& text) {
+    PoolStatusInfo info;
+    const std::regex grupoRx(
+        "^(mirror|raidz[1-3]?|draid[0-9:a-z]*|spare|replacing)(-[0-9]+)?$"
+        "|^(logs|cache|spares|special|dedup)$");
+    std::string* campo = nullptr;  // the «key:» whose continuation lines are being read
+    bool enConfig = false;
+    std::size_t sangriaPool = std::string::npos;
+    for (const std::string& lineRaw : split(text, "\n", false)) {
+        const std::string line = trim(lineRaw);
+        // «  pool: back», « state: ONLINE», «status: …», «action: …», «  scan: …», «errors: …»
+        const auto dosPuntos = line.find(':');
+        const std::string clave =
+            dosPuntos == std::string::npos ? std::string() : line.substr(0, dosPuntos);
+        const bool esClave =
+            !enConfig && !clave.empty() && clave.find(' ') == std::string::npos
+            && (clave == "pool" || clave == "state" || clave == "status" || clave == "action"
+                || clave == "scan" || clave == "config" || clave == "errors" || clave == "remove"
+                || clave == "see" || clave == "id");
+        if (esClave || (enConfig && clave == "errors")) {
+            enConfig = false;
+            campo = nullptr;
+            const std::string valor = trim(line.substr(dosPuntos + 1));
+            if (clave == "pool") {
+                info.pool = valor;
+            } else if (clave == "state") {
+                info.state = valor;
+            } else if (clave == "status") {
+                info.status = valor;
+                campo = &info.status;
+            } else if (clave == "action") {
+                info.action = valor;
+                campo = &info.action;
+            } else if (clave == "scan") {
+                info.scan = valor;
+                campo = &info.scan;
+            } else if (clave == "errors") {
+                info.errors = valor;
+                campo = &info.errors;
+            } else if (clave == "config") {
+                enConfig = true;
+            }
+            continue;
+        }
+        if (!enConfig) {
+            // A continuation of the last field: zpool wraps its explanations.
+            if (campo && !line.empty()) {
+                *campo += " " + line;
+            }
+            continue;
+        }
+        if (line.empty()) {
+            continue;
+        }
+        std::size_t sangria = 0;
+        for (char ch : lineRaw) {
+            if (ch == '\t') {
+                sangria += 8;
+            } else if (ch == ' ') {
+                ++sangria;
+            } else {
+                break;
+            }
+        }
+        std::istringstream iss(line);
+        PoolStatusRow row;
+        iss >> row.name;
+        if (row.name == "NAME") {
+            continue;  // the header
+        }
+        std::string estado;
+        iss >> estado;
+        // A row with only a name is a section («logs», «spares»), at the pool's depth.
+        if (!estado.empty()) {
+            row.state = estado;
+            std::string a;
+            std::string b;
+            std::string c;
+            if (iss >> a >> b >> c) {
+                row.read = a;
+                row.write = b;
+                row.cksum = c;
+            }
+            std::string resto;
+            std::getline(iss, resto);
+            row.note = trim(resto);
+        }
+        if (sangriaPool == std::string::npos) {
+            sangriaPool = sangria;
+        }
+        row.depth = sangria <= sangriaPool ? 0 : static_cast<int>((sangria - sangriaPool) / 2);
+        row.leaf = row.depth > 0 && !std::regex_search(row.name, grupoRx);
+        if (row.depth == 0) {
+            row.leaf = false;
+        }
+        info.rows.push_back(row);
+    }
+    return info;
+}
+
 std::vector<ImportablePoolInfo> parseZpoolImportOutput(const std::string& text) {
     std::vector<ImportablePoolInfo> rows;
     const std::regex poolNameRx("^[A-Za-z0-9_.:-]+$");

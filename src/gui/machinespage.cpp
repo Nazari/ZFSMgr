@@ -1,5 +1,6 @@
 #include "machinespage.h"
 
+#include "addmachinedialog.h"
 #include "cliservice.h"
 #include "statestore.h"
 #include "text.h"
@@ -7,8 +8,15 @@
 
 #include <QDateTime>
 #include <QFormLayout>
+#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QListWidget>
+#include <QLineEdit>
+#include <QComboBox>
+#include <QCheckBox>
+#include <QTabWidget>
+#include <QInputDialog>
 #include <QJsonDocument>
 #include <QLabel>
 #include <QPushButton>
@@ -118,6 +126,8 @@ MachinesPage::MachinesPage(StateStore* store, QWidget* parent) : QWidget(parent)
     split->setSizes({300, 700});
     outer->addWidget(split, 1);
 
+    // For captures without a screen: which dataset tab opens first.
+    m_datasetTab = qEnvironmentVariableIntValue("ZFSMGR_GUI_TAB");
     connect(m_tree, &QTreeWidget::itemExpanded, this, &MachinesPage::expand);
     connect(m_tree, &QTreeWidget::currentItemChanged, this, &MachinesPage::showDetail);
     connect(m_store, &StateStore::changed, this, [this] {
@@ -423,6 +433,15 @@ void MachinesPage::showMachine(const QString& id) {
             L("Daemon installed.", "Daemon instalado."));
     });
     buttons->addWidget(daemon);
+    if (m_advanced && connected) {
+        auto* create = button(L("Create a pool…", "Crear un pool…"), w);
+        connect(create, &QPushButton::clicked, this,
+                [this, id] { Q_EMIT createPoolRequested(id); });
+        buttons->addWidget(create);
+        auto* import = button(L("Import a pool…", "Importar un pool…"), w);
+        connect(import, &QPushButton::clicked, this, [this, id] { importPool(id); });
+        buttons->addWidget(import);
+    }
     auto* remove = button(L("Remove…", "Quitar…"), w);
     connect(remove, &QPushButton::clicked, this, [this, id] {
         act(QStringLiteral("destroy ") + url(id), L("Connection removed.", "Conexión quitada."));
@@ -434,9 +453,16 @@ void MachinesPage::showMachine(const QString& id) {
     setDetail(w);
 }
 
+void MachinesPage::setAdvanced(bool on) {
+    m_advanced = on;
+    showDetail();
+}
+
 void MachinesPage::showPool(const QString& machine, const QString& pool) {
+    const QString key = machine + QLatin1Char('/') + pool;
     auto* w = new QWidget();
     auto* l = new QVBoxLayout(w);
+    l->addWidget(muted(url(machine, pool), w));
     l->addWidget(heading(pool, w));
     QJsonObject p;
     for (const QJsonValue& v : m_pools.value(machine)) {
@@ -455,18 +481,568 @@ void MachinesPage::showPool(const QString& machine, const QString& pool) {
             }
         }
     }
-    l->addWidget(stateLabel(status, w));
-    auto* form = new QFormLayout();
-    form->addRow(L("State", "Estado"), label(p.value(QStringLiteral("health")).toString(), w));
-    form->addRow(L("Size", "Tamaño"), label(p.value(QStringLiteral("size")).toString(), w));
-    form->addRow(L("Free", "Libre"), label(p.value(QStringLiteral("free")).toString(), w));
-    form->addRow(L("In use", "Ocupado"), label(p.value(QStringLiteral("capacity")).toString(), w));
-    l->addLayout(form);
+    auto* head = new QHBoxLayout();
+    head->addWidget(stateLabel(status, w));
+    head->addWidget(muted(L("%1 · %2 in use · %3 free", "%1 · %2 ocupado · quedan %3")
+                              .arg(p.value(QStringLiteral("size")).toString(),
+                                   p.value(QStringLiteral("capacity")).toString(),
+                                   p.value(QStringLiteral("free")).toString()),
+                          w));
+    head->addStretch(1);
+    l->addLayout(head);
+
+    const auto st = m_status.constFind(key);
+    if (st == m_status.constEnd()) {
+        l->addWidget(muted(L("Asking for its disks…", "Preguntando por sus discos…"), w));
+        m_store->forMachine(machine)->request(QStringLiteral("status ") + url(machine, pool),
+                                              [this, key](const CliResult& r) {
+                                                  m_status.insert(key, firstObject(r.out));
+                                                  showDetail();
+                                              });
+    } else {
+        // zpool's own explanation and advice, when there is something to say.
+        const QPair<QString, QString> says[] = {
+            {QStringLiteral("status"), L("What happens", "Qué pasa")},
+            {QStringLiteral("action"), L("What to do", "Qué hacer")}};
+        for (const auto& s : says) {
+            const QString text = st->value(s.first).toString();
+            if (!text.isEmpty()) {
+                auto* t = label(s.second + QStringLiteral(": ") + text, w);
+                if (status != QLatin1String("ok")) {
+                    t->setStyleSheet(QStringLiteral("color:%1").arg(colourOf(status)));
+                }
+                l->addWidget(t);
+            }
+        }
+        const QJsonArray devs = st->value(QStringLiteral("devices")).toArray();
+        auto* table = new QTableWidget(int(devs.size()), 3, w);
+        table->setHorizontalHeaderLabels(
+            {L("Disk", "Disco"), L("State", "Estado"),
+             L("Errors (read/write/checksum)", "Errores (lectura/escritura/suma)")});
+        table->verticalHeader()->setVisible(false);
+        table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+        table->setSelectionMode(QAbstractItemView::NoSelection);
+        table->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+        table->horizontalHeader()->setStretchLastSection(true);
+        for (int i = 0; i < devs.size(); ++i) {
+            const QJsonObject d = devs[i].toObject();
+            const QString indent(2 * d.value(QStringLiteral("depth")).toInt(), QLatin1Char(' '));
+            QString name = indent + d.value(QStringLiteral("name")).toString();
+            const QString note = d.value(QStringLiteral("note")).toString();
+            if (!note.isEmpty()) {
+                name += QStringLiteral("  (") + note + QLatin1Char(')');
+            }
+            table->setItem(i, 0, new QTableWidgetItem(name));
+            const QString s = d.value(QStringLiteral("state")).toString();
+            auto* si = new QTableWidgetItem(s);
+            const QString look = s == QLatin1String("ONLINE")     ? QStringLiteral("ok")
+                                 : s.isEmpty()                    ? QString()
+                                 : s == QLatin1String("DEGRADED") ? QStringLiteral("warning")
+                                                                  : QStringLiteral("error");
+            si->setForeground(QColor(colourOf(look)));
+            table->setItem(i, 1, si);
+            const QString errs = d.value(QStringLiteral("read")).toString().isEmpty()
+                                     ? QString()
+                                     : QStringLiteral("%1 / %2 / %3")
+                                           .arg(d.value(QStringLiteral("read")).toString(),
+                                                d.value(QStringLiteral("write")).toString(),
+                                                d.value(QStringLiteral("cksum")).toString());
+            table->setItem(i, 2, new QTableWidgetItem(errs));
+        }
+        table->setMinimumHeight(qMin(60 + 30 * int(devs.size()), 320));
+        l->addWidget(table);
+        const QString scan = st->value(QStringLiteral("scan")).toString();
+        l->addWidget(muted(L("Last check: %1", "Última comprobación: %1")
+                               .arg(scan.isEmpty() ? L("never", "nunca") : scan),
+                           w));
+        const QString errors = st->value(QStringLiteral("errors")).toString();
+        if (!errors.isEmpty() && !errors.startsWith(QLatin1String("No known"))) {
+            auto* e = label(errors, w);
+            e->setStyleSheet(QStringLiteral("color:%1").arg(colourOf(QStringLiteral("error"))));
+            l->addWidget(e);
+        }
+    }
+
+    const auto again = [this, key](const QString& line, const QString& done) {
+        m_status.remove(key);
+        act(line, done, false);
+    };
+    // In rows of three: in one row they pushed the page wider than the window.
+    auto* actions = new QGridLayout();
+    int n = 0;
+    const auto place = [actions, &n](QPushButton* b) {
+        actions->addWidget(b, n / 3, n % 3);
+        ++n;
+    };
+    auto* scrub = button(L("Check the data (scrub)", "Comprobar los datos (scrub)"), w);
+    connect(scrub, &QPushButton::clicked, this, [again, machine, pool] {
+        // With --on: the pool verbs do not take the URL as a loose argument.
+        again(QStringLiteral("scrub --on ") + url(machine, pool),
+              L("Checking: it reads the whole pool and fixes what it can.",
+                "Comprobando: lee todo el pool y corrige lo que pueda."));
+    });
+    place(scrub);
+    if (m_advanced) {
+        struct More {
+            QString verb;
+            QString text;
+            QString done;
+        };
+        const More more[] = {
+            {QStringLiteral("trim"), L("Free blocks (trim)", "Liberar bloques (trim)"),
+             L("Trimming: only useful on SSDs.", "Liberando: solo sirve en SSD.")},
+            {QStringLiteral("clear"), L("Reset errors…", "Poner a cero los errores…"),
+             L("Errors reset.", "Errores a cero.")},
+            {QStringLiteral("upgrade"), L("Upgrade format…", "Actualizar formato…"),
+             L("Pool upgraded.", "Pool actualizado.")},
+            {QStringLiteral("reguid"), L("New identifier…", "Identificador nuevo…"),
+             L("Identifier changed.", "Identificador cambiado.")},
+            {QStringLiteral("export"), L("Export…", "Exportar…"),
+             L("Exported: its disks can go to another machine.",
+               "Exportado: sus discos pueden ir a otra máquina.")},
+        };
+        for (const More& m : more) {
+            auto* b = button(m.text, w);
+            const QString line = m.verb + QStringLiteral(" --on ") + url(machine, pool);
+            const QString done = m.done;
+            const bool leaves = m.verb == QLatin1String("export");
+            connect(b, &QPushButton::clicked, this, [this, again, line, done, leaves, machine] {
+                if (leaves) {
+                    forgetPools(machine);
+                }
+                again(line, done);
+            });
+            place(b);
+        }
+    }
+    actions->setColumnStretch(3, 1);
+    l->addLayout(actions);
     l->addStretch(1);
     setDetail(w);
 }
 
+// The machine's pools are listed again on next opening: one left or one arrived.
+void MachinesPage::forgetPools(const QString& machine) {
+    m_pools.remove(machine);
+    if (QTreeWidgetItem* mi = findItem(machine, QString())) {
+        qDeleteAll(mi->takeChildren());
+        mi->setExpanded(false);
+        mi->setChildIndicatorPolicy(QTreeWidgetItem::ShowIndicator);
+    }
+}
+
+void MachinesPage::importPool(const QString& machine) {
+    m_store->forMachine(machine)->request(
+        QStringLiteral("import ") + url(machine), [this, machine](const CliResult& r) {
+            QStringList names;
+            for (const QJsonValue& v :
+                 firstObject(r.out).value(QStringLiteral("importable_pools")).toArray()) {
+                const QJsonObject p = v.toObject();
+                names << p.value(QStringLiteral("pool"))
+                             .toString(p.value(QStringLiteral("name")).toString());
+            }
+            if (names.isEmpty()) {
+                Q_EMIT message(
+                    L("No pool to import on %1.", "No hay ningún pool que importar en %1.")
+                        .arg(machine));
+                return;
+            }
+            auto* d = new QInputDialog(this);
+            d->setAttribute(Qt::WA_DeleteOnClose);
+            d->setWindowTitle(L("Import a pool", "Importar un pool"));
+            d->setLabelText(
+                L("Pools that can be imported on %1:", "Pools que se pueden importar en %1:")
+                    .arg(machine));
+            d->setComboBoxItems(names);
+            connect(d, &QInputDialog::textValueSelected, this,
+                    [this, machine](const QString& name) {
+                        forgetPools(machine);
+                        act(QStringLiteral("import %1 --on %2").arg(name, url(machine)),
+                            L("Pool %1 imported.", "Pool %1 importado.").arg(name), false);
+                    });
+            d->open();
+        });
+}
+
 void MachinesPage::showDataset(const QString& machine, const QString& dataset) {
+    // Tabs: the summary and the files for everyone; properties and organizing in advanced mode.
+    // The chosen tab is kept: the detail is rebuilt every time an answer arrives.
+    auto* tabs = new QTabWidget();
+    tabs->addTab(datasetSummary(machine, dataset), L("Summary", "Resumen"));
+    tabs->addTab(filesTab(machine, dataset), L("Files", "Ficheros"));
+    if (m_advanced) {
+        tabs->addTab(propertiesTab(machine, dataset), L("Properties", "Propiedades"));
+        tabs->addTab(organizeTab(machine, dataset), L("Organize", "Organizar"));
+    }
+    tabs->setCurrentIndex(qMin(m_datasetTab, tabs->count() - 1));
+    connect(tabs, &QTabWidget::currentChanged, this, [this](int i) { m_datasetTab = i; });
+    setDetail(tabs);
+}
+
+QWidget* MachinesPage::filesTab(const QString& machine, const QString& dataset) {
+    auto* w = new QWidget();
+    auto* l = new QVBoxLayout(w);
+    const QString key = machine + QLatin1Char('/') + dataset;
+    const QString rel = m_filesPath.value(key);
+    auto* top = new QHBoxLayout();
+    auto* up = button(L("Up", "Subir"), w);
+    up->setEnabled(!rel.isEmpty());
+    connect(up, &QPushButton::clicked, this, [this, key, rel] {
+        m_filesPath.insert(
+            key, rel.contains(QLatin1Char('/')) ? rel.section(QLatin1Char('/'), 0, -2) : QString());
+        showDetail();
+    });
+    top->addWidget(up);
+    top->addWidget(muted(QLatin1Char('/') + rel, w), 1);
+    l->addLayout(top);
+
+    const QString listKey = key + QLatin1Char('#') + rel;
+    const auto it = m_files.constFind(listKey);
+    if (it == m_files.constEnd()) {
+        l->addWidget(muted(L("Reading the directory…", "Leyendo el directorio…"), w));
+        m_store->forMachine(machine)->request(
+            QStringLiteral("ls ") + url(machine, dataset) + QStringLiteral("#content")
+                + (rel.isEmpty() ? QString() : QLatin1Char('/') + rel),
+            [this, listKey](const CliResult& r) {
+                QJsonArray entries = firstObject(r.out).value(QStringLiteral("entries")).toArray();
+                if (!r.ok() && entries.isEmpty()) {
+                    QJsonObject why;
+                    why.insert(QStringLiteral("error"), r.err.trimmed());
+                    entries.append(why);
+                }
+                m_files.insert(listKey, entries);
+                showDetail();
+            });
+        l->addStretch(1);
+        return w;
+    }
+    const QJsonArray entries = *it;
+    if (entries.size() == 1 && entries[0].toObject().contains(QStringLiteral("error"))) {
+        l->addWidget(label(entries[0].toObject().value(QStringLiteral("error")).toString(), w));
+        l->addStretch(1);
+        return w;
+    }
+    auto* table = new QTableWidget(int(entries.size()), 3, w);
+    table->setHorizontalHeaderLabels(
+        {L("Name", "Nombre"), L("Size", "Tamaño"), L("Modified", "Modificado")});
+    table->verticalHeader()->setVisible(false);
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    table->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    table->horizontalHeader()->setStretchLastSection(true);
+    for (int i = 0; i < entries.size(); ++i) {
+        const QJsonObject e = entries[i].toObject();
+        const bool dir = e.value(QStringLiteral("type")).toString() == QLatin1String("directory");
+        auto* n = new QTableWidgetItem((dir ? QStringLiteral("▸ ") : QStringLiteral("  "))
+                                       + e.value(QStringLiteral("name")).toString());
+        n->setData(Qt::UserRole, dir ? e.value(QStringLiteral("name")).toString() : QString());
+        table->setItem(i, 0, n);
+        table->setItem(
+            i, 1,
+            new QTableWidgetItem(
+                dir ? QString()
+                    : bytesText(e.value(QStringLiteral("size")).toVariant().toLongLong())));
+        table->setItem(i, 2, new QTableWidgetItem(e.value(QStringLiteral("modified")).toString()));
+    }
+    // Into a directory with a double click.
+    connect(table, &QTableWidget::cellDoubleClicked, this, [this, table, key, rel](int row, int) {
+        const QString sub = table->item(row, 0)->data(Qt::UserRole).toString();
+        if (!sub.isEmpty()) {
+            m_filesPath.insert(key, rel.isEmpty() ? sub : rel + QLatin1Char('/') + sub);
+            showDetail();
+        }
+    });
+    l->addWidget(table, 1);
+    l->addWidget(muted(
+        L("Double click a directory to go into it.", "Doble clic en un directorio para entrar."),
+        w));
+    return w;
+}
+
+QWidget* MachinesPage::propertiesTab(const QString& machine, const QString& dataset) {
+    auto* w = new QWidget();
+    auto* l = new QVBoxLayout(w);
+    l->addWidget(muted(L("Every ZFS property with where it comes from: set here (local), inherited "
+                         "from a parent, or the default. Double click a value to change it.",
+                         "Todas las propiedades de ZFS con su origen: puesta aquí (local), "
+                         "heredada de un padre o la de por defecto. Doble clic en un valor para "
+                         "cambiarlo."),
+                       w));
+    const QString key = machine + QLatin1Char('/') + dataset;
+    const auto it = m_props.constFind(key);
+    if (it == m_props.constEnd()) {
+        l->addWidget(muted(L("Reading its properties…", "Leyendo sus propiedades…"), w));
+        m_store->forMachine(machine)->request(
+            QStringLiteral("ls ") + url(machine, dataset) + QStringLiteral("#properties"),
+            [this, key](const CliResult& r) {
+                m_props.insert(key,
+                               firstObject(r.out).value(QStringLiteral("properties")).toArray());
+                showDetail();
+            });
+        l->addStretch(1);
+        return w;
+    }
+    const QJsonArray props = *it;
+    auto* table = new QTableWidget(int(props.size()), 3, w);
+    table->setHorizontalHeaderLabels(
+        {L("Property", "Propiedad"), L("Value", "Valor"), L("From", "Origen")});
+    table->verticalHeader()->setVisible(false);
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    table->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    table->horizontalHeader()->setStretchLastSection(true);
+    for (int i = 0; i < props.size(); ++i) {
+        const QJsonObject p = props[i].toObject();
+        table->setItem(i, 0, new QTableWidgetItem(p.value(QStringLiteral("property")).toString()));
+        table->setItem(i, 1, new QTableWidgetItem(p.value(QStringLiteral("value")).toString()));
+        table->setItem(i, 2, new QTableWidgetItem(p.value(QStringLiteral("source")).toString()));
+    }
+    // Changing one: a value sets it here; empty puts it back to inherited. The CLI refuses what
+    // cannot be changed (a computed property) and says why.
+    connect(
+        table, &QTableWidget::cellDoubleClicked, this,
+        [this, table, machine, dataset, key](int row, int) {
+            const QString prop = table->item(row, 0)->text();
+            auto* d = new QInputDialog(this);
+            d->setAttribute(Qt::WA_DeleteOnClose);
+            d->setWindowTitle(prop);
+            d->setLabelText(
+                L("New value for %1 (empty: inherit it):", "Valor nuevo de %1 (vacío: heredarlo):")
+                    .arg(prop));
+            d->setTextValue(table->item(row, 1)->text());
+            connect(d, &QInputDialog::textValueSelected, this,
+                    [this, prop, machine, dataset, key](const QString& v) {
+                        m_props.remove(key);
+                        const QString on = QStringLiteral(" --on ") + url(machine, dataset);
+                        act(v.trimmed().isEmpty()
+                                ? QStringLiteral("inherit ") + prop + on
+                                : QStringLiteral("set %1=%2").arg(prop, quoted(v.trimmed())) + on,
+                            L("%1 changed.", "%1 cambiada.").arg(prop), false);
+                    });
+            d->open();
+        });
+    l->addWidget(table, 1);
+    return w;
+}
+
+QWidget* MachinesPage::organizeTab(const QString& machine, const QString& dataset) {
+    auto* w = new QWidget();
+    auto* l = new QVBoxLayout(w);
+    const QString on = QStringLiteral(" --on ") + url(machine, dataset);
+    const QString key = machine + QLatin1Char('/') + dataset;
+
+    // ── Directories into datasets (breakdown).
+    l->addWidget(heading(L("Turn directories into datasets", "Convertir carpetas en datasets"), w));
+    l->addWidget(muted(L("Each directory chosen becomes a child dataset in the same place: from "
+                         "outside it looks the same, but it can have its own snapshots, quota and "
+                         "copies. Every file is moved once and the originals are deleted at the "
+                         "end, when all copies are verified. It runs as a job.",
+                         "Cada carpeta marcada pasa a ser un dataset hijo en el mismo sitio: desde "
+                         "fuera se ve igual, pero puede tener sus propios snapshots, cuota y "
+                         "copias. Cada fichero se mueve una sola vez y los originales se borran "
+                         "al final, cuando todas las copias están verificadas. Se hace como "
+                         "trabajo."),
+                       w));
+    const auto dirs = m_breakdown.constFind(key);
+    if (dirs == m_breakdown.constEnd()) {
+        l->addWidget(muted(L("Measuring its directories…", "Midiendo sus carpetas…"), w));
+        m_store->forMachine(machine)->request(
+            QStringLiteral("breakdown --list") + on, [this, key](const CliResult& r) {
+                QJsonArray d = firstObject(r.out).value(QStringLiteral("directories")).toArray();
+                m_breakdown.insert(key, d);
+                showDetail();
+            });
+    } else {
+        auto* table = new QTableWidget(int(dirs->size()), 4, w);
+        table->setHorizontalHeaderLabels({L("Directory", "Carpeta"), L("Uses", "Ocupa"),
+                                          L("Files", "Ficheros"),
+                                          L("New dataset", "Dataset nuevo")});
+        table->verticalHeader()->setVisible(false);
+        table->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+        table->horizontalHeader()->setStretchLastSection(true);
+        for (int i = 0; i < dirs->size(); ++i) {
+            const QJsonObject d = (*dirs)[i].toObject();
+            const QString dir = d.value(QStringLiteral("dir")).toString();
+            auto* c = new QTableWidgetItem(dir);
+            c->setFlags(Qt::ItemIsEnabled | Qt::ItemIsUserCheckable);
+            c->setCheckState(Qt::Unchecked);
+            table->setItem(i, 0, c);
+            auto* b = new QTableWidgetItem(
+                bytesText(d.value(QStringLiteral("bytes")).toVariant().toLongLong()));
+            b->setFlags(Qt::ItemIsEnabled);
+            table->setItem(i, 1, b);
+            auto* f =
+                new QTableWidgetItem(QString::number(d.value(QStringLiteral("files")).toInt()));
+            f->setFlags(Qt::ItemIsEnabled);
+            table->setItem(i, 2, f);
+            // A dataset name cannot hold «/» as a level that does not exist, nor a leading dot.
+            QString name = dir;
+            name.replace(QLatin1Char('/'), QLatin1Char(':'));
+            while (name.startsWith(QLatin1Char('.'))) {
+                name.remove(0, 1);
+            }
+            table->setItem(i, 3, new QTableWidgetItem(name));
+        }
+        table->setMinimumHeight(qMin(60 + 30 * int(dirs->size()), 300));
+        l->addWidget(table);
+        auto* go = button(L("Turn into datasets…", "Convertir en datasets…"), w);
+        connect(go, &QPushButton::clicked, this, [this, table, on, key] {
+            QStringList pairs;
+            for (int i = 0; i < table->rowCount(); ++i) {
+                if (table->item(i, 0)->checkState() == Qt::Checked) {
+                    pairs << quoted(table->item(i, 0)->text())
+                          << quoted(table->item(i, 3)->text().trimmed());
+                }
+            }
+            if (pairs.isEmpty()) {
+                Q_EMIT message(L("Tick the directories first.", "Marca antes las carpetas."));
+                return;
+            }
+            m_breakdown.remove(key);
+            act(QStringLiteral("breakdown ") + pairs.join(QLatin1Char(' ')) + on,
+                L("Running as a job: follow it in Jobs.",
+                  "En marcha como trabajo: síguelo en Trabajos."));
+        });
+        l->addWidget(go, 0, Qt::AlignLeft);
+    }
+
+    // ── Child datasets back into directories (assemble).
+    QStringList children;
+    for (const QJsonValue& v : m_entries.value(machine + QLatin1Char('/') + poolOf(dataset))) {
+        const QJsonObject e = v.toObject();
+        const QString name = e.value(QStringLiteral("name")).toString();
+        if (e.value(QStringLiteral("type")).toString() == QLatin1String("dataset")
+            && name.startsWith(dataset + QLatin1Char('/'))
+            && !name.mid(dataset.size() + 1).contains(QLatin1Char('/'))) {
+            children << name.mid(dataset.size() + 1);
+        }
+    }
+    l->addWidget(heading(
+        L("Turn child datasets into directories", "Convertir datasets hijos en carpetas"), w));
+    l->addWidget(muted(L("The opposite: a child dataset becomes an ordinary directory again; its "
+                         "files stay where they are. Its own snapshots, quota and properties are "
+                         "lost, and its scheduled copies stop.",
+                         "Lo contrario: un dataset hijo vuelve a ser una carpeta normal; los "
+                         "ficheros se quedan donde están. Se pierden sus snapshots propios, su "
+                         "cuota y sus propiedades, y sus copias programadas dejan de hacerse."),
+                       w));
+    if (children.isEmpty()) {
+        l->addWidget(muted(L("It has no child datasets.", "No tiene datasets hijos."), w));
+    } else {
+        auto* list = new QListWidget(w);
+        for (const QString& c : children) {
+            auto* it = new QListWidgetItem(c, list);
+            it->setFlags(Qt::ItemIsEnabled | Qt::ItemIsUserCheckable);
+            it->setCheckState(Qt::Unchecked);
+        }
+        list->setMaximumHeight(qMin(30 + 24 * int(children.size()), 200));
+        l->addWidget(list);
+        auto* go = button(L("Turn into directories…", "Convertir en carpetas…"), w);
+        connect(go, &QPushButton::clicked, this, [this, list, on] {
+            QStringList chosen;
+            for (int i = 0; i < list->count(); ++i) {
+                if (list->item(i)->checkState() == Qt::Checked) {
+                    chosen << quoted(list->item(i)->text());
+                }
+            }
+            if (chosen.isEmpty()) {
+                Q_EMIT message(L("Tick the datasets first.", "Marca antes los datasets."));
+                return;
+            }
+            act(QStringLiteral("assemble ") + chosen.join(QLatin1Char(' ')) + on,
+                L("Running as a job: follow it in Jobs.",
+                  "En marcha como trabajo: síguelo en Trabajos."));
+        });
+        l->addWidget(go, 0, Qt::AlignLeft);
+    }
+
+    // ── Into an ordinary directory (todir).
+    l->addWidget(heading(L("Copy to an ordinary directory", "Volcar a una carpeta"), w));
+    l->addWidget(
+        muted(L("Copies all its contents to an ordinary directory of the same machine, for "
+                "instance to take it out of ZFS or to an external disk.",
+                "Copia todo su contenido a una carpeta corriente de la misma máquina, por "
+                "ejemplo para sacarlo de ZFS o llevarlo a un disco externo."),
+              w));
+    {
+        auto* row = new QHBoxLayout();
+        auto* dir = new QLineEdit(w);
+        dir->setPlaceholderText(L("destination directory, e.g. /mnt/disk/media",
+                                  "carpeta de destino, p. ej. /mnt/disco/media"));
+        auto* del = new QCheckBox(
+            L("Destroy the dataset afterwards", "Destruir el dataset al terminar"), w);
+        auto* go = button(L("Copy to the directory…", "Volcar a la carpeta…"), w);
+        connect(go, &QPushButton::clicked, this, [this, dir, del, on] {
+            if (dir->text().trimmed().isEmpty()) {
+                return;
+            }
+            act(QStringLiteral("todir ") + quoted(dir->text().trimmed())
+                    + (del->isChecked() ? QStringLiteral(" --delete-source") : QString()) + on,
+                L("Running as a job: follow it in Jobs.",
+                  "En marcha como trabajo: síguelo en Trabajos."));
+        });
+        row->addWidget(dir, 1);
+        row->addWidget(del);
+        row->addWidget(go);
+        l->addLayout(row);
+    }
+
+    // ── From an ordinary directory (fromdir), of this or another machine.
+    l->addWidget(heading(L("Bring a directory in", "Traer una carpeta"), w));
+    l->addWidget(muted(L("Brings the contents of an ordinary directory —of this machine or "
+                         "another— into this dataset. Deleting the source happens only after the "
+                         "copy is checked identical.",
+                         "Trae el contenido de una carpeta corriente —de esta máquina o de otra— "
+                         "a este dataset. Borrar el origen solo ocurre tras comprobar que la copia "
+                         "es idéntica."),
+                       w));
+    {
+        auto* form = new QFormLayout();
+        auto* from = new QComboBox(w);
+        for (const MachineView& m : m_store->machines()) {
+            if (m.connected) {
+                from->addItem(m.name, m.id);
+            }
+        }
+        from->setCurrentIndex(qMax(0, from->findData(machine)));
+        form->addRow(L("From machine", "De la máquina"), from);
+        auto* dir = new QLineEdit(w);
+        dir->setPlaceholderText(L("source directory", "carpeta de origen"));
+        form->addRow(L("Directory", "Carpeta"), dir);
+        auto* sub = new QLineEdit(w);
+        sub->setPlaceholderText(
+            L("optional: where inside this dataset", "opcional: dónde dentro de este dataset"));
+        form->addRow(L("Inside", "Dentro de"), sub);
+        auto* del = new QCheckBox(
+            L("Delete the source afterwards", "Borrar la carpeta de origen al terminar"), w);
+        form->addRow(QString(), del);
+        l->addLayout(form);
+        auto* go = button(L("Bring the directory…", "Traer la carpeta…"), w);
+        connect(go, &QPushButton::clicked, this, [this, from, dir, sub, del, on] {
+            const QString d = dir->text().trimmed();
+            if (d.isEmpty()) {
+                return;
+            }
+            // The source as a URL with its machine: zfsm://<machine>#path/<directory>.
+            QString line = QStringLiteral("fromdir ")
+                           + quoted(QStringLiteral("zfsm://") + from->currentData().toString()
+                                    + QStringLiteral("#path")
+                                    + (d.startsWith(QLatin1Char('/')) ? d : QLatin1Char('/') + d));
+            if (!sub->text().trimmed().isEmpty()) {
+                line += QStringLiteral(" --subdir ") + quoted(sub->text().trimmed());
+            }
+            if (del->isChecked()) {
+                line += QStringLiteral(" --delete-source");
+            }
+            act(line + on, L("Copied.", "Copiado."));
+        });
+        l->addWidget(go, 0, Qt::AlignLeft);
+    }
+    l->addStretch(1);
+    return w;
+}
+
+QWidget* MachinesPage::datasetSummary(const QString& machine, const QString& dataset) {
     const QJsonArray entries = m_entries.value(machine + QLatin1Char('/') + poolOf(dataset));
     QJsonObject ds;
     QVector<QJsonObject> snaps;
@@ -604,7 +1180,7 @@ void MachinesPage::showDataset(const QString& machine, const QString& dataset) {
         l->addLayout(snapActions);
     }
     l->addStretch(1);
-    setDetail(w);
+    return w;
 }
 
 void MachinesPage::act(const QString& line, const QString& done, bool reloadTree) {

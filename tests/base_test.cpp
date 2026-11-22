@@ -740,6 +740,41 @@ void caso24() {
     }
 
     {
+        // `zpool status`, parsed: a degraded raidz with a disk gone and a log device.
+        const auto st = H::parseZpoolStatus(
+            "  pool: sback\n state: DEGRADED\nstatus: One or more devices could not be used\n"
+            "\tbecause the label is missing.\naction: Replace the device using 'zpool replace'.\n"
+            "  scan: scrub repaired 0B in 01:02:03 with 0 errors on Sun Oct 18 2026\nconfig:\n\n"
+            "\tNAME                      STATE     READ WRITE CKSUM\n"
+            "\tsback                     DEGRADED     0     0     0\n"
+            "\t  raidz1-0                DEGRADED     0     0     0\n"
+            "\t    ata-WDC_1             ONLINE       0     0     0\n"
+            "\t    ata-HGST_2            ONLINE       0     0     3\n"
+            "\t    123456789012          UNAVAIL      0     0     0  was /dev/sdc1\n"
+            "\tlogs\t\n"
+            "\t  nvme0n1p9               ONLINE       0     0     0\n"
+            "\nerrors: No known data errors\n");
+        comprobar(st.pool == "sback" && st.state == "DEGRADED", "status: pool y estado");
+        comprobar(contains(st.status, "label is missing"), "status: la explicacion continuada");
+        comprobar(contains(st.action, "zpool replace") && contains(st.scan, "scrub repaired"),
+                  "status: accion y scrub");
+        comprobar(st.errors == "No known data errors", "status: errores");
+        comprobar(st.rows.size() == 7, "status: siete filas en el arbol");
+        if (st.rows.size() == 7) {
+            comprobar(st.rows[0].depth == 0 && !st.rows[0].leaf, "status: el pool, arriba");
+            comprobar(st.rows[1].name == "raidz1-0" && st.rows[1].depth == 1 && !st.rows[1].leaf,
+                      "status: el raidz es una agrupacion");
+            comprobar(st.rows[3].cksum == "3" && st.rows[3].leaf && st.rows[3].depth == 2,
+                      "status: los errores de un disco");
+            comprobar(st.rows[4].state == "UNAVAIL" && st.rows[4].note == "was /dev/sdc1",
+                      "status: el que falta, con lo que era");
+            comprobar(
+                st.rows[5].name == "logs" && st.rows[5].depth == 0 && st.rows[5].state.empty(),
+                "status: una seccion");
+            comprobar(st.rows[6].leaf && st.rows[6].depth == 1, "status: el disco de la seccion");
+        }
+    }
+    {
         const auto rows = H::parseZpoolImportOutput(
             "   pool: p1\n     id: 1\n  state: FAULTED\n status: metadata corrupta\n"
             "         y sigue\n action: x\n\n   pool: p2\n     id: 2\n  state: ONLINE\n");

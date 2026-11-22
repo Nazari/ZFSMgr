@@ -3,6 +3,7 @@
 #include "copiespage.h"
 #include "addmachinedialog.h"
 #include "adminpage.h"
+#include "createpooldialog.h"
 #include "jobspage.h"
 #include "machinespage.h"
 #include "newcopywizard.h"
@@ -62,6 +63,13 @@ MainWindow::MainWindow(QString cliPath, QByteArray masterPassword, CliService* g
     connect(copies, &CopiesPage::message, this, say);
     connect(jobs, &JobsPage::message, this, say);
     connect(machines, &MachinesPage::message, this, say);
+    connect(this, &MainWindow::advancedChanged, machines, &MachinesPage::setAdvanced);
+    connect(machines, &MachinesPage::createPoolRequested, this, [this](const QString& id) {
+        auto* d = new CreatePoolDialog(m_store, id, this);
+        d->setAttribute(Qt::WA_DeleteOnClose);
+        connect(d, &CreatePoolDialog::created, m_store, &StateStore::refresh);
+        d->open();
+    });
     connect(m_status, &StatusPage::machineRequested, this,
             [this](const QString& id) { showMachine(id); });
     connect(machines, &MachinesPage::addMachineRequested, this, &MainWindow::openAddMachine);

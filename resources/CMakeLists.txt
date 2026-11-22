@@ -634,6 +634,7 @@ qt_add_executable(zfsmgr-gui2
     ../src/gui/machinespage.cpp
     ../src/gui/addmachinedialog.cpp
     ../src/gui/adminpage.cpp
+    ../src/gui/createpooldialog.cpp
 )
 target_link_libraries(zfsmgr-gui2 PRIVATE Qt6::Widgets)
 target_compile_definitions(zfsmgr-gui2 PRIVATE QT_NO_KEYWORDS)

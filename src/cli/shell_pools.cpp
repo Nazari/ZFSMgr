@@ -167,6 +167,34 @@ bool cmdStatus(Estado& e, const LineaAnalizada& linea) {
         }
         return true;
     }
+    if (e.formato == Formato::Json) {
+        // The same text, read: what a program needs —the state, zpool's explanation and advice,
+        // the last scrub and the tree of disks with their errors— without parsing zpool.
+        const H::PoolStatusInfo st = H::parseZpoolStatus(out);
+        B::json::Value doc{B::json::Object{}};
+        doc.set("pool", B::json::Value(st.pool.empty() ? destino.pool : st.pool));
+        doc.set("state", B::json::Value(st.state));
+        doc.set("status", B::json::Value(st.status));
+        doc.set("action", B::json::Value(st.action));
+        doc.set("scan", B::json::Value(st.scan));
+        doc.set("errors", B::json::Value(st.errors));
+        B::json::Value filas{B::json::Array{}};
+        for (const H::PoolStatusRow& r : st.rows) {
+            B::json::Value f{B::json::Object{}};
+            f.set("name", B::json::Value(r.name));
+            f.set("state", B::json::Value(r.state));
+            f.set("read", B::json::Value(r.read));
+            f.set("write", B::json::Value(r.write));
+            f.set("cksum", B::json::Value(r.cksum));
+            f.set("note", B::json::Value(r.note));
+            f.set("depth", B::json::Value(r.depth));
+            f.set("leaf", B::json::Value(r.leaf));
+            filas.push(f);
+        }
+        doc.set("devices", filas);
+        std::printf("%s\n", B::json::toIndented(doc).c_str());
+        return true;
+    }
     std::fprintf(stdout, "%s", out.c_str());
     if (!out.empty() && out.back() != '\n') {
         std::fprintf(stdout, "\n");

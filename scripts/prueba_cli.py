@@ -538,6 +538,12 @@ def casos_json_gui(ctx):
     comprueba("json: jobs --history trae cuándo empezó y acabó, y qué hacía",
               [] if trabajos and all("started" in j and "finished" in j and "description" in j
                                      for j in trabajos) else [f"{trabajos[:1]}"], salida)
+    d, salida = doc(["status zfsm://local/back"])
+    discos = d.get("devices", [])
+    comprueba("json: status da el estado del pool y su árbol de discos",
+              [] if d.get("pool") == "back" and d.get("state") and discos
+              and discos[0].get("depth") == 0 and any(x.get("leaf") for x in discos)
+              else [f"{d}"[:300]], salida)
     d, salida = doc(["install-daemon -a --check"])
     items = d.get("items", [])
     comprueba("json: install-daemon --check da códigos fijos además del texto",
