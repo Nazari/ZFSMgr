@@ -58,6 +58,18 @@ void ignoreSigpipeExceptInChildren() {
 #endif
 }
 
+namespace {
+bool (*g_interruptCheck)() = nullptr;
+}  // namespace
+
+void setInterruptCheck(bool (*check)()) {
+    g_interruptCheck = check;
+}
+
+bool interrupted() {
+    return g_interruptCheck != nullptr && g_interruptCheck();
+}
+
 int decodeWaitStatus(int status) {
 #ifndef _WIN32
     if (WIFEXITED(status)) {
@@ -557,6 +569,11 @@ ExecResult runExecStream(const std::string& program,
                          int timeoutMs,
                          const StreamCallbacks& cb) {
     ExecResult r;
+    if (interrupted()) {
+        r.rc = 130;
+        r.err = "interrupted";
+        return r;
+    }
     int inPipe[2] = {-1, -1};
     int outPipe[2] = {-1, -1};
     int errPipe[2] = {-1, -1};
@@ -695,7 +712,7 @@ ExecResult runExecStream(const std::string& program,
             }
         }
 
-        if (cb.onTick && !cb.onTick(transcurrido())) {
+        if ((cb.onTick && !cb.onTick(transcurrido())) || interrupted()) {
             cancelado = true;
             break;
         }
@@ -745,6 +762,11 @@ ExecResult runExecStream(const std::string& program,
                          int timeoutMs,
                          const StreamCallbacks& cb) {
     ExecResult r;
+    if (interrupted()) {
+        r.rc = 130;
+        r.err = "interrupted";
+        return r;
+    }
     SECURITY_ATTRIBUTES sa{};
     sa.nLength = sizeof(sa);
     sa.bInheritHandle = TRUE;
@@ -845,7 +867,7 @@ ExecResult runExecStream(const std::string& program,
             drena(errR, r.err, pendErr, cb.onStderrLine);
             break;
         }
-        if (cb.onTick && !cb.onTick(transcurrido())) {
+        if ((cb.onTick && !cb.onTick(transcurrido())) || interrupted()) {
             cancelado = true;
             break;
         }

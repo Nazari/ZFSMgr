@@ -49,8 +49,11 @@ bool sistemaUnix(Sesion& ses, B::ConnectionProfile p, Sistema& s, std::string& m
                "uname -s; echo @@; cat /etc/os-release 2>/dev/null; echo @@; "
                "sw_vers -productVersion 2>/dev/null; echo @@; freebsd-version 2>/dev/null; :",
                out, err, rc)
-        || rc == 255) {
-        motivo = B::trim(H::oneLine(err.empty() ? out : err));
+        || rc == 255 || rc == 130) {
+        // 255 is ssh's own failure, 130 the probe cut with Ctrl-C. Any other code means a
+        // shell answered —on Windows, one that is not sh—, and the Windows probe follows.
+        motivo = rc == 130 ? T("t_pr_interrumpida", "interrumpida")
+                           : B::trim(H::oneLine(err.empty() ? out : err));
         s.alcanzable = false;
         return false;
     }

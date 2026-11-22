@@ -497,6 +497,15 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
     std::string ultimo;
     while (true) {
         std::this_thread::sleep_for(std::chrono::seconds(2));
+        if (interrumpido()) {
+            // Ctrl-C stops the WAITING; the job is the daemon's and goes on.
+            std::fprintf(stderr,
+                         TC("t_espera_interrumpida",
+                            "se deja de esperar; el trabajo %s sigue en %s («job %s --on %s»)\n"),
+                         jobId.c_str(), origen.connection.c_str(), jobId.c_str(),
+                         textoDe(maquinaOrigen).c_str());
+            return true;
+        }
         std::string est;
         if (!agente(e, maquinaOrigen, PET::jobStatus(jobId), est, 20000)) {
             return false;

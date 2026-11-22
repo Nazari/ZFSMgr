@@ -884,6 +884,11 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
     }
 
     const bool interactivo = hayTerminal();
+    if (interactivo) {
+        instalaInterrupcion();
+        // And the process layer looks at it: a command of several steps stops at the next.
+        B::setInterruptCheck([] { return interrumpido(); });
+    }
     // La pantalla: línea multilínea, repintado al cambiar el tamaño y zona de estado. Antes
     // que nada que escriba, para que entre en su historial.
     if (interactivo && pantallaCompleta) {
@@ -948,7 +953,16 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
         if (monitor) {
             e.ultimoRc = 0;
         }
-        if (ejecutaLinea(e, linea, &lector) && !interactivo) {
+        limpiaInterrupcion();
+        const bool bien = ejecutaLinea(e, linea, &lector);
+        if (interrumpido()) {
+            // Ctrl-C during the command: what it launched has ended, the interpreter stays.
+            limpiaInterrupcion();
+            std::fflush(stdout);  // what the command printed, before the notice
+            std::fputs(TC("t_interrumpida", "orden interrumpida con Ctrl-C\n"), stderr);
+            e.ultimoRc = 130;
+        }
+        if (bien && !interactivo) {
             return e.ultimoRc;
         }
         if (!e.lineaPropuesta.empty()) {

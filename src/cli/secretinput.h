@@ -31,6 +31,18 @@ bool preguntarPorTerminal(const std::string& aviso, std::string& out, std::strin
 // ¿Hay un terminal al otro lado? Sirve para decidir si tiene sentido preguntar.
 bool hayTerminal();
 
+// Ctrl-C in the interactive interpreter. Without this, Ctrl-C outside the line editor was a
+// plain SIGINT and took the WHOLE interpreter down —in the middle of a command, or while a
+// question was waiting for its answer—. With it installed:
+//   - while a command runs, the child processes it launched get the SIGINT from the terminal
+//     and end; the interpreter only notes it (`interrumpido()`), and long waits check it;
+//   - in a question (preguntarPorTerminal, preguntarSecretoPorTerminal) Ctrl-C ends the
+//     answer and counts as «no» / not given.
+// Installed only where there is a terminal and a person; --serve and pipes keep the default.
+void instalaInterrupcion();
+bool interrumpido();
+void limpiaInterrupcion();
+
 // Quien pinta el terminal (la pantalla del intérprete) se entera de cada pregunta: `antes`
 // escribe el aviso él mismo y deja de repintar; `despues` recibe lo respondido (vacío en un
 // secreto) y vuelve a pintar. Sin ganchos, el aviso va por la salida de error como siempre.

@@ -82,6 +82,12 @@ struct StreamCallbacks {
     std::function<bool(int elapsedMs)> onTick;
 };
 
+// Whether the person asked to stop (Ctrl-C in the interactive CLI). While it says yes,
+// runExecStream launches nothing and ends what it is running (rc 130), so a command made of
+// several steps stops at the next one instead of going through them all. Unset: never.
+void setInterruptCheck(bool (*check)());
+bool interrupted();
+
 // Runs with feedback. `timeoutMs <= 0` means NO limit, which is what a long transfer needs;
 // control then rests with `onTick`.
 //

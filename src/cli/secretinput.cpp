@@ -2,6 +2,7 @@
 
 #include "tr.h"
 
+#include <csignal>
 #include <cstdio>
 #include <cstring>
 
@@ -15,6 +16,40 @@
 
 namespace zfsmgr::cli {
 namespace {
+
+volatile std::sig_atomic_t g_interrumpido = 0;
+
+#ifndef _WIN32
+void alInterrumpir(int) {
+    g_interrumpido = 1;
+}
+
+// The terminal of a question with Ctrl-C as a CHARACTER that ends the line (VEOL), not as a
+// signal: the answer comes back with a \x03 in it and is taken as cancelled. Restored on
+// destruction whatever happens.
+struct CtrlCComoTecla {
+    termios viejo{};
+    bool ok{false};
+    explicit CtrlCComoTecla(bool sinEco) {
+        ok = ::tcgetattr(STDIN_FILENO, &viejo) == 0;
+        if (!ok) {
+            return;
+        }
+        termios nuevo = viejo;
+        nuevo.c_lflag &= ~static_cast<tcflag_t>(ISIG);
+        if (sinEco) {
+            nuevo.c_lflag &= ~static_cast<tcflag_t>(ECHO);
+        }
+        nuevo.c_cc[VEOL] = 3;
+        ::tcsetattr(STDIN_FILENO, TCSAFLUSH, &nuevo);
+    }
+    ~CtrlCComoTecla() {
+        if (ok) {
+            ::tcsetattr(STDIN_FILENO, TCSAFLUSH, &viejo);
+        }
+    }
+};
+#endif
 
 // Borra el contenido antes de soltarlo. Mismo criterio que en la capa base: un secreto no
 // se queda en memoria más de lo necesario.
@@ -119,36 +154,30 @@ bool preguntarSecretoPorTerminal(const std::string& aviso, std::string& out, std
     if (teniaModo) {
         SetConsoleMode(h, modo & ~static_cast<DWORD>(ENABLE_ECHO_INPUT));
     }
-#else
-    termios viejo{};
-    const bool teniaModo = ::tcgetattr(STDIN_FILENO, &viejo) == 0;
-    if (teniaModo) {
-        termios nuevo = viejo;
-        nuevo.c_lflag &= ~static_cast<tcflag_t>(ECHO);
-        ::tcsetattr(STDIN_FILENO, TCSAFLUSH, &nuevo);
-    }
 #endif
+    bool cancelado = false;
     {
+#ifndef _WIN32
+        // Without echo, and Ctrl-C as a key that cancels. Its destructor restores the mode
+        // ALWAYS, also if reading failed: a terminal left without echo has the user typing
+        // blind in their own shell.
+        const CtrlCComoTecla modoPregunta(/*sinEco=*/true);
+#endif
         std::string linea;
         int c = 0;
-        while ((c = std::fgetc(stdin)) != EOF && c != '\n') {
+        while ((c = std::fgetc(stdin)) != EOF && c != '\n' && c != 3) {
             if (c != '\r') {
                 linea.push_back(static_cast<char>(c));
             }
         }
-        ok = !linea.empty() || c != EOF;
-        out = linea;
+        cancelado = c == 3;
+        ok = !cancelado && (!linea.empty() || c != EOF);
+        out = cancelado ? std::string() : linea;
         limpia(linea);
     }
-    // El modo se restaura SIEMPRE, también si la lectura falló: dejar el terminal sin eco
-    // deja al usuario escribiendo a ciegas en su propia shell.
 #ifdef _WIN32
     if (teniaModo) {
         SetConsoleMode(h, modo);
-    }
-#else
-    if (teniaModo) {
-        ::tcsetattr(STDIN_FILENO, TCSAFLUSH, &viejo);
     }
 #endif
     if (g_despues) {
@@ -156,7 +185,9 @@ bool preguntarSecretoPorTerminal(const std::string& aviso, std::string& out, std
     } else {
         std::fputs("\n", stderr);  // el salto que el usuario no vio al pulsar Intro
     }
-    if (!ok) {
+    if (cancelado) {
+        error = T("t_pq_ctrl_c", "cancelado con Ctrl-C");
+    } else if (!ok) {
         error = T("t_no_se_leyo_nada", "no se leyó nada");
     }
     return ok;
@@ -179,10 +210,25 @@ bool preguntarPorTerminal(const std::string& aviso, std::string& out, std::strin
     }
     std::string linea;
     int c = 0;
-    while ((c = std::fgetc(stdin)) != EOF && c != '\n') {
-        if (c != '\r') {
-            linea.push_back(static_cast<char>(c));
+    {
+#ifndef _WIN32
+        const CtrlCComoTecla modoPregunta(/*sinEco=*/false);
+#endif
+        while ((c = std::fgetc(stdin)) != EOF && c != '\n' && c != 3) {
+            if (c != '\r') {
+                linea.push_back(static_cast<char>(c));
+            }
         }
+    }
+    if (c == 3) {
+        // Ctrl-C: the answer is abandoned, as in the line editor.
+        if (g_despues) {
+            g_despues(linea + "^C", /*secreto=*/false);
+        } else {
+            std::fputs("\n", stderr);
+        }
+        error = T("t_pq_ctrl_c", "cancelado con Ctrl-C");
+        return false;
     }
     if (g_despues) {
         g_despues(linea, /*secreto=*/false);
@@ -193,6 +239,26 @@ bool preguntarPorTerminal(const std::string& aviso, std::string& out, std::strin
     }
     out = linea;
     return true;
+}
+
+void instalaInterrupcion() {
+#ifndef _WIN32
+    struct sigaction sa{};
+    sa.sa_handler = alInterrumpir;
+    sigemptyset(&sa.sa_mask);
+    // SA_RESTART: nothing here relies on an interrupted call; what stops is the children
+    // (they get the terminal's SIGINT) and the waits that look at the flag.
+    sa.sa_flags = SA_RESTART;
+    sigaction(SIGINT, &sa, nullptr);
+#endif
+}
+
+bool interrumpido() {
+    return g_interrumpido != 0;
+}
+
+void limpiaInterrupcion() {
+    g_interrumpido = 0;
 }
 
 }  // namespace zfsmgr::cli

@@ -321,6 +321,15 @@ bool cmdScheduleRun(Estado& e, const ZfsmUrl& destino, bool esperar) {
     std::string ultimo;
     while (true) {
         std::this_thread::sleep_for(std::chrono::seconds(2));
+        if (interrumpido()) {
+            // Ctrl-C stops the WAITING; the job is the daemon's and goes on.
+            std::fprintf(stderr,
+                         TC("t_espera_interrumpida",
+                            "se deja de esperar; el trabajo %s sigue en %s («job %s --on %s»)\n"),
+                         trabajo.c_str(), destino.connection.c_str(), trabajo.c_str(),
+                         textoDe(maquina).c_str());
+            return true;
+        }
         std::string est;
         if (!agente(e, maquina, PET::jobStatus(trabajo), est, 20000)) {
             return false;

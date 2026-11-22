@@ -1675,6 +1675,10 @@
     "t_pq_upgrade_t": "Upgrade the format of pool %1",
     "t_pq_y_en_hijos": ", nor its children",
     "t_pq_y_mas": " and %1 more",
-    "t_rollback_hecho": "%s taken back to @%s\n"
+    "t_rollback_hecho": "%s taken back to @%s\n",
+    "t_interrumpida": "command interrupted with Ctrl-C\n",
+    "t_espera_interrumpida": "no longer waiting; job %s goes on in %s («job %s --on %s»)\n",
+    "t_pq_ctrl_c": "cancelled with Ctrl-C",
+    "t_pr_interrumpida": "interrupted"
   }
 }
