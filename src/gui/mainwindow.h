@@ -15,6 +15,7 @@ class QStackedWidget;
 
 namespace zfsmgr::gui {
 
+class StateStore;
 class StatusPage;
 
 class MainWindow : public QMainWindow {
@@ -27,6 +28,9 @@ public:
 
     // The service of one machine, started on first use.
     CliService* serviceFor(const QString& machine);
+    // 0 Status, 1 Copies, 2 Machines, 3 Jobs.
+    void showPage(int index);
+    void openNewCopy();
 
 private:
     void wire(CliService* s);
@@ -39,6 +43,7 @@ private:
     QHash<QString, CliService*> m_perMachine;
     QListWidget* m_nav{nullptr};
     QStackedWidget* m_pages{nullptr};
+    StateStore* m_store{nullptr};
     StatusPage* m_status{nullptr};
 };
 

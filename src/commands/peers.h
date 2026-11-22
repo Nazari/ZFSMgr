@@ -32,6 +32,8 @@ struct Peer {
     int puerto{0};
     // El identificador de MÁQUINA, que no depende de quién mire.
     std::string uid;
+    // «pull» (only to pull copies) or «full». Empty from a daemon too old to say.
+    std::string role;
 };
 
 // What the daemon knows about itself and about the others.

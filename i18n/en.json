@@ -1679,6 +1679,7 @@
     "t_interrumpida": "command interrupted with Ctrl-C\n",
     "t_espera_interrumpida": "no longer waiting; job %s goes on in %s («job %s --on %s»)\n",
     "t_pq_ctrl_c": "cancelled with Ctrl-C",
-    "t_pr_interrumpida": "interrupted"
+    "t_pr_interrumpida": "interrupted",
+    "t_cab_papel": "ROLE"
   }
 }

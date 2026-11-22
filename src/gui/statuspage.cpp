@@ -1,6 +1,7 @@
 #include "statuspage.h"
 
-#include "cliservice.h"
+#include "statestore.h"
+#include "uikit.h"
 #include "text.h"
 
 #include <QDateTime>
@@ -18,76 +19,6 @@
 namespace zfsmgr::gui {
 
 namespace {
-
-constexpr int kAutoRefreshMs = 60 * 1000;
-
-// The colours of a state, the same everywhere: green good, amber needs a look, red broken,
-// grey waiting.
-QString colourOf(const QString& state) {
-    if (state == QLatin1String("ok")) {
-        return QStringLiteral("#1A7F37");
-    }
-    if (state == QLatin1String("warning") || state == QLatin1String("pending")) {
-        return QStringLiteral("#9A6700");
-    }
-    if (state == QLatin1String("error")) {
-        return QStringLiteral("#B42318");
-    }
-    return QStringLiteral("#6B7380");
-}
-
-QString stateWord(const QString& state) {
-    if (state == QLatin1String("ok")) {
-        return L("● Fine", "● Bien");
-    }
-    if (state == QLatin1String("warning")) {
-        return L("▲ Needs a look", "▲ Revisar");
-    }
-    if (state == QLatin1String("pending")) {
-        return L("○ Pending", "○ Pendiente");
-    }
-    if (state == QLatin1String("error")) {
-        return L("✕ Failing", "✕ Falla");
-    }
-    return L("… Asking", "… Preguntando");
-}
-
-QLabel* label(const QString& text, QWidget* parent, bool wrap = true) {
-    auto* l = new QLabel(text, parent);
-    l->setWordWrap(wrap);
-    l->setTextFormat(Qt::PlainText);
-    return l;
-}
-
-QLabel* heading(const QString& text, QWidget* parent) {
-    auto* l = label(text, parent, false);
-    QFont f = l->font();
-    f.setBold(true);
-    f.setPointSizeF(f.pointSizeF() * 1.15);
-    l->setFont(f);
-    return l;
-}
-
-QLabel* muted(const QString& text, QWidget* parent) {
-    auto* l = label(text, parent);
-    QPalette p = l->palette();
-    p.setColor(QPalette::WindowText, p.color(QPalette::Disabled, QPalette::WindowText));
-    l->setPalette(p);
-    return l;
-}
-
-QLabel* stateLabel(const QString& state, QWidget* parent) {
-    auto* l = label(stateWord(state), parent, false);
-    l->setStyleSheet(QStringLiteral("color:%1; font-weight:600").arg(colourOf(state)));
-    return l;
-}
-
-QFrame* card(QWidget* parent) {
-    auto* f = new QFrame(parent);
-    f->setFrameShape(QFrame::StyledPanel);
-    f->setObjectName(QStringLiteral("card"));
-    return f;
-}
 
 // One of the four numbers at the top.
 QFrame* tile(const QString& title, const QString& big, const QString& small, const QString& state,
@@ -108,9 +39,7 @@ QFrame* tile(const QString& title, const QString& big, const QString& small, con
 
 }  // namespace
 
-StatusPage::StatusPage(CliService* general, std::function<CliService*(const QString&)> forMachine,
-                       QWidget* parent)
-    : QWidget(parent), m_general(general), m_forMachine(std::move(forMachine)) {
+StatusPage::StatusPage(StateStore* store, QWidget* parent) : QWidget(parent), m_store(store) {
     auto* outer = new QVBoxLayout(this);
     auto* top = new QHBoxLayout();
     auto* title = heading(L("Status", "Estado"), this);
@@ -125,7 +54,7 @@ StatusPage::StatusPage(CliService* general, std::function<CliService*(const QStr
         m_ago->fontMetrics().horizontalAdvance(L("Updated 59 min ago", "Actualizado hace 59 min")));
     top->addWidget(m_ago);
     m_refresh = new QPushButton(L("Refresh", "Actualizar"), this);
-    connect(m_refresh, &QPushButton::clicked, this, &StatusPage::refresh);
+    connect(m_refresh, &QPushButton::clicked, m_store, &StateStore::refresh);
     top->addWidget(m_refresh);
     outer->addLayout(top);
 
@@ -134,10 +63,9 @@ StatusPage::StatusPage(CliService* general, std::function<CliService*(const QStr
     m_scroll->setFrameShape(QFrame::NoFrame);
     outer->addWidget(m_scroll, 1);
 
-    m_auto = new QTimer(this);
-    m_auto->setInterval(kAutoRefreshMs);
-    connect(m_auto, &QTimer::timeout, this, &StatusPage::refresh);
-    m_auto->start();
+    connect(m_store, &StateStore::changed, this, &StatusPage::render);
+    connect(m_store, &StateStore::refreshing, this,
+            [this] { m_ago->setText(L("Updating…", "Actualizando…")); });
     m_tick = new QTimer(this);
     m_tick->setInterval(10 * 1000);
     connect(m_tick, &QTimer::timeout, this, &StatusPage::updateAgo);
@@ -146,68 +74,10 @@ StatusPage::StatusPage(CliService* general, std::function<CliService*(const QStr
     render();
 }
 
-void StatusPage::refresh() {
-    const int gen = ++m_generation;
-    m_ago->setText(L("Updating…", "Actualizando…"));
-    m_general->request(QStringLiteral("ls zfsm://"), [this, gen](const CliResult& r) {
-        if (gen != m_generation) {
-            return;
-        }
-        if (!r.ok()) {
-            m_listFailed = true;
-            m_listError = r.err.trimmed();
-            render();
-            return;
-        }
-        m_listFailed = false;
-        // The previous answers stay until the new ones arrive: the panel does not blank out
-        // every minute.
-        QVector<MachineView> fresh = machinesFromLs(r.out);
-        for (MachineView& m : fresh) {
-            for (const MachineView& old : m_machines) {
-                if (old.id == m.id) {
-                    m.overview = old.overview;
-                    m.loaded = old.loaded;
-                    m.failure = old.failure;
-                }
-            }
-        }
-        m_machines = fresh;
-        render();
-        for (const MachineView& m : m_machines) {
-            if (!m.connected) {
-                continue;
-            }
-            const QString id = m.id;
-            m_forMachine(id)->request(QStringLiteral("overview zfsm://") + id,
-                                      [this, gen, id](const CliResult& o) {
-                                          if (gen != m_generation) {
-                                              return;
-                                          }
-                                          for (MachineView& mv : m_machines) {
-                                              if (mv.id != id) {
-                                                  continue;
-                                              }
-                                              // overview answers rc 0 also for a machine that
-                                              // does not respond: that is in its JSON.
-                                              if (o.out.contains(QLatin1Char('{'))) {
-                                                  applyOverview(mv, o.out);
-                                              } else {
-                                                  mv.loaded = true;
-                                                  mv.failure = o.err.trimmed();
-                                              }
-                                          }
-                                          m_updatedAt = QDateTime::currentSecsSinceEpoch();
-                                          render();
-                                      });
-        }
-    });
-}
-
 void StatusPage::updateAgo() {
-    if (m_updatedAt > 0) {
+    if (m_store->updatedAt() > 0) {
         m_ago->setText(L("Updated %1", "Actualizado %1")
-                           .arg(ago(m_updatedAt, QDateTime::currentSecsSinceEpoch())));
+                           .arg(ago(m_store->updatedAt(), QDateTime::currentSecsSinceEpoch())));
     }
 }
 
@@ -223,20 +93,21 @@ void StatusPage::render() {
     QTimer::singleShot(0, this,
                        [this, scrollPos] { m_scroll->verticalScrollBar()->setValue(scrollPos); });
     updateAgo();
+    const QVector<MachineView>& machines = m_store->machines();
 
-    if (m_listFailed) {
+    if (m_store->listFailed()) {
         m_bodyLayout->addWidget(
             label(L("Could not list the machines: %1", "No se pudieron listar las máquinas: %1")
-                      .arg(m_listError),
+                      .arg(m_store->listError()),
                   m_body));
         return;
     }
-    if (m_machines.isEmpty()) {
+    if (machines.isEmpty()) {
         m_bodyLayout->addWidget(muted(L("Asking…", "Preguntando…"), m_body));
         return;
     }
 
-    const Summary s = summarize(m_machines);
+    const Summary s = summarize(machines);
     auto* tiles = new QHBoxLayout();
     tiles->addWidget(
         tile(L("Machines", "Máquinas"), QStringLiteral("%1 / %2").arg(s.answering).arg(s.machines),
@@ -264,7 +135,7 @@ void StatusPage::render() {
     m_bodyLayout->addLayout(tiles);
 
     // What needs attention, already written by the CLI.
-    const QVector<Attention> att = attention(m_machines);
+    const QVector<Attention> att = attention(machines);
     Q_EMIT attentionChanged(int(att.size()));
     if (!att.isEmpty()) {
         QFrame* box = card(m_body);
@@ -289,7 +160,7 @@ void StatusPage::render() {
     auto* grid = new QGridLayout();
     int col = 0;
     int row = 0;
-    for (const MachineView& m : m_machines) {
+    for (const MachineView& m : machines) {
         QFrame* c = card(m_body);
         auto* lay = new QVBoxLayout(c);
         lay->addWidget(heading(m.name, c));
@@ -334,7 +205,7 @@ void StatusPage::render() {
     m_bodyLayout->addLayout(grid);
 
     // Scheduled copies.
-    const QVector<ScheduleRow> sch = scheduleRows(m_machines);
+    const QVector<ScheduleRow> sch = scheduleRows(machines);
     if (!sch.isEmpty()) {
         m_bodyLayout->addWidget(heading(L("Scheduled copies", "Copias programadas"), m_body));
         QFrame* box = card(m_body);
@@ -369,7 +240,7 @@ void StatusPage::render() {
     }
 
     // Copying now.
-    const QVector<JobRow> jobs = jobRows(m_machines);
+    const QVector<JobRow> jobs = jobRows(machines);
     if (!jobs.isEmpty()) {
         m_bodyLayout->addWidget(heading(L("Copying now", "Copiando ahora"), m_body));
         QFrame* box = card(m_body);

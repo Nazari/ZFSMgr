@@ -1,6 +1,10 @@
 #include "mainwindow.h"
 
+#include "copiespage.h"
+#include "jobspage.h"
+#include "newcopywizard.h"
 #include "questiondialog.h"
+#include "statestore.h"
 #include "statuspage.h"
 #include "text.h"
 
@@ -51,12 +55,18 @@ MainWindow::MainWindow(QString cliPath, QByteArray masterPassword, CliService* g
                      L("Jobs", "Trabajos")});
     lay->addWidget(m_nav);
     m_pages = new QStackedWidget(central);
-    m_status =
-        new StatusPage(m_general, [this](const QString& id) { return serviceFor(id); }, m_pages);
+    m_store = new StateStore(m_general, [this](const QString& id) { return serviceFor(id); }, this);
+    m_status = new StatusPage(m_store, m_pages);
+    auto* copies = new CopiesPage(m_store, m_pages);
+    auto* jobs = new JobsPage(m_store, m_pages);
     m_pages->addWidget(m_status);
-    m_pages->addWidget(comingLater(L("Copies", "Copias"), m_pages));
+    m_pages->addWidget(copies);
     m_pages->addWidget(comingLater(L("Machines", "Máquinas"), m_pages));
-    m_pages->addWidget(comingLater(L("Jobs", "Trabajos"), m_pages));
+    m_pages->addWidget(jobs);
+    const auto say = [this](const QString& text) { statusBar()->showMessage(text, 15000); };
+    connect(copies, &CopiesPage::message, this, say);
+    connect(jobs, &JobsPage::message, this, say);
+    connect(copies, &CopiesPage::newCopyRequested, this, &MainWindow::openNewCopy);
     lay->addWidget(m_pages, 1);
     setCentralWidget(central);
     connect(m_nav, &QListWidget::currentRowChanged, m_pages, &QStackedWidget::setCurrentIndex);
@@ -65,11 +75,22 @@ MainWindow::MainWindow(QString cliPath, QByteArray masterPassword, CliService* g
                                       : L("Status", "Estado"));
     });
     m_nav->setCurrentRow(0);
-    m_status->refresh();
+    m_store->refresh();
 }
 
 MainWindow::~MainWindow() {
     m_master.fill('\0');
+}
+
+void MainWindow::openNewCopy() {
+    auto* w = new NewCopyWizard(m_store, this);
+    w->setAttribute(Qt::WA_DeleteOnClose);
+    connect(w, &NewCopyWizard::created, m_store, &StateStore::refresh);
+    w->open();
+}
+
+void MainWindow::showPage(int index) {
+    m_nav->setCurrentRow(index);
 }
 
 CliService* MainWindow::serviceFor(const QString& machine) {

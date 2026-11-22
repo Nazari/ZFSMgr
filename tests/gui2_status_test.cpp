@@ -2,6 +2,7 @@
 // panel counts and orders. Qt Core only, no screen. The language is forced to English so the
 // texts compared do not depend on the machine running the test.
 
+#include "../src/gui/copyplan.h"
 #include "../src/gui/statusmodel.h"
 
 #include <QCoreApplication>
@@ -89,6 +90,69 @@ int main(int argc, char** argv) {
     applyOverview(broken, QStringLiteral("not json"));
     check(broken.loaded && !broken.reachable() && !broken.failure.isEmpty(),
           "no JSON is a failure, not a fine machine");
+
+    // The copy plan: the exact commands the assistant shows and runs.
+    CopyRequest r;
+    r.originMachine = QStringLiteral("unib");
+    r.originDataset = QStringLiteral("ppal/user/srvs");
+    r.destMachine = QStringLiteral("local");
+    r.destDataset = QStringLiteral("back/user/srvs");
+    r.mode = CopyMode::Pull;
+    r.originHasSchedule = true;
+    r.destRoleForOrigin = QStringLiteral("pull");
+    QStringList c = copyCommands(r);
+    check(
+        c
+            == QStringList{QStringLiteral("create user/srvs -p --on zfsm://local/back"),
+                           QStringLiteral("schedule --origin zfsm://unib/ppal/user/srvs --daily 7 "
+                                          "--weekly 4 --monthly 6 --yearly 1 --on "
+                                          "zfsm://local/back/user/srvs"),
+                           QStringLiteral("schedule run --on zfsm://local/back/user/srvs")},
+        "pull between machines that already know each other: no credentials step");
+    r.destRoleForOrigin.clear();
+    r.originHasSchedule = false;
+    c = copyCommands(r);
+    check(c.size() == 7 && c[0] == QLatin1String("peers --push --role pull --on zfsm://local")
+              && c[1] == QLatin1String("peers --listen 0.0.0.0 --on zfsm://unib")
+              && c[2].startsWith(QLatin1String("schedule --daily 1 --weekly 1"))
+              && c[3] == QLatin1String("schedule run --on zfsm://unib/ppal/user/srvs"),
+          "pull to a machine that does not know the origin: credentials, origin snapshots now");
+    r.mode = CopyMode::Push;
+    r.originRoleForDest = QStringLiteral("pull");
+    c = copyCommands(r);
+    check(c.size() == 3 && c[0] == QLatin1String("peers --push --role full --on zfsm://unib"),
+          "push from a daemon with pull-only credentials: the full ones first, no --listen");
+    r.originRoleForDest = QStringLiteral("full");
+    c = copyCommands(r);
+    check(c
+              == QStringList{QStringLiteral("schedule --daily 7 --weekly 4 --monthly 6 --yearly 1 "
+                                            "--to zfsm://local/back/user/srvs --level --on "
+                                            "zfsm://unib/ppal/user/srvs"),
+                             QStringLiteral("schedule run --on zfsm://unib/ppal/user/srvs")},
+          "push: the origin's schedule with --to and --level");
+    r.mode = CopyMode::Once;
+    r.stamp = QStringLiteral("20261122-1905");
+    c = copyCommands(r);
+    check(c
+              == QStringList{QStringLiteral("create @copia-20261122-1905 --on "
+                                            "zfsm://unib/ppal/user/srvs"),
+                             QStringLiteral("send zfsm://local/back/user/srvs --from "
+                                            "zfsm://unib/ppal/user/srvs@copia-20261122-1905")},
+          "once: a snapshot and a send");
+    CopyRequest bad = r;
+    bad.destDataset = QStringLiteral("back");
+    check(copyCommands(bad).isEmpty() && !copyProblem(bad).isEmpty(), "a copy needs pool/name");
+    bad = r;
+    bad.destMachine = QStringLiteral("unib");
+    bad.destDataset = QStringLiteral("ppal/user/srvs/dentro");
+    check(!copyProblem(bad).isEmpty(), "not inside the original");
+    bad = r;
+    bad.destDataset = QStringLiteral("back/con espacio");
+    check(!copyProblem(bad).isEmpty(), "no spaces in the name");
+    bad = r;
+    bad.mode = CopyMode::Pull;
+    bad.keep = {0, 0, 0, 0};
+    check(!copyProblem(bad).isEmpty(), "a kept copy keeps something");
 
     if (g_fails == 0) {
         std::printf("gui2 status model: all good\n");

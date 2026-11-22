@@ -42,11 +42,18 @@ public:
             // shows once the machines have had time to answer, and ends.
             const QString capture = qEnvironmentVariable("ZFSMGR_GUI_CAPTURE");
             if (!capture.isEmpty()) {
+                w->showPage(qEnvironmentVariableIntValue("ZFSMGR_GUI_PAGE"));
+                if (qEnvironmentVariable("ZFSMGR_GUI_OPEN") == QLatin1String("newcopy")) {
+                    // After the first answers, as a person would: the assistant reads them.
+                    QTimer::singleShot(4000, w, [w] { w->openNewCopy(); });
+                }
                 QTimer::singleShot(qEnvironmentVariableIntValue("ZFSMGR_GUI_CAPTURE_MS") > 0
                                        ? qEnvironmentVariableIntValue("ZFSMGR_GUI_CAPTURE_MS")
                                        : 8000,
                                    w, [w, capture] {
-                                       w->grab().save(capture);
+                                       // The dialog on top, if one is open.
+                                       QWidget* top = QApplication::activeModalWidget();
+                                       (top ? top : w)->grab().save(capture);
                                        QApplication::exit(0);
                                    });
             }

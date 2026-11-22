@@ -424,10 +424,18 @@ bool cmdJobs(Estado& e, const LineaAnalizada& linea) {
     t.campos = {"connection", "id", "state", "type", "snap", "bytes", "rate", "elapsed", "error"};
     t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena,
                Tipo::Bytes,  Tipo::Cadena, Tipo::Entero, Tipo::Cadena};
-    if (detalle) {
+    // In JSON the description and the times always: a program cannot ask for a wider
+    // terminal, and «when did it end» is what a history is read for.
+    const bool json = e.formato == Formato::Json;
+    if (detalle || json) {
         t.cabecerasTexto.push_back(T("t_cab_que_hace", "QUÉ HACE"));
         t.campos.push_back("description");
         t.tipos.push_back(Tipo::Cadena);
+    }
+    if (json) {
+        t.cabecerasTexto.insert(t.cabecerasTexto.end(), {"STARTED", "FINISHED"});
+        t.campos.insert(t.campos.end(), {"started", "finished"});
+        t.tipos.insert(t.tipos.end(), {Tipo::Cadena, Tipo::Cadena});
     }
     bool algunaFallo = false;
     for (const auto& [idMaquina, url] : maquinas) {
@@ -471,9 +479,13 @@ bool cmdJobs(Estado& e, const LineaAnalizada& linea) {
                                           ritmo,
                                           std::to_string(j["elapsed"].toInt()),
                                           B::trim(textoErr)};
-            if (detalle) {
+            if (detalle || json) {
                 const std::string d = j["desc"].toString();
                 fila.push_back(d.empty() ? std::string("-") : d);
+            }
+            if (json) {
+                fila.push_back(j["started"].toString());
+                fila.push_back(j["finished"].toString());
             }
             t.filas.push_back(fila);
         }

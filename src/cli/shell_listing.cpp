@@ -14,6 +14,15 @@ bool listaConexiones(Estado& e, const Peticion& pet) {
     t.cabecerasTexto.push_back(T("t_cab_avisos", "AVISOS"));
     t.campos.push_back("warnings");
     t.tipos.push_back(Tipo::Cadena);
+    // In JSON, the machine's identity as its daemon gives it: it is what `peers` lists, so a
+    // program can tell whether one daemon already knows another. Not in the text table: a
+    // person does not read it.
+    const bool json = e.formato == Formato::Json;
+    if (json) {
+        t.cabecerasTexto.push_back("UID");
+        t.campos.push_back("uid");
+        t.tipos.push_back(Tipo::Cadena);
+    }
     const std::string esperada = B::agentversion::expected();
     for (std::size_t i = 0; i < t.filas.size() && i < e.conns.perfiles.size(); ++i) {
         const auto& p = e.conns.perfiles[i];
@@ -71,6 +80,9 @@ bool listaConexiones(Estado& e, const Peticion& pet) {
         t.filas[i].push_back(version);
         const auto aviso = e.avisoDaemon.find(id);
         t.filas[i].push_back(aviso == e.avisoDaemon.end() ? std::string("-") : aviso->second);
+        if (json) {
+            t.filas[i].push_back(p.machineUid);
+        }
     }
     if (!aplicaFiltro(e, t, {0, 1})) {
         return false;

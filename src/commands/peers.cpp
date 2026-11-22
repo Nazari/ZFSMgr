@@ -50,6 +50,9 @@ View parse(const std::string& salida) {
                 p.puerto = 0;
             }
             p.uid = trim(c[3]);
+            if (c.size() >= 5) {
+                p.role = trim(c[4]);
+            }
             v.pares.push_back(p);
         }
     }

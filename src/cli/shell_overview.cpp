@@ -7,6 +7,8 @@
 #include "shell_internal.h"
 
 #include <algorithm>
+#include <map>
+#include <set>
 #include <thread>
 
 namespace zfsmgr::cli::detail {
@@ -185,7 +187,46 @@ MachineView viewOf(Sesion& ses, const B::ConnectionProfile& p) {
     if (!cs.checked) {
         m.json.set("schedules_reason", J::Value(cs.whyNotChecked));
     }
+    // What each schedule keeps, from its properties: the daemon's state says what happened,
+    // not what was asked. Also the ones switched off (--off), which the scheduler skips and
+    // a panel must still show, as paused.
+    std::map<std::string, B::gsa::Schedule> programadas;
+    {
+        // Pool by pool with the verb `schedule` uses: the all-pools one brings only four
+        // properties and not their source.
+        for (const J::Value& pv : pools.toArray()) {
+            std::string raw;
+            std::string errRaw;
+            int rcRaw = -1;
+            if (!ejecutarAgente(ses, p, PET::gsaOfDataset(pv["name"].toString()), raw, errRaw,
+                                rcRaw, &why, 20000)
+                || rcRaw != 0) {
+                continue;
+            }
+            for (const auto& kv : B::gsa::groupProperties(raw)) {
+                B::gsa::Schedule sch;
+                B::gsa::Reason r;
+                if (B::gsa::fromProperties(kv.second, sch, r)) {
+                    programadas[kv.first] = sch;
+                }
+            }
+        }
+    }
+    const auto guarda = [&programadas](const std::string& ds) {
+        J::Value k{J::Object{}};
+        const auto it = programadas.find(ds);
+        if (it != programadas.end()) {
+            k.set("hourly", J::Value(it->second.hourly));
+            k.set("daily", J::Value(it->second.daily));
+            k.set("weekly", J::Value(it->second.weekly));
+            k.set("monthly", J::Value(it->second.monthly));
+            k.set("yearly", J::Value(it->second.yearly));
+        }
+        return k;
+    };
+    std::set<std::string> vistas;
     for (const B::gsa::DatasetState& d : cs.datasets) {
+        vistas.insert(d.dataset);
         std::string state = "ok";
         std::string text;
         if (cs.stale || !d.failedStep.empty()) {
@@ -209,6 +250,24 @@ MachineView viewOf(Sesion& ses, const B::ConnectionProfile& p) {
         sv.set("last_level_time", J::Value(d.lastLevelTime));
         sv.set("job", J::Value(d.levelJob));
         sv.set("error", J::Value(text));
+        sv.set("keep", guarda(d.dataset));
+        schedules.push(sv);
+    }
+    for (const auto& [ds, sch] : programadas) {
+        if (sch.enabled || vistas.count(ds) != 0) {
+            continue;
+        }
+        J::Value sv{J::Object{}};
+        sv.set("dataset", J::Value(ds));
+        sv.set("kind", J::Value(!sch.origin.empty() ? "pull" : sch.level ? "push" : "local"));
+        sv.set("peer", J::Value(!sch.origin.empty() ? sch.origin : sch.target));
+        sv.set("state", J::Value("paused"));
+        sv.set("last_snapshot", J::Value(""));
+        sv.set("last_snapshot_time", J::Value(0));
+        sv.set("last_level_time", J::Value(0));
+        sv.set("job", J::Value(""));
+        sv.set("error", J::Value(""));
+        sv.set("keep", guarda(ds));
         schedules.push(sv);
     }
     m.json.set("schedules", schedules);

@@ -508,6 +508,44 @@ def casos_overview(ctx):
         sh(ctx, f"rm -f {a} {b}")
 
 
+def casos_json_gui(ctx):
+    """What the new interface reads besides `overview`: the machine identity in `ls zfsm://`,
+    the times of finished jobs, and the role of each daemon's credentials in `peers`."""
+    def doc(lineas):
+        _, salida = cli(ctx, ["format json"] + lineas, idioma="es")
+        try:
+            return json_de(salida), salida
+        except ValueError:
+            return {}, salida
+
+    def comprueba(nombre, problemas, salida):
+        if problemas:
+            ctx.fallos.append((nombre, problemas, salida))
+            print(f"  FALLO  {nombre}")
+            for x in problemas:
+                print(f"         {x}")
+        else:
+            ctx.pasados.append(nombre)
+            print(f"  ok     {nombre}")
+
+    d, salida = doc(["ls zfsm://"])
+    local = [c for c in d.get("connections", []) if c.get("id") == "local"]
+    comprueba("json: ls zfsm:// da la identidad de cada máquina",
+              [] if local and re.fullmatch(r"[0-9a-f-]{16,}", local[0].get("uid") or "")
+              else [f"{local}"], salida)
+    d, salida = doc(["jobs --history zfsm://local"])
+    trabajos = d.get("jobs", [])
+    comprueba("json: jobs --history trae cuándo empezó y acabó, y qué hacía",
+              [] if trabajos and all("started" in j and "finished" in j and "description" in j
+                                     for j in trabajos) else [f"{trabajos[:1]}"], salida)
+    if ctx.remoto:
+        d, salida = doc(["peers zfsm://unib"])
+        pares = d.get("peers", [])
+        comprueba("json: peers dice el papel de cada credencial",
+                  [] if pares and all(p.get("role") in ("pull", "full", "-") for p in pares)
+                  else [f"{pares[:1]}"], salida)
+
+
 def casos_sudo_sin_argv(ctx):
     """The sudo password never travels in a command line. An `ssh` and an `sh` that write
     down their arguments go first in PATH: whatever the CLI launched through them is in the
@@ -3543,7 +3581,7 @@ def casos_arranque(ctx):
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
 LOCALES = [casos_arranque, casos_identidad, casos_devices, casos_ayuda, casos_version_openzfs, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
-           casos_volumenes, casos_dedup, casos_overview, casos_sudo_sin_argv, casos_probe, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_send_level, casos_recepcion_a_medias, casos_send_fichero, casos_send_comprimido, casos_gsa, casos_sin_montar, casos_cp_destino, casos_load_key, casos_editor_ancho, casos_tab_continua, casos_pantalla, casos_ctrl_c, casos_monitor_conexiones, casos_path, casos_info_labelclear, casos_servicio, casos_servicio_conexiones, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
+           casos_volumenes, casos_dedup, casos_overview, casos_json_gui, casos_sudo_sin_argv, casos_probe, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_send_level, casos_recepcion_a_medias, casos_send_fichero, casos_send_comprimido, casos_gsa, casos_sin_montar, casos_cp_destino, casos_load_key, casos_editor_ancho, casos_tab_continua, casos_pantalla, casos_ctrl_c, casos_monitor_conexiones, casos_path, casos_info_labelclear, casos_servicio, casos_servicio_conexiones, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
 def rpc_directo(ctx, entrada, cmd, args):

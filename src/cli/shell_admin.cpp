@@ -341,11 +341,13 @@ bool cmdPeers(Estado& e, const LineaAnalizada& linea) {
         Tabla t;
         t.nombreJson = "peers";
         t.cabecerasTexto = {T("t_cab_id", "ID"), T("t_cab_host", "HOST"),
-                            T("t_cab_puerto", "PUERTO"), T("t_cab_identidad", "IDENTIDAD")};
-        t.campos = {"id", "host", "port", "uid"};
-        t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Entero, Tipo::Cadena};
+                            T("t_cab_puerto", "PUERTO"), T("t_cab_identidad", "IDENTIDAD"),
+                            T("t_cab_papel", "PAPEL")};
+        t.campos = {"id", "host", "port", "uid", "role"};
+        t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Entero, Tipo::Cadena, Tipo::Cadena};
         for (const PR::Peer& par : vista.pares) {
-            t.filas.push_back({par.id, par.host, std::to_string(par.puerto), par.uid});
+            t.filas.push_back({par.id, par.host, std::to_string(par.puerto), par.uid,
+                               par.role.empty() ? std::string("-") : par.role});
         }
         t.imprime(e.formato);
         return true;

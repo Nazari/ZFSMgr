@@ -1019,9 +1019,14 @@ const TablaDeVerbos& tablaDeVerbos() {
             // máquina —un perfil copiado de otro equipo— y hasta ahora eso no se veía.
             out << "SELF_UID\t" << trim(raiz["self_uid"].toString()) << "\n";
             out << "REAL_UID\t" << trim(detectMachineUuid()) << "\n";
+            // The role last: «pull» for pull-only credentials, «full» for the complete ones. A
+            // client deciding whether this daemon can SEND to another needs it: knowing the
+            // other is not enough when all it may do is pull.
             for (const auto& v : raiz["peers"].toArray()) {
+                const std::string role = trim(v["role"].toString());
                 out << trim(v["id"].toString()) << "\t" << trim(v["host"].toString()) << "\t"
-                    << v["port"].toInt(0) << "\t" << trim(v["uid"].toString()) << "\n";
+                    << v["port"].toInt(0) << "\t" << trim(v["uid"].toString()) << "\t"
+                    << (role.empty() ? std::string("full") : role) << "\n";
             }
             r.rc = 0;
             r.out = out.str();

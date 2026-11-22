@@ -115,7 +115,11 @@ Un campo nuevo se puede añadir sin avisar. Quitar o renombrar uno es un cambio 
 
 | Orden | Documento |
 |---|---|
-| `ls zfsm://` | `{"connections":[{"id","name","connected","type","os",…}]}`: las máquinas |
+| `ls zfsm://` | `{"connections":[{"id","name","connected","type","os","uid",…}]}`: las máquinas; `uid` es su identidad, la que lista `peers` |
+| `ls zfsm://<conexión>` | `{"pools":[{"name","imported","size","free","health",…}]}` |
+| `ls -r zfsm://<conexión>/<pool>` | `{"entries":[{"name","type","used","encryption","mounted",…}]}`, todo el árbol |
+| `jobs [--history] zfsm://<conexión>` | `{"jobs":[{"id","state","type","description","bytes","started","finished","error",…}]}`; horas en ISO UTC |
+| `peers zfsm://<conexión>` | `{"peers":[{"id","host","port","uid","role"}]}`; `role` es `pull`, `full` o `-` (daemon anterior a saberlo) |
 | `ls <conexión/pool/dataset>` | `{"entries":[…]}`, una fila por hijo |
 | `overview [-a]` | `{"machines":[…],"warnings":[…]}`; ver abajo |
 | `probe <conexión>` | un objeto con lo que hay al otro lado; ver abajo |
@@ -148,7 +152,9 @@ Un campo nuevo se puede añadir sin avisar. Quitar o renombrar uno es un cambio 
 
 - Códigos fijos, iguales en cualquier idioma: `status` de máquina y de pool (`ok`, `warning`,
   `error`), `daemon` (`ok`, `outdated`, `ahead`, `unknown`), `kind` (`push`, `pull`, `local`) y
-  `state` de programación (`ok`, `error`, `pending`).
+  `state` de programación (`ok`, `error`, `pending`, `paused`). Cada programación lleva `keep`,
+  lo que guarda: `{"hourly","daily","weekly","monthly","yearly"}`. Las apagadas con `--off`
+  salen como `paused`.
 - Una máquina que no responde lleva `reachable: false` y `reason`, sin el resto de campos.
 - `warnings` van ya redactados en el idioma de `--lang`, los errores primero. Qué es un aviso lo
   decide el CLI: el cliente solo los enseña.

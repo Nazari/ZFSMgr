@@ -17,6 +17,7 @@ namespace zfsmgr::gui {
 struct MachineView {
     QString id;
     QString name;
+    QString uid;  // the machine's identity, as `peers` lists it
     bool connected{true};
     bool loaded{false};    // its overview has arrived (or failed)
     QString failure;       // the service could not ask it
@@ -44,16 +45,21 @@ struct Attention {
 };
 
 struct ScheduleRow {
-    QString machine;  // display name of the machine that holds the schedule
+    QString machineId;  // the connection that holds the schedule
+    QString machine;    // its display name
     QString dataset;
     QString kind;         // push, pull, local
     QString peer;         // zfsm://… or empty
-    QString state;        // ok, pending, error
+    QString state;        // ok, pending, error, paused
     qint64 lastLevel{0};  // seconds since the epoch, 0 if never
+    QString lastSnapshot;
     QString error;
+    QString job;       // the levelling in progress, if any
+    QJsonObject keep;  // {"hourly":n,"daily":n,…}: what the copy keeps
 };
 
 struct JobRow {
+    QString machineId;
     QString machine;
     QString id;
     QString description;
@@ -77,5 +83,7 @@ QVector<JobRow> jobRows(const QVector<MachineView>& ms);
 QString ago(qint64 epochSeconds, qint64 now);
 // 2100000000 → «2,0 GB» / «2.0 GB».
 QString bytesText(qint64 bytes);
+// {"daily":7,"weekly":4,…} → «7 diarias, 4 semanales» / «7 daily, 4 weekly»; «—» if none.
+QString keepText(const QJsonObject& keep);
 
 }  // namespace zfsmgr::gui

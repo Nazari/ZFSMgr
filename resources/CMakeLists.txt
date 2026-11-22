@@ -625,6 +625,12 @@ qt_add_executable(zfsmgr-gui2
     ../src/gui/questiondialog.cpp
     ../src/gui/statusmodel.cpp
     ../src/gui/statuspage.cpp
+    ../src/gui/statestore.cpp
+    ../src/gui/uikit.cpp
+    ../src/gui/jobspage.cpp
+    ../src/gui/copiespage.cpp
+    ../src/gui/copyplan.cpp
+    ../src/gui/newcopywizard.cpp
 )
 target_link_libraries(zfsmgr-gui2 PRIVATE Qt6::Widgets)
 target_compile_definitions(zfsmgr-gui2 PRIVATE QT_NO_KEYWORDS)
@@ -894,7 +900,8 @@ if(BUILD_TESTING)
 
     # The new interface's status model: from the CLI's answers to what the panel counts.
     # Qt Core only, like the interface itself never links anything of ours.
-    add_executable(zfsmgr_gui2_status_test ../tests/gui2_status_test.cpp ../src/gui/statusmodel.cpp)
+    add_executable(zfsmgr_gui2_status_test ../tests/gui2_status_test.cpp ../src/gui/statusmodel.cpp
+                   ../src/gui/copyplan.cpp)
     target_link_libraries(zfsmgr_gui2_status_test PRIVATE Qt6::Core)
     target_compile_definitions(zfsmgr_gui2_status_test PRIVATE QT_NO_KEYWORDS)
     add_test(NAME zfsmgr_gui2_status_test COMMAND zfsmgr_gui2_status_test)
