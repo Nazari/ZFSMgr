@@ -23,7 +23,7 @@ StateStore::StateStore(CliService* general, std::function<CliService*(const QStr
 void StateStore::refresh() {
     const int gen = ++m_generation;
     Q_EMIT refreshing();
-    m_general->request(QStringLiteral("ls zfsm://"), [this, gen](const CliResult& r) {
+    m_general->request(QStringLiteral("ls zfsm://"), this, [this, gen](const CliResult& r) {
         if (gen != m_generation) {
             return;
         }
@@ -54,7 +54,7 @@ void StateStore::refresh() {
             }
             const QString id = m.id;
             m_forMachine(id)->request(
-                QStringLiteral("overview zfsm://") + id, [this, gen, id](const CliResult& o) {
+                QStringLiteral("overview zfsm://") + id, this, [this, gen, id](const CliResult& o) {
                     if (gen != m_generation) {
                         return;
                     }

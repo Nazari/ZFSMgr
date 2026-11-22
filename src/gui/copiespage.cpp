@@ -303,7 +303,7 @@ void CopiesPage::changeKeep(const QString& on, const ScheduleRow& r) {
 }
 
 void CopiesPage::act(const QString& line, const QString& done) {
-    m_store->general()->request(line, [this, done](const CliResult& res) {
+    m_store->general()->request(line, this, [this, done](const CliResult& res) {
         Q_EMIT message(res.ok() ? done : res.err.trimmed());
         m_store->refresh();
     });

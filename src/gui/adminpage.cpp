@@ -78,7 +78,7 @@ void AdminPage::load() {
         return;
     }
     m_loading = true;
-    m_store->general()->request(QStringLiteral("ls zfsm://"), [this](const CliResult& r) {
+    m_store->general()->request(QStringLiteral("ls zfsm://"), this, [this](const CliResult& r) {
         m_connections = firstObject(r.out).value(QStringLiteral("connections")).toArray();
         render();
         for (const QJsonValue& v : m_connections) {
@@ -88,13 +88,13 @@ void AdminPage::load() {
             }
             const QString id = c.value(QStringLiteral("id")).toString();
             m_store->forMachine(id)->request(
-                QStringLiteral("peers ") + url(id), [this, id](const CliResult& p) {
+                QStringLiteral("peers ") + url(id), this, [this, id](const CliResult& p) {
                     m_peers.insert(id, firstObject(p.out).value(QStringLiteral("peers")).toArray());
                     render();
                 });
         }
         m_store->general()->request(
-            QStringLiteral("install-daemon -a --check"), [this](const CliResult& d) {
+            QStringLiteral("install-daemon -a --check"), this, [this](const CliResult& d) {
                 m_daemons = firstObject(d.out).value(QStringLiteral("items")).toArray();
                 m_loading = false;
                 render();
@@ -103,7 +103,7 @@ void AdminPage::load() {
 }
 
 void AdminPage::act(const QString& line, const QString& done) {
-    m_store->general()->request(line, [this, done](const CliResult& r) {
+    m_store->general()->request(line, this, [this, done](const CliResult& r) {
         Q_EMIT message(r.ok() ? done : r.err.trimmed());
         m_store->refresh();
         load();
@@ -157,7 +157,7 @@ void AdminPage::render() {
                 m_probeText.insert(id, L("Testing…", "Probando…"));
                 render();
                 m_store->forMachine(id)->request(
-                    QStringLiteral("probe ") + url(id),
+                    QStringLiteral("probe ") + url(id), this,
                     [this, id](const CliResult& r) {
                         m_probeText.insert(id, (r.out + r.err).trimmed());
                         render();

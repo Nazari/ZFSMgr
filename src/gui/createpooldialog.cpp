@@ -96,7 +96,7 @@ CreatePoolDialog::CreatePoolDialog(StateStore* store, QString machine, QWidget* 
         go->setEnabled(false);
         m_result->setText(L("Creating…", "Creando…"));
         // The CLI lists what is lost and asks for the pool's name before writing.
-        m_store->general()->request(cmd, [this, go](const CliResult& r) {
+        m_store->general()->request(cmd, this, [this, go](const CliResult& r) {
             go->setEnabled(true);
             if (!r.ok()) {
                 m_result->setText(r.err.trimmed());
@@ -116,7 +116,7 @@ CreatePoolDialog::CreatePoolDialog(StateStore* store, QString machine, QWidget* 
 
     m_disks->addItem(L("Asking for the disks…", "Preguntando por los discos…"));
     m_store->forMachine(m_machine)->request(
-        QStringLiteral("devices zfsm://") + m_machine, [this](const CliResult& r) {
+        QStringLiteral("devices zfsm://") + m_machine, this, [this](const CliResult& r) {
             m_disks->clear();
             const QJsonArray all = firstObject(r.out).value(QStringLiteral("devices")).toArray();
             // Free: claimed by no pool, not in use, no filesystem, no mountpoint, and —for a

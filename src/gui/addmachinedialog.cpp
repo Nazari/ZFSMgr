@@ -84,7 +84,7 @@ AddMachineDialog::AddMachineDialog(StateStore* store, QWidget* parent)
     connect(m_install, &QPushButton::clicked, this, [this] {
         m_install->setEnabled(false);
         m_result->setText(L("Installing the daemon…", "Instalando el daemon…"));
-        m_store->general()->request(QStringLiteral("install-daemon --on zfsm://") + m_created,
+        m_store->general()->request(QStringLiteral("install-daemon --on zfsm://") + m_created, this,
                                     [this](const CliResult& r) {
                                         m_install->setEnabled(true);
                                         if (!r.ok()) {
@@ -142,7 +142,7 @@ void AddMachineDialog::create() {
     m_go->setEnabled(false);
     m_result->setText(
         L("Asking the machine which system it is…", "Preguntando a la máquina qué sistema es…"));
-    m_store->general()->request(line, [this, id](const CliResult& r) {
+    m_store->general()->request(line, this, [this, id](const CliResult& r) {
         if (!r.ok()) {
             m_go->setEnabled(true);
             m_result->setText(r.err.trimmed());
@@ -162,7 +162,7 @@ void AddMachineDialog::create() {
 void AddMachineDialog::probe() {
     m_result->setText(L("Checking it…", "Comprobándola…"));
     m_store->general()->request(
-        QStringLiteral("probe zfsm://") + m_created, [this](const CliResult& r) {
+        QStringLiteral("probe zfsm://") + m_created, this, [this](const CliResult& r) {
             const qsizetype start = r.out.indexOf(QLatin1Char('{'));
             const QJsonObject p = start < 0
                                       ? QJsonObject()

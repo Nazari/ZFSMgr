@@ -170,7 +170,7 @@ void MachinesPage::expand(QTreeWidgetItem* item) {
     const QString machine = item->data(0, kMachineRole).toString();
     if (kind == Machine && item->childCount() == 0) {
         m_store->forMachine(machine)->request(
-            QStringLiteral("ls ") + url(machine), [this, machine](const CliResult& r) {
+            QStringLiteral("ls ") + url(machine), this, [this, machine](const CliResult& r) {
                 const QJsonArray pools =
                     firstObject(r.out).value(QStringLiteral("pools")).toArray();
                 m_pools.insert(machine, pools);
@@ -205,7 +205,8 @@ void MachinesPage::loadPool(QTreeWidgetItem* poolItem) {
     const QString machine = poolItem->data(0, kMachineRole).toString();
     const QString pool = poolItem->data(0, kNameRole).toString();
     m_store->forMachine(machine)->request(
-        QStringLiteral("ls -r ") + url(machine, pool), [this, machine, pool](const CliResult& r) {
+        QStringLiteral("ls -r ") + url(machine, pool), this,
+        [this, machine, pool](const CliResult& r) {
             const QJsonArray entries =
                 firstObject(r.out).value(QStringLiteral("entries")).toArray();
             m_entries.insert(machine + QLatin1Char('/') + pool, entries);
@@ -364,7 +365,7 @@ void MachinesPage::showMachine(const QString& id) {
     if (probeIt == m_probe.constEnd()) {
         l->addWidget(muted(L("Checking the machine…", "Comprobando la máquina…"), w));
         // Disconnected or not: checking is how one decides to connect it.
-        m_store->forMachine(id)->request(QStringLiteral("probe ") + url(id),
+        m_store->forMachine(id)->request(QStringLiteral("probe ") + url(id), this,
                                          [this, id](const CliResult& r) {
                                              m_probe.insert(id, firstObject(r.out));
                                              showDetail();
@@ -494,7 +495,7 @@ void MachinesPage::showPool(const QString& machine, const QString& pool) {
     const auto st = m_status.constFind(key);
     if (st == m_status.constEnd()) {
         l->addWidget(muted(L("Asking for its disks…", "Preguntando por sus discos…"), w));
-        m_store->forMachine(machine)->request(QStringLiteral("status ") + url(machine, pool),
+        m_store->forMachine(machine)->request(QStringLiteral("status ") + url(machine, pool), this,
                                               [this, key](const CliResult& r) {
                                                   m_status.insert(key, firstObject(r.out));
                                                   showDetail();
@@ -633,7 +634,7 @@ void MachinesPage::forgetPools(const QString& machine) {
 
 void MachinesPage::importPool(const QString& machine) {
     m_store->forMachine(machine)->request(
-        QStringLiteral("import ") + url(machine), [this, machine](const CliResult& r) {
+        QStringLiteral("import ") + url(machine), this, [this, machine](const CliResult& r) {
             QStringList names;
             for (const QJsonValue& v :
                  firstObject(r.out).value(QStringLiteral("importable_pools")).toArray()) {
@@ -703,7 +704,7 @@ QWidget* MachinesPage::filesTab(const QString& machine, const QString& dataset) 
         m_store->forMachine(machine)->request(
             QStringLiteral("ls ") + url(machine, dataset) + QStringLiteral("#content")
                 + (rel.isEmpty() ? QString() : QLatin1Char('/') + rel),
-            [this, listKey](const CliResult& r) {
+            this, [this, listKey](const CliResult& r) {
                 QJsonArray entries = firstObject(r.out).value(QStringLiteral("entries")).toArray();
                 if (!r.ok() && entries.isEmpty()) {
                     QJsonObject why;
@@ -773,7 +774,7 @@ QWidget* MachinesPage::propertiesTab(const QString& machine, const QString& data
     if (it == m_props.constEnd()) {
         l->addWidget(muted(L("Reading its properties…", "Leyendo sus propiedades…"), w));
         m_store->forMachine(machine)->request(
-            QStringLiteral("ls ") + url(machine, dataset) + QStringLiteral("#properties"),
+            QStringLiteral("ls ") + url(machine, dataset) + QStringLiteral("#properties"), this,
             [this, key](const CliResult& r) {
                 m_props.insert(key,
                                firstObject(r.out).value(QStringLiteral("properties")).toArray());
@@ -847,7 +848,7 @@ QWidget* MachinesPage::organizeTab(const QString& machine, const QString& datase
     if (dirs == m_breakdown.constEnd()) {
         l->addWidget(muted(L("Measuring its directories…", "Midiendo sus carpetas…"), w));
         m_store->forMachine(machine)->request(
-            QStringLiteral("breakdown --list") + on, [this, key](const CliResult& r) {
+            QStringLiteral("breakdown --list") + on, this, [this, key](const CliResult& r) {
                 QJsonArray d = firstObject(r.out).value(QStringLiteral("directories")).toArray();
                 m_breakdown.insert(key, d);
                 showDetail();
@@ -1184,7 +1185,7 @@ QWidget* MachinesPage::datasetSummary(const QString& machine, const QString& dat
 }
 
 void MachinesPage::act(const QString& line, const QString& done, bool reloadTree) {
-    m_store->general()->request(line, [this, done, reloadTree](const CliResult& r) {
+    m_store->general()->request(line, this, [this, done, reloadTree](const CliResult& r) {
         Q_EMIT message(r.ok() ? done : r.err.trimmed());
         if (reloadTree) {
             // The open pools are asked again: what changed is in one of them.

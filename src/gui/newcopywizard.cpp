@@ -220,7 +220,7 @@ void NewCopyWizard::load() {
         const QString name = m.name;
         CliService* s = m_store->forMachine(id);
         ++m_pending;
-        s->request(QStringLiteral("peers zfsm://") + id, [this, id](const CliResult& r) {
+        s->request(QStringLiteral("peers zfsm://") + id, this, [this, id](const CliResult& r) {
             QHash<QString, QString> roles;
             for (const QJsonValue& v :
                  firstObject(r.out).value(QStringLiteral("peers")).toArray()) {
@@ -235,40 +235,42 @@ void NewCopyWizard::load() {
             --m_pending;
         });
         ++m_pending;
-        s->request(QStringLiteral("ls zfsm://") + id, [this, s, id, name](const CliResult& r) {
-            --m_pending;
-            for (const QJsonValue& v :
-                 firstObject(r.out).value(QStringLiteral("pools")).toArray()) {
-                const QJsonObject p = v.toObject();
-                const QString pool = p.value(QStringLiteral("name")).toString();
-                if (!p.value(QStringLiteral("imported")).toBool(true) || pool.isEmpty()) {
-                    continue;
-                }
-                m_pools.push_back({id, name, pool, p.value(QStringLiteral("free")).toString()});
-                ++m_pending;
-                s->request(
-                    QStringLiteral("ls -r zfsm://%1/%2").arg(id, pool),
-                    [this, id, name](const CliResult& rr) {
-                        --m_pending;
-                        for (const QJsonValue& e :
-                             firstObject(rr.out).value(QStringLiteral("entries")).toArray()) {
-                            const QJsonObject d = e.toObject();
-                            if (d.value(QStringLiteral("type")).toString()
-                                != QLatin1String("dataset")) {
-                                continue;
+        s->request(
+            QStringLiteral("ls zfsm://") + id, this, [this, s, id, name](const CliResult& r) {
+                --m_pending;
+                for (const QJsonValue& v :
+                     firstObject(r.out).value(QStringLiteral("pools")).toArray()) {
+                    const QJsonObject p = v.toObject();
+                    const QString pool = p.value(QStringLiteral("name")).toString();
+                    if (!p.value(QStringLiteral("imported")).toBool(true) || pool.isEmpty()) {
+                        continue;
+                    }
+                    m_pools.push_back({id, name, pool, p.value(QStringLiteral("free")).toString()});
+                    ++m_pending;
+                    s->request(
+                        QStringLiteral("ls -r zfsm://%1/%2").arg(id, pool), this,
+                        [this, id, name](const CliResult& rr) {
+                            --m_pending;
+                            for (const QJsonValue& e :
+                                 firstObject(rr.out).value(QStringLiteral("entries")).toArray()) {
+                                const QJsonObject d = e.toObject();
+                                if (d.value(QStringLiteral("type")).toString()
+                                    != QLatin1String("dataset")) {
+                                    continue;
+                                }
+                                const QString enc =
+                                    d.value(QStringLiteral("encryption")).toString();
+                                m_datasets.push_back(
+                                    {id, name, d.value(QStringLiteral("name")).toString(),
+                                     d.value(QStringLiteral("used")).toVariant().toLongLong(),
+                                     !enc.isEmpty() && enc != QLatin1String("off")
+                                         && enc != QLatin1String("-")});
                             }
-                            const QString enc = d.value(QStringLiteral("encryption")).toString();
-                            m_datasets.push_back(
-                                {id, name, d.value(QStringLiteral("name")).toString(),
-                                 d.value(QStringLiteral("used")).toVariant().toLongLong(),
-                                 !enc.isEmpty() && enc != QLatin1String("off")
-                                     && enc != QLatin1String("-")});
-                        }
-                        fillOrigins();
-                    });
-            }
-            fillOrigins();
-        });
+                            fillOrigins();
+                        });
+                }
+                fillOrigins();
+            });
     }
 }
 
@@ -480,7 +482,7 @@ void NewCopyWizard::runNext() {
         return;
     }
     const int i = m_running;
-    m_store->general()->request(m_toRun[i], [this, i](const CliResult& r) {
+    m_store->general()->request(m_toRun[i], this, [this, i](const CliResult& r) {
         QListWidgetItem* it = m_progress->item(i);
         if (r.ok()) {
             it->setText(QStringLiteral("✓  ") + m_toRun[i]);

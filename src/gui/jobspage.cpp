@@ -84,7 +84,7 @@ void JobsPage::loadHistory() {
         m_asked.insert(m.id);
         const QString id = m.id;
         m_store->forMachine(id)->request(
-            QStringLiteral("jobs --history zfsm://") + id, [this, id](const CliResult& r) {
+            QStringLiteral("jobs --history zfsm://") + id, this, [this, id](const CliResult& r) {
                 const qsizetype start = r.out.indexOf(QLatin1Char('{'));
                 m_history.insert(id, start < 0 ? QJsonArray()
                                                : QJsonDocument::fromJson(r.out.mid(start).toUtf8())
@@ -101,7 +101,7 @@ void JobsPage::loadHistory() {
 void JobsPage::stop(const QString& machineId, const QString& jobId) {
     // The CLI asks first (the question arrives as a dialog) and says what happened.
     m_store->forMachine(machineId)->request(
-        QStringLiteral("job cancel %1 --on zfsm://%2").arg(jobId, machineId),
+        QStringLiteral("job cancel %1 --on zfsm://%2").arg(jobId, machineId), this,
         [this](const CliResult& r) {
             Q_EMIT message(r.ok() ? L("Job stopped.", "Trabajo parado.") : r.err.trimmed());
             m_store->refresh();

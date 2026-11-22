@@ -910,6 +910,16 @@ if(BUILD_TESTING)
     target_compile_definitions(zfsmgr_gui2_status_test PRIVATE QT_NO_KEYWORDS)
     add_test(NAME zfsmgr_gui2_status_test COMMAND zfsmgr_gui2_status_test)
 
+    # The interface's service against a fake `zfsmgr-cli --serve`: an answer for an owner that
+    # no longer exists is dropped. Not on Windows: the fake is a shell script.
+    if(NOT WIN32)
+        add_executable(zfsmgr_gui2_service_test ../tests/gui2_service_test.cpp
+                       ../src/gui/cliservice.cpp ../src/gui/cliservice.h)
+        target_link_libraries(zfsmgr_gui2_service_test PRIVATE Qt6::Core)
+        target_compile_definitions(zfsmgr_gui2_service_test PRIVATE QT_NO_KEYWORDS)
+        add_test(NAME zfsmgr_gui2_service_test COMMAND zfsmgr_gui2_service_test)
+    endif()
+
     # Los textos que saldrían en castellano con la interfaz en inglés.
     #
     # No compila nada: lee las llamadas a `trk()` y el catálogo. Es la comprobación que

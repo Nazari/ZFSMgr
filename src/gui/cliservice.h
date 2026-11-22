@@ -14,6 +14,7 @@
 #include <QByteArray>
 #include <QJsonObject>
 #include <QObject>
+#include <QPointer>
 #include <QProcess>
 #include <QString>
 #include <QStringList>
@@ -57,7 +58,14 @@ public:
 
     using Done = std::function<void(const CliResult&)>;
     // Queues one command line, exactly as it would be typed in the terminal.
-    void request(const QString& line, Done done, const QString& format = QStringLiteral("json"));
+    //
+    // `owner`: who asked. If it no longer exists when the answer arrives —a dialog closed
+    // while its machine was still answering— the answer is DROPPED: `done` captures that
+    // owner, and calling it would write into a widget already deleted (a crash, 2026-11-22:
+    // closing «Add a machine» before its check came back). Required on purpose, so no
+    // caller can forget it.
+    void request(const QString& line, QObject* owner, Done done,
+                 const QString& format = QStringLiteral("json"));
 
     void answerConfirm(int id, bool yes, const QString& typed = {});
     void answerSecret(int id, const std::optional<QString>& secret);
@@ -74,6 +82,7 @@ private:
         int id{0};
         QString line;
         QString format;
+        QPointer<QObject> owner;
         Done done;
     };
 

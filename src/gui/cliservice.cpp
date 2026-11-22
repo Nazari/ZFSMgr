@@ -71,8 +71,8 @@ void CliService::start(const QByteArray& masterPassword) {
     first.fill('\0');
 }
 
-void CliService::request(const QString& line, Done done, const QString& format) {
-    m_queue.push_back(Pending{m_nextId++, line, format, std::move(done)});
+void CliService::request(const QString& line, QObject* owner, Done done, const QString& format) {
+    m_queue.push_back(Pending{m_nextId++, line, format, owner, std::move(done)});
     sendNext();
 }
 
@@ -155,7 +155,7 @@ void CliService::handleEvent(const QJsonObject& ev) {
         r.err = ev.value(QStringLiteral("stderr")).toString();
         Pending done = std::move(*m_current);
         m_current.reset();
-        if (done.done) {
+        if (done.done && done.owner) {
             done.done(r);
         }
         sendNext();
@@ -208,7 +208,7 @@ void CliService::failAll(const QString& reason) {
     }
     m_queue.clear();
     for (auto& p : all) {
-        if (p.done) {
+        if (p.done && p.owner) {
             p.done(r);
         }
     }
