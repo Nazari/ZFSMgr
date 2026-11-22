@@ -28,8 +28,21 @@ bool ejecutaConPatrones(Estado& e, const std::string& orden, const LineaAnalizad
             std::fputs(TC("t_patron_check", "--check: no se ha tocado nada\n"), stderr);
             return true;
         }
-        if (!confirma(e, B::format(T("t_patron_confirma", "¿%1 sobre estos %2?"),
-                                   {orden, std::to_string(destinos.size())}))) {
+        // One question for all of them, with the list inside it: a client that only shows the
+        // question must still show what it applies to.
+        Pregunta q;
+        q.titulo = B::format(T("t_pq_patron_t", "%1 sobre %2 destinos que casan con «%3»"),
+                             {orden, std::to_string(destinos.size()), texto});
+        for (const std::string& d : destinos) {
+            q.notas.push_back("  " + d);
+        }
+        // Destroying or rolling back many at once is the most dangerous thing a line can do:
+        // the number of them is what gets typed.
+        if (orden == "destroy" || orden == "rollback") {
+            q.irreversible = true;
+            q.escribir = std::to_string(destinos.size());
+        }
+        if (!confirma(e, q)) {
             e.ultimoRc = 1;
             return false;
         }
@@ -462,41 +475,65 @@ const std::map<std::string, Manejador>& ordenesDelInterprete() {
          [](Estado& s, const LineaAnalizada& l) {
              return cmdMantenimientoPool(s, l, "initialize");
          }},
-        {"flush",
-         [](Estado& s, const LineaAnalizada& l) {
-             return cmdPoolSimple(s, l, "flush", "sync", nullptr);
-         }},
+        {"flush", [](Estado& s,
+                     const LineaAnalizada& l) { return cmdPoolSimple(s, l, "flush", "sync", {}); }},
         {"upgrade",
          [](Estado& s, const LineaAnalizada& l) {
-             return cmdPoolSimple(
-                 s, l, "upgrade", "upgrade",
-                 TC("t_aviso_pool_upgrade",
-                    "Se va a subir la versión del pool, y eso NO se puede deshacer"));
+             return cmdPoolSimple(s, l, "upgrade", "upgrade", [](const std::string& pool) {
+                 Pregunta q;
+                 q.titulo =
+                     B::format(T("t_pq_upgrade_t", "Actualizar el formato del pool %1"), {pool});
+                 q.irreversible = true;
+                 q.notas.push_back(T("t_pq_upgrade_nota",
+                                     "Activa las funciones nuevas de este OpenZFS. Después, una "
+                                     "máquina con un OpenZFS más antiguo ya no podrá importar "
+                                     "este pool."));
+                 return q;
+             });
          }},
         {"reguid",
          [](Estado& s, const LineaAnalizada& l) {
-             return cmdPoolSimple(
-                 s, l, "reguid", "reguid",
-                 TC("t_aviso_pool_reguid", "Se va a cambiar el identificador único del pool"));
+             return cmdPoolSimple(s, l, "reguid", "reguid", [](const std::string& pool) {
+                 Pregunta q;
+                 q.titulo =
+                     B::format(T("t_pq_reguid_t", "Cambiar el identificador del pool %1"), {pool});
+                 q.notas.push_back(T("t_pq_reguid_nota",
+                                     "Hace falta cuando dos pools tienen el mismo, por ejemplo "
+                                     "tras clonar un disco. Los datos no se tocan."));
+                 return q;
+             });
          }},
         // `clear` PREGUNTA. No borra datos, pero borra la cuenta de errores del pool, y se
         // teclea queriendo limpiar el terminal —dos veces en una misma sesión de pruebas—.
         // Perder eso sin haberlo pedido es perder justo lo que uno estaba mirando.
         {"clear",
          [](Estado& s, const LineaAnalizada& l) {
-             return cmdPoolSimple(s, l, "clear", "clear",
-                                  TC("t_aviso_pool_clear",
-                                     "Se van a poner a cero los errores contados del pool (para "
-                                     "limpiar la PANTALLA la orden es «cls»)"));
+             return cmdPoolSimple(s, l, "clear", "clear", [](const std::string& pool) {
+                 Pregunta q;
+                 q.titulo =
+                     B::format(T("t_pq_clear_t", "Poner a cero los errores del pool %1"), {pool});
+                 q.sePierde.push_back(T("t_pq_clear_pierde",
+                                        "la cuenta de errores de cada disco que enseña status: "
+                                        "si estabas mirando cuál falla, apúntalo antes"));
+                 q.notas.push_back(
+                     T("t_pq_clear_nota", "Para limpiar la pantalla, la orden es «cls»."));
+                 return q;
+             });
          }},
         // Las dos vacían la lista de importables del tabulador: lo que era importable ya no
         // lo es, y al revés.
         {"export",
          [](Estado& s, const LineaAnalizada& l) {
              s.importablesCache.clear();
-             return cmdPoolSimple(s, l, "export", "export",
-                                  TC("t_aviso_pool_export",
-                                     "Se va a exportar el pool y dejará de estar disponible"));
+             return cmdPoolSimple(s, l, "export", "export", [](const std::string& pool) {
+                 Pregunta q;
+                 q.titulo = B::format(T("t_pq_export_t", "Exportar el pool %1"), {pool});
+                 q.notas.push_back(T("t_pq_export_nota",
+                                     "Deja de estar montado y disponible en esta máquina hasta "
+                                     "que se importe otra vez. Sus datos no se tocan, pero lo que "
+                                     "esté usando sus ficheros dejará de encontrarlos."));
+                 return q;
+             });
          }},
         {"import",
          [](Estado& s, const LineaAnalizada& l) {

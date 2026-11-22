@@ -487,11 +487,18 @@ bool cmdRsync(Estado& e, const LineaAnalizada& linea) {
     }
     // Confirmación solo si va a BORRAR: sin `--delete` esto añade y actualiza, y no hay
     // nada que perder. Con `--delete` el destino acaba idéntico al origen, borrado incluido.
-    if (borra && !simula
-        && !confirma(
-            e, B::format(T("t_conf_rsync",
-                           "%1 va a quedar IDÉNTICO a %2, borrando lo que sobre. ¿Continuar?"),
-                         {rutaDestino, pares.front().first}))) {
+    if (borra && !simula && !confirma(e, [&]() {
+            Pregunta q;
+            q.titulo = B::format(T("t_pq_cp_delete_t", "Dejar %1 idéntico a %2"),
+                                 {rutaDestino, pares.front().first});
+            q.irreversible = true;
+            q.sePierde.push_back(
+                B::format(T("t_pq_cp_delete_pierde", "lo que haya en %1 y no esté en %2"),
+                          {rutaDestino, pares.front().first}));
+            q.notas.push_back(
+                T("t_pq_cp_delete_nota", "Con --dry-run se ve antes qué se borraría."));
+            return q;
+        }())) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }
@@ -729,11 +736,15 @@ bool cmdLabelclear(Estado& e, const LineaAnalizada& linea) {
         return false;
     }
     // Lo que se va a perder, con nombre: la confirmación no dice «¿seguro?» a secas.
-    if (!confirma(e, B::format(T("t_conf_labelclear",
-                                 "Se va a BORRAR la etiqueta de ZFS de %1 en %2. Si era de un "
-                                 "pool, ese pool deja de poder importarse desde ese disco. "
-                                 "¿Continuar?"),
-                               {dispositivo, conexion.connection}))) {
+    Pregunta q;
+    q.titulo = B::format(T("t_pq_labelclear_t", "Borrar la marca de ZFS de %1 en %2"),
+                         {dispositivo, conexion.connection});
+    q.irreversible = true;
+    q.escribir = palabraDe(dispositivo);
+    q.sePierde.push_back(T("t_pq_labelclear_pierde",
+                           "si ese disco era de un pool, el pool ya no se podrá importar "
+                           "desde él"));
+    if (!confirma(e, q)) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }

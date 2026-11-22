@@ -855,29 +855,6 @@ bool pideSecreto(const Estado& e, const std::string& prompt, std::string& out, s
     return preguntarSecretoPorTerminal(prompt, out, err);
 }
 
-bool confirma(const Estado& e, const std::string& que) {
-    if (e.asumirSi) {
-        return true;
-    }
-    if (e.preguntaServicio) {
-        return e.preguntaServicio(que);
-    }
-    if (!hayTerminal()) {
-        std::fprintf(stderr,
-                     TC("t_s_hace_fal_27dc69",
-                        "%s: hace falta confirmación y no hay terminal. Use -y si está seguro.\n"),
-                     que.c_str());
-        return false;
-    }
-    std::string resp;
-    std::string err;
-    if (!preguntarPorTerminal(que + T("t_sufijo_sn", " [s/N]: "), resp, err)) {
-        return false;
-    }
-    const std::string r = B::toLowerAscii(B::trim(resp));
-    return r == "s" || r == "si" || r == "sí" || r == "y" || r == "yes";
-}
-
 // Deja en la tabla solo las filas cuyo nombre casa con el filtro, mirando las columnas
 // dadas (la del nombre; en las conexiones, el identificador y el nombre visible).
 //

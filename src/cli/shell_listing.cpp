@@ -641,15 +641,21 @@ bool cmdPermisos(Estado& e, const LineaAnalizada& linea, bool conceder) {
     }
     argv.push_back(objetivo);
 
-    if (!conceder
-        && !confirma(e, pet.lista("texto").empty()
-                            ? B::format(T("t_conf_unallow_todos",
-                                          "Se van a quitar TODOS los permisos delegados de ese "
-                                          "destinatario en %1. ¿Continuar?"),
-                                        {objetivo})
-                            : B::format(T("t_conf_unallow",
-                                          "Se van a quitar los permisos %1 en %2. ¿Continuar?"),
-                                        {B::join(pet.lista("texto"), ","), objetivo}))) {
+    if (!conceder && !confirma(e, [&]() {
+            Pregunta q;
+            q.titulo =
+                B::format(T("t_pq_unallow_t", "Quitar permisos delegados en %1"), {objetivo});
+            q.sePierde.push_back(
+                pet.lista("texto").empty()
+                    ? T("t_pq_unallow_todos",
+                        "todos los permisos que ese usuario o grupo tenía delegados ahí")
+                    : B::format(T("t_pq_unallow_algunos", "los permisos %1"),
+                                {B::join(pet.lista("texto"), ", ")}));
+            q.notas.push_back(T("t_pq_unallow_nota",
+                                "Lo que hiciera con ellos (una copia, un snapshot) dejará de "
+                                "poder hacerlo. Se vuelven a dar con allow."));
+            return q;
+        }())) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }

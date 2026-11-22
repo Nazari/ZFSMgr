@@ -342,12 +342,17 @@ bool cmdBreakdown(Estado& e, const LineaAnalizada& linea) {
     if (rechaza) {
         return false;
     }
-    if (!confirma(
-            e, (sinMontar.empty() ? std::string() : sinMontar + "\n")
-                   + B::format(T("t_conf_breakdown",
-                                 "Se van a convertir %1 directorios de %2 en datasets hijos. "
-                                 "¿Continuar?"),
-                               {std::to_string(pet.lista("texto").size() / 2), destino.dataset}))) {
+    Pregunta q;
+    q.titulo = B::format(T("t_pq_breakdown_t", "Convertir %1 directorios de %2 en datasets hijos"),
+                         {std::to_string(pet.lista("texto").size() / 2), destino.dataset});
+    q.notas.push_back(T("t_pq_breakdown_nota",
+                        "Cada directorio pasa a ser un dataset propio con sus mismos ficheros, "
+                        "en el mismo sitio: se puede copiar y programar por separado. Se deshace "
+                        "con assemble."));
+    if (!sinMontar.empty()) {
+        q.notas.push_back(sinMontar);
+    }
+    if (!confirma(e, q)) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }
@@ -386,12 +391,17 @@ bool cmdAssemble(Estado& e, const LineaAnalizada& linea) {
     if (rechaza) {
         return false;
     }
-    if (!confirma(e,
-                  (sinMontar.empty() ? std::string() : sinMontar + "\n")
-                      + B::format(T("t_conf_assemble",
-                                    "Se van a reintegrar %1 datasets hijos en %2 como "
-                                    "directorios. ¿Continuar?"),
-                                  {std::to_string(pet.lista("texto").size()), destino.dataset}))) {
+    Pregunta q;
+    q.titulo = B::format(T("t_pq_assemble_t", "Devolver %1 datasets hijos de %2 a directorios"),
+                         {std::to_string(pet.lista("texto").size()), destino.dataset});
+    q.notas.push_back(T("t_pq_assemble_nota",
+                        "Sus ficheros quedan en el mismo sitio, como directorios de su padre; "
+                        "dejan de poder copiarse o programarse por separado. Se deshace con "
+                        "breakdown."));
+    if (!sinMontar.empty()) {
+        q.notas.push_back(sinMontar);
+    }
+    if (!confirma(e, q)) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }
@@ -426,11 +436,20 @@ bool cmdToDir(Estado& e, const LineaAnalizada& linea) {
     if (!rutaDeRanura(e, pet.uno("ruta"), destino.connection, dirDestino)) {
         return false;
     }
-    if (!confirma(e, B::format(T("t_conf_todir", "Se va a volcar %1 a %2%3. ¿Continuar?"),
-                               {destino.dataset, dirDestino,
-                                borraOrigen ? T("t_conf_y_destruir_origen",
-                                                " y DESTRUIR el dataset de origen")
-                                            : std::string()}))) {
+    Pregunta q;
+    q.titulo = B::format(T("t_pq_todir_t", "Copiar los ficheros de %1 a %2"),
+                         {destino.dataset, dirDestino});
+    if (borraOrigen) {
+        q.irreversible = true;
+        q.escribir = palabraDe(destino.dataset);
+        q.titulo = B::format(
+            T("t_pq_todir_borra_t", "Pasar los ficheros de %1 a %2 y destruir el dataset"),
+            {destino.dataset, dirDestino});
+        impactoDeDestruir(e, destino, destino.dataset, /*recursivo=*/true, q);
+        q.seConserva.push_back(
+            B::format(T("t_pq_todir_ficheros", "sus ficheros, en %1"), {dirDestino}));
+    }
+    if (!confirma(e, q)) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }
@@ -566,14 +585,16 @@ bool cmdFromDir(Estado& e, const LineaAnalizada& linea) {
             return false;
         }
     }
-    if (!confirma(e, B::format(borraOrigen
-                                   ? T("t_conf_fromdir_borra",
-                                       "Se va a volcar %1 de %2 dentro de %3 en %4 y, si la copia "
-                                       "se verifica sin una sola diferencia, se BORRARÁ %1 de %2. "
-                                       "¿Continuar?")
-                                   : T("t_conf_fromdir",
-                                       "Se va a volcar %1 de %2 dentro de %3 en %4. ¿Continuar?"),
-                               {dir, origen.connection, destino.dataset, destino.connection}))) {
+    Pregunta q;
+    q.titulo = B::format(T("t_pq_fromdir_t", "Copiar el directorio %1 de %2 dentro de %3 en %4"),
+                         {dir, origen.connection, destino.dataset, destino.connection});
+    if (borraOrigen) {
+        q.sePierde.push_back(B::format(T("t_pq_fromdir_borra",
+                                         "el directorio %1 de %2, solo si la copia se comprueba "
+                                         "sin una sola diferencia"),
+                                       {dir, origen.connection}));
+    }
+    if (!confirma(e, q)) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }

@@ -152,11 +152,24 @@ int servirOrdenes(Sesion& ses) {
 
     double idActual = 0;
     // A confirmation: the question goes out as an event, the answer comes back as a line.
-    e.preguntaServicio = [&idActual](const std::string& texto) {
+    e.preguntaServicio = [&idActual](const Pregunta& p) {
         J::Value ev;
         ev.set("id", J::Value(idActual));
         ev.set("type", J::Value(std::string("confirm")));
-        ev.set("text", J::Value(texto));
+        ev.set("text", J::Value(textoDePregunta(p)));
+        ev.set("title", J::Value(p.titulo));
+        ev.set("irreversible", J::Value(p.irreversible));
+        const auto lista = [](const std::vector<std::string>& v) {
+            J::Value a{J::Array{}};
+            for (const std::string& x : v) {
+                a.push(J::Value(x));
+            }
+            return a;
+        };
+        ev.set("lose", lista(p.sePierde));
+        ev.set("keep", lista(p.seConserva));
+        ev.set("notes", lista(p.notas));
+        ev.set("type_to_confirm", J::Value(p.escribir));
         emite(ev);
         std::string respuesta;
         if (!std::getline(std::cin, respuesta)) {
@@ -164,7 +177,19 @@ int servirOrdenes(Sesion& ses) {
         }
         J::Value r;
         std::string err;
-        return J::parse(respuesta, r, &err) && r["answer"].toBool(false);
+        if (!J::parse(respuesta, r, &err) || !r["answer"].toBool(false)) {
+            return false;
+        }
+        // What has to be typed is checked HERE, not trusted to the client: a client that
+        // answers «true» without asking does not get past an irreversible question.
+        if (!p.escribir.empty() && r["typed"].toString() != p.escribir) {
+            std::fprintf(
+                stderr, "%s\n",
+                B::format(T("t_pq_no_coincide", "no es «%1»: no se hace nada"), {p.escribir})
+                    .c_str());
+            return false;
+        }
+        return true;
     };
 
     // A secret: asked as an event, the answer comes back as a line {"id","secret"}.

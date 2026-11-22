@@ -43,15 +43,13 @@ bool cmdMantenimientoPool(Estado& e, const LineaAnalizada& linea, const char* op
 }
 
 bool cmdPoolSimple(Estado& e, const LineaAnalizada& linea, const char* verbo, const char* op,
-                   const char* aviso) {
+                   const std::function<Pregunta(const std::string& pool)>& pregunta) {
     Peticion pet;
     if (!prepara(e, linea, pet)) {
         return false;
     }
     const ZfsmUrl& destino = pet.objetivo;
-    if (aviso
-        && !confirma(
-            e, B::format(T("t_conf_en_pool", "%1 en %2. ¿Continuar?"), {aviso, destino.pool}))) {
+    if (pregunta && !confirma(e, pregunta(destino.pool))) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }
@@ -394,10 +392,14 @@ bool cmdCrearPool(Estado& e, const Peticion& pet, const ZfsmUrl& destino,
         }
         std::fprintf(stderr, TC("t_opts_as_equivale", "equivale a: %s\n"), nueva.c_str());
     }
-    if (!confirma(e, B::format(T("t_conf_create_pool",
-                                 "Se va a crear el pool %1 en %2 ESCRIBIENDO en: %3.\nLo que "
-                                 "hubiera en esos dispositivos SE PIERDE. ¿Continuar?"),
-                               {pool, destino.connection, B::join(vdevs, ", ")}))) {
+    Pregunta q;
+    q.titulo =
+        B::format(T("t_pq_create_pool_t", "Crear el pool %1 en %2"), {pool, destino.connection});
+    q.irreversible = true;
+    q.escribir = pool;
+    q.sePierde.push_back(B::format(T("t_pq_create_pool_pierde", "todo lo que hubiera en: %1"),
+                                   {B::join(vdevs, ", ")}));
+    if (!confirma(e, q)) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }

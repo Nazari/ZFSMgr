@@ -37,13 +37,18 @@ bool borraContenido(Estado& e, const Peticion& pet, const ZfsmUrl& destino) {
         return false;
     }
     const bool recursivo = pet.tiene("-r") || pet.tiene("-R");
-    if (!confirma(
-            e, B::format(T("t_conf_destroy_contenido",
-                           "Se va a BORRAR %1%2 del dataset %3 en %4. ¿Continuar?"),
-                         {rel,
-                          recursivo ? T("t_conf_con_lo_de_dentro", " con todo lo que tenga dentro")
-                                    : std::string(),
-                          destino.dataset, destino.connection}))) {
+    Pregunta q;
+    q.titulo = B::format(T("t_pq_borrar_ruta_t", "Borrar %1 de %2 en %3"),
+                         {rel, destino.dataset, destino.connection});
+    q.irreversible = true;
+    q.sePierde.push_back(
+        recursivo ? B::format(T("t_pq_ruta_y_dentro", "%1 y todo lo que tenga dentro"), {rel})
+                  : rel);
+    // Deleting files leaves the snapshots alone: what they had can still be taken out of them.
+    q.seConserva.push_back(
+        B::format(T("t_pq_ruta_en_snaps", "lo que guarden los snapshots de %1 que ya existen"),
+                  {destino.dataset}));
+    if (!confirma(e, q)) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }
@@ -77,10 +82,14 @@ bool cmdDestroy(Estado& e, const LineaAnalizada& linea) {
     // «destruir» ahí, y la pregunta lo deja claro: no se toca nada en la máquina.
     if (nodoDe(destino) == Nodo::Conexion) {
         const std::string id = idDe(e, destino);
-        if (!confirma(e, B::format(T("t_conf_quitar_conn",
-                                     "Se va a quitar la conexión %1 de la configuración. NO "
-                                     "se toca nada en la máquina. ¿Continuar?"),
-                                   {id}))) {
+        Pregunta q;
+        q.titulo = B::format(T("t_pq_quitar_conn_t", "Quitar la conexión %1"), {id});
+        q.seConserva.push_back(T("t_pq_quitar_conn_maquina",
+                                 "todo lo que hay en la máquina: no se toca nada en ella"));
+        q.notas.push_back(T("t_pq_quitar_conn_nota",
+                            "Para volver a usarla habrá que darla de alta otra vez, con su "
+                            "contraseña."));
+        if (!confirma(e, q)) {
             std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
             return false;
         }
@@ -97,10 +106,15 @@ bool cmdDestroy(Estado& e, const LineaAnalizada& linea) {
     // En un POOL, `destroy` es `zpool destroy`: `zfs destroy` sobre el dataset raíz de un
     // pool no funciona, así que es la única lectura posible.
     if (nodoDe(destino) == Nodo::Dataset && destino.isPoolRoot() && destino.snapshot.empty()) {
-        if (!confirma(e, B::format(T("t_conf_destroy_pool",
-                                     "Se va a DESTRUIR EL POOL %1 en %2, con todos sus "
-                                     "datasets y todos sus datos. ¿Continuar?"),
-                                   {destino.pool, destino.connection}))) {
+        Pregunta q;
+        q.titulo = B::format(T("t_pq_destroy_pool_t", "Destruir el pool %1 en %2"),
+                             {destino.pool, destino.connection});
+        q.irreversible = true;
+        q.escribir = destino.pool;
+        impactoDeDestruir(e, destino, destino.pool, /*recursivo=*/true, q);
+        q.sePierde.push_back(T("t_pq_destroy_pool_discos",
+                               "el propio pool: sus discos quedan libres para otra cosa"));
+        if (!confirma(e, q)) {
             std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
             return false;
         }
@@ -126,11 +140,31 @@ bool cmdDestroy(Estado& e, const LineaAnalizada& linea) {
     const bool recursivo = pet.tiene("-r") || pet.tiene("-R");
     // La pregunta dice QUÉ se va a borrar y con qué alcance: «¿seguro?» a secas es lo que
     // hace que se conteste que sí sin leer.
-    if (!confirma(e, B::format(T("t_conf_destroy_ds", "Se va a DESTRUIR %1%2 en %3. ¿Continuar?"),
-                               {objetivo,
-                                recursivo ? T("t_conf_y_desc", " y todos sus descendientes")
-                                          : std::string(),
-                                destino.connection}))) {
+    Pregunta q;
+    q.irreversible = true;
+    if (!destino.snapshot.empty()) {
+        // A snapshot: what only it keeps is lost; the dataset as it is now stays.
+        q.titulo = B::format(T("t_pq_destroy_snap_t", "Borrar el snapshot %1 en %2"),
+                             {objetivo, destino.connection});
+        q.sePierde.push_back(B::format(
+            T("t_pq_destroy_snap_pierde", "la posibilidad de volver %1 a como estaba en @%2%3"),
+            {destino.dataset, destino.snapshot,
+             recursivo ? T("t_pq_y_en_hijos", ", ni sus hijos") : std::string()}));
+        q.seConserva.push_back(
+            B::format(T("t_pq_destroy_snap_queda", "%1 tal como está ahora, y sus otros snapshots"),
+                      {destino.dataset}));
+    } else {
+        q.titulo =
+            B::format(T("t_pq_destroy_ds_t", "Destruir %1 en %2"), {objetivo, destino.connection});
+        q.escribir = palabraDe(objetivo);
+        const std::string impide = impactoDeDestruir(e, destino, objetivo, recursivo, q);
+        if (!impide.empty()) {
+            std::fprintf(stderr, "%s\n", impide.c_str());
+            e.ultimoRc = 1;
+            return false;
+        }
+    }
+    if (!confirma(e, q)) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }
@@ -159,10 +193,45 @@ bool cmdRollback(Estado& e, const LineaAnalizada& linea) {
     }
     const ZfsmUrl& destino = pet.objetivo;
 
-    if (!confirma(e, B::format(T("t_conf_rollback",
-                                 "Se va a volver %1 al estado de @%2, DESCARTANDO todo lo "
-                                 "posterior. ¿Continuar?"),
-                               {destino.dataset, destino.snapshot}))) {
+    Pregunta q;
+    q.titulo = B::format(T("t_pq_rollback_t", "Volver %1 a como estaba en @%2"),
+                         {destino.dataset, destino.snapshot});
+    q.irreversible = true;
+    q.escribir = palabraDe(destino.dataset);
+    q.sePierde.push_back(
+        B::format(T("t_pq_rollback_cambios", "todo lo que ha cambiado en %1 desde @%2"),
+                  {destino.dataset, destino.snapshot}));
+    {
+        // The later snapshots: -r destroys them, and without it the rollback is refused.
+        std::string out;
+        std::string err;
+        int rc = -1;
+        const auto* perfil = buscarConexion(e.conns, destino.connection);
+        if (perfil
+            && ejecutarAgente(*e.ses, *perfil, PET::snapshotGuids(destino.dataset), out, err, rc,
+                              nullptr, 20000)
+            && rc == 0) {
+            std::vector<std::string> despues;
+            bool pasado = false;
+            for (const std::string& l : B::split(out, "\n", true)) {
+                const std::string nombre = B::split(l, "\t", false).front();
+                const std::string corto = nombre.substr(nombre.find('@') + 1);
+                if (pasado) {
+                    despues.push_back("@" + corto);
+                }
+                pasado = pasado || corto == destino.snapshot;
+            }
+            if (despues.size() == 1) {
+                q.sePierde.push_back(
+                    B::format(T("t_pq_rollback_snap", "el snapshot posterior, %1"), {despues[0]}));
+            } else if (!despues.empty()) {
+                q.sePierde.push_back(
+                    B::format(T("t_pq_rollback_snaps", "los %1 snapshots posteriores: %2"),
+                              {std::to_string(despues.size()), algunos(despues)}));
+            }
+        }
+    }
+    if (!confirma(e, q)) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }
@@ -175,7 +244,8 @@ bool cmdRollback(Estado& e, const LineaAnalizada& linea) {
                 out)) {
         return false;
     }
-    std::fprintf(stderr, "%s vuelto a @%s\n", destino.dataset.c_str(), destino.snapshot.c_str());
+    std::fprintf(stderr, TC("t_rollback_hecho", "%s vuelto a @%s\n"), destino.dataset.c_str(),
+                 destino.snapshot.c_str());
     return true;
 }
 

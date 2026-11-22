@@ -56,10 +56,14 @@ bool cmdAuthorizeKey(Estado& e, const LineaAnalizada& linea) {
     }
     clave = B::trim(B::split(B::trim(clave), "\n", true).front());
 
-    if (!confirma(e, B::format(T("t_conf_authorize_key",
-                                 "Se va a autorizar la clave SSH de %1 en %2: después, %1 podrá "
-                                 "entrar en %2 sin contraseña. ¿Continuar?"),
-                               {origen->id, destino->id}))) {
+    Pregunta q;
+    q.titulo = B::format(T("t_pq_authorize_key_t", "Dejar que %1 entre en %2 sin contraseña"),
+                         {origen->id, destino->id});
+    q.notas.push_back(B::format(T("t_pq_authorize_key_nota",
+                                  "Se añade la clave SSH de %1 a las autorizadas en %2. Quien "
+                                  "tenga esa clave podrá entrar en %2 como ese usuario."),
+                                {origen->id, destino->id}));
+    if (!confirma(e, q)) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }
@@ -116,11 +120,13 @@ bool cmdExportTrust(Estado& e, const LineaAnalizada& linea) {
         std::fputs(TC("t_et_vacio", "el almacén de confianza está vacío\n"), stderr);
         return false;
     }
-    if (!confirma(e, B::format(T("t_conf_export_trust",
-                                 "Se va a copiar el almacén de confianza a %1. Lleva CLAVES "
-                                 "PRIVADAS: quien las tenga podrá hablar con esos daemons como "
-                                 "usted. ¿Continuar?"),
-                               {destino->id}))) {
+    Pregunta q;
+    q.titulo = B::format(T("t_pq_export_trust_t", "Copiar tus credenciales de los daemons a %1"),
+                         {destino->id});
+    q.notas.push_back(T("t_pq_export_trust_nota",
+                        "Llevan claves privadas: quien pueda leerlas en esa máquina podrá hablar "
+                        "con tus daemons como si fueras tú."));
+    if (!confirma(e, q)) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }
@@ -159,11 +165,17 @@ bool cmdRepairMounts(Estado& e, const LineaAnalizada& linea) {
         return false;
     }
     const bool aplicar = pet.tiene("--apply");
-    if (aplicar
-        && !confirma(e, B::format(T("t_conf_repair_mounts",
-                                    "Se van a devolver a su punto de montaje los datasets que se "
-                                    "quedaron en uno temporal en %1. ¿Continuar?"),
-                                  {pet.objetivo.connection}))) {
+    if (aplicar && !confirma(e, [&]() {
+            Pregunta q;
+            q.titulo = B::format(
+                T("t_pq_repair_mounts_t", "Devolver a su sitio los montajes temporales de %1"),
+                {pet.objetivo.connection});
+            q.notas.push_back(T("t_pq_repair_mounts_nota",
+                                "Son datasets que una operación cortada dejó montados en un "
+                                "directorio provisional. Vuelven a su punto de montaje de "
+                                "siempre."));
+            return q;
+        }())) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }
@@ -257,12 +269,14 @@ bool cmdPeers(Estado& e, const LineaAnalizada& linea) {
     const ZfsmUrl& destino = pet.objetivo;
     if (!pet.valor("listen").empty()) {
         const std::string dir = pet.valor("listen");
-        if (!confirma(e, B::format(T("t_conf_peers_listen",
-                                     "El daemon de %1 pasará a atender en %2 y se reiniciará.\n"
-                                     "Con un comodín, su puerto queda alcanzable desde la red "
-                                     "—protegido por mTLS con el certificado de cliente fijado—. "
-                                     "¿Continuar?"),
-                                   {destino.connection, dir}))) {
+        Pregunta q;
+        q.titulo = B::format(T("t_pq_peers_listen_t", "Hacer que el daemon de %1 atienda en %2"),
+                             {destino.connection, dir});
+        q.notas.push_back(T("t_pq_peers_listen_nota",
+                            "El daemon se reinicia. Con 0.0.0.0 o :: su puerto se puede alcanzar "
+                            "desde la red; solo contesta a quien tenga un certificado de esta "
+                            "instalación."));
+        if (!confirma(e, q)) {
             std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
             return false;
         }
@@ -413,19 +427,17 @@ bool cmdPeers(Estado& e, const LineaAnalizada& linea) {
         return false;
     }
     const std::vector<std::string>& nombres = entrega.names;
-    if (!confirma(
-            e, rol == "pull"
-                   ? B::format(T("t_conf_peers_traer",
-                                 "Se van a entregar a %1 las credenciales de TRAER de: %2.\n"
-                                 "Con ellas, esa máquina solo puede traer copias de las "
-                                 "otras: mirar sus snapshots, recibirlos y retener su "
-                                 "base. ¿Continuar?"),
-                               {destino.connection, B::join(nombres, ", ")})
-                   : B::format(T("t_conf_peers",
-                                 "Se van a entregar a %1 las credenciales de: %2.\n"
-                                 "Con ellas, esa máquina puede hablar con las otras como si fuera "
-                                 "usted. ¿Continuar?"),
-                               {destino.connection, B::join(nombres, ", ")}))) {
+    Pregunta q;
+    q.titulo = B::format(T("t_pq_peers_t", "Dar a %1 acceso a los daemons de %2"),
+                         {destino.connection, B::join(nombres, ", ")});
+    q.notas.push_back(rol == "pull"
+                          ? T("t_pq_peers_traer_nota",
+                              "Solo para traer copias: podrá ver sus snapshots, recibirlos y "
+                              "retener el último que trajo. Nada más.")
+                          : T("t_pq_peers_nota",
+                              "Con acceso completo: podrá hacer en esas máquinas lo mismo que "
+                              "tú desde aquí."));
+    if (!confirma(e, q)) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }

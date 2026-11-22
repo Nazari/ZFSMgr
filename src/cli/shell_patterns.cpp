@@ -579,10 +579,17 @@ bool instalaDaemonEnTodas(Estado& e, const LineaAnalizada& an,
         std::fputs(TC("t_patron_check", "--check: no se ha tocado nada\n"), stderr);
         return true;
     }
-    if (!confirma(e, B::format(T("t_instala_todas_conf2",
-                                 "Se van a poner al día %2 conexiones con %1: el daemon y, donde "
-                                 "lo tengan, zfsmgr-cli. ¿Continuar?"),
-                               {esperada, std::to_string(aTocar.size())}))) {
+    Pregunta q;
+    q.titulo = B::format(T("t_pq_install_todas_t", "Poner al día %1 máquinas con la versión %2"),
+                         {std::to_string(aTocar.size()), esperada});
+    for (const auto* fila : aTocar) {
+        q.notas.push_back("  " + fila->id);
+    }
+    q.notas.push_back(
+        T("t_pq_install_todas_nota",
+          "En cada una se actualiza el daemon y, donde esté instalado, "
+          "zfsmgr-cli. Una máquina con trabajos en curso no se toca, salvo con --force."));
+    if (!confirma(e, q)) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         e.ultimoRc = 1;
         return false;

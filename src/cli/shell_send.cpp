@@ -353,10 +353,13 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
         if (reanudar) {
             testigo = aMedias.token;
         } else {
-            if (!confirma(e, B::format(T("t_conf_descartar_parcial",
-                                         "Se va a DESCARTAR la recepción a medias de %1 en %2: "
-                                         "se pierde lo ya recibido. ¿Continuar?"),
-                                       {aMedias.heldBy, destino.connection}))) {
+            Pregunta q;
+            q.titulo = B::format(
+                T("t_pq_descartar_t", "Descartar la copia a medias que %1 estaba recibiendo en %2"),
+                {aMedias.heldBy, destino.connection});
+            q.sePierde.push_back(T("t_pq_descartar_pierde",
+                                   "lo que ya había llegado: la próxima copia empieza de cero"));
+            if (!confirma(e, q)) {
                 std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
                 return false;
             }
@@ -378,53 +381,62 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
     }
 
     if (!testigo.empty()) {
-        if (!confirma(
-                e, B::format(T("t_conf_reanudar",
-                               "Se va a continuar la recepción a medias de %1 en %2. ¿Continuar?"),
-                             {aMedias.heldBy, destino.connection}))) {
+        Pregunta q;
+        q.titulo = B::format(
+            T("t_pq_reanudar_t", "Continuar la copia a medias de %1 en %2 desde donde iba"),
+            {aMedias.heldBy, destino.connection});
+        if (!confirma(e, q)) {
             std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
             return false;
         }
     } else if (!ficheroDestino.empty()) {
-        const std::string que =
-            sobrescribir
-                ? B::format(
-                      T("t_conf_send_fichero_existe",
-                        "Se va a volcar el flujo de %1 (en %2) al fichero %3 de %4, que YA "
-                        "EXISTE y se sustituye. ¿Continuar?"),
-                      {origen.zfsName(), origen.connection, ficheroDestino, destino.connection})
-                : B::format(
-                      T("t_conf_send_fichero",
-                        "Se va a volcar el flujo de %1 (en %2) al fichero %3 de %4. "
-                        "¿Continuar?"),
+        Pregunta q;
+        q.titulo =
+            B::format(T("t_pq_send_fichero_t", "Guardar %1 (de %2) en el fichero %3 de %4"),
                       {origen.zfsName(), origen.connection, ficheroDestino, destino.connection});
-        const std::string queConCompresion =
-            comprimido ? B::format(T("t_conf_send_comprimido", "Comprimido con %1.\n"),
-                                   {zfsmgr::compresion::textoDe(compresion)})
-                             + que
-                       : que;
-        if (!confirma(e, queConCompresion)) {
+        if (sobrescribir) {
+            q.irreversible = true;
+            q.sePierde.push_back(B::format(
+                T("t_pq_send_fichero_existe", "el fichero %1 que ya existe: se sustituye"),
+                {ficheroDestino}));
+        }
+        if (comprimido) {
+            q.notas.push_back(B::format(T("t_pq_send_comprimido", "Comprimido con %1."),
+                                        {zfsmgr::compresion::textoDe(compresion)}));
+        }
+        if (!confirma(e, q)) {
             std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
             return false;
         }
     } else if (!ficheroOrigen.empty()) {
-        if (!confirma(
-                e, B::format(
-                       T("t_conf_send_desde_fichero",
-                         "Se va a recibir el flujo del fichero %1 (en %2) en %3 de %4.\n"
-                         "Si el destino existe y difiere, `zfs recv -F` lo SOBRESCRIBE. "
-                         "¿Continuar?"),
-                       {ficheroOrigen, origen.connection, destino.dataset, destino.connection}))) {
+        Pregunta q;
+        q.titulo =
+            B::format(T("t_pq_desde_fichero_t", "Recuperar el fichero %1 (de %2) en %3 de %4"),
+                      {ficheroOrigen, origen.connection, destino.dataset, destino.connection});
+        q.notas.push_back(T("t_pq_sobrescribe_nota",
+                            "Si el destino ya existe y es distinto, se sobrescribe con lo que "
+                            "traiga la copia."));
+        if (!confirma(e, q)) {
             std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
             return false;
         }
-    } else if (!confirma(
-                   e, B::format(T("t_conf_copy",
-                                  "Se va a %1 %2 de %3 a %4 en %5.\nSi el destino existe y "
-                                  "difiere, `zfs recv -F` lo SOBRESCRIBE. ¿Continuar?"),
-                                {base.empty() ? T("t_copiar", "copiar") : T("t_nivelar", "nivelar"),
-                                 origen.zfsName(), origen.connection, destino.dataset,
-                                 destino.connection}))) {
+    } else if (!confirma(e, [&]() {
+                   Pregunta q;
+                   q.titulo = B::format(
+                       base.empty()
+                           ? T("t_pq_copy_t", "Copiar %1 de %2 a %3 en %4")
+                           : T("t_pq_level_t", "Poner al día la copia de %1 de %2 en %3 de %4"),
+                       {origen.zfsName(), origen.connection, destino.dataset, destino.connection});
+                   q.notas.push_back(
+                       base.empty()
+                           ? T("t_pq_sobrescribe_nota",
+                               "Si el destino ya existe y es distinto, se sobrescribe con lo que "
+                               "traiga la copia.")
+                           : T("t_pq_level_nota",
+                               "Si alguien cambió la copia del destino después de la última "
+                               "puesta al día, esos cambios se pierden."));
+                   return q;
+               }())) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }

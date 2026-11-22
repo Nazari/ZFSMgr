@@ -194,10 +194,14 @@ bool cmdInstalarDaemon(Estado& e, const LineaAnalizada& linea) {
         }
     }
 
-    if (!confirma(e, B::format(T("t_conf_install_daemon",
-                                 "Se va a instalar o actualizar el daemon en %1 y arrancarlo "
-                                 "con el gestor de servicios del sistema. ¿Continuar?"),
-                               {quien}))) {
+    Pregunta q;
+    q.titulo =
+        B::format(T("t_pq_install_daemon_t", "Instalar o actualizar el daemon en %1"), {quien});
+    q.notas.push_back(T("t_pq_install_daemon_nota",
+                        "Se copia el programa, se registra como servicio del sistema y se "
+                        "arranca. Si ya había uno, se reinicia: un trabajo en curso se cortaría, "
+                        "así que antes se comprueba que no haya ninguno."));
+    if (!confirma(e, q)) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }
@@ -506,10 +510,12 @@ bool cmdJob(Estado& e, const LineaAnalizada& linea) {
     }
     const std::string id = cancelar ? pet.lista("texto")[1] : pet.uno("texto");
     if (cancelar) {
-        if (!confirma(e, B::format(T("t_conf_job_cancel",
-                                     "Se va a cancelar el trabajo %1. Lo que ya haya hecho NO "
-                                     "se deshace. ¿Continuar?"),
-                                   {id}))) {
+        Pregunta q;
+        q.titulo = B::format(T("t_pq_job_cancel_t", "Cancelar el trabajo %1"), {id});
+        q.notas.push_back(T("t_pq_job_cancel_nota",
+                            "Lo que ya haya hecho se queda hecho. Una copia cortada a medias "
+                            "puede continuarse más tarde desde donde iba."));
+        if (!confirma(e, q)) {
             std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
             return false;
         }

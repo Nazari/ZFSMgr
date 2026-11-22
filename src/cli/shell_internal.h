@@ -146,6 +146,20 @@ struct FiltroFilas {
     bool quedoVacio{false};
 };
 
+// A question asked before something a person should think about first: what it does, what
+// is lost, what stays. The CLI writes it, computing what it can; every client shows it as it
+// comes —the terminal in lines, --serve as a `confirm` event with these same fields— and none
+// rewrites it or decides on its own whether to ask.
+struct Pregunta {
+    std::string titulo;                   // «Destruir ppal/user/srvs en unib»
+    bool irreversible{false};             // «Esto no se puede deshacer.»
+    std::vector<std::string> sePierde;    // what is lost, computed where it can be
+    std::vector<std::string> seConserva;  // what stays: copies elsewhere, earlier snapshots
+    std::vector<std::string> notas;       // anything else worth reading before answering
+    // The word to type to confirm, for what cannot be undone; empty: a yes/no is enough.
+    std::string escribir;
+};
+
 struct Estado {
     FiltroFilas filtro;
     // Las rutas del origen de `rsync` cuando las ha expandido un patrón (`#content/*.log`).
@@ -188,7 +202,7 @@ struct Estado {
     bool asumirSi{false};  // `-y`: no preguntar antes de lo destructivo
     // In service mode (--serve), how a confirmation is asked: as an event to the client, whose
     // answer comes back on standard input. Empty in the terminal.
-    std::function<bool(const std::string&)> preguntaServicio;
+    std::function<bool(const Pregunta&)> preguntaServicio;
     // And how a SECRET is asked for (a passphrase, a password): an event whose answer comes
     // back down the pipe, never in argv. Empty in the terminal.
     std::function<bool(const std::string&, std::string&)> pideSecretoServicio;
@@ -296,7 +310,23 @@ bool prepara(Estado& e, const LineaAnalizada& linea, Peticion& p);
 // The id of a job a command launched, on standard output: alone, or `{"job_id":…,
 // "connection":…}` with --format json, so a program reading the output can follow it.
 void imprimeTrabajo(const Estado& e, const std::string& id, const std::string& conexion);
-bool confirma(const Estado& e, const std::string& que);
+// Asks `p`, on the terminal or to the --serve client; true when the answer is yes (or the word
+// typed matches). With -y, true without asking.
+bool confirma(const Estado& e, const Pregunta& p);
+// The whole question as plain text: what the terminal shows, and `text` in --serve.
+std::string textoDePregunta(const Pregunta& p);
+// What destroying `ds` loses and keeps, asked to its machine: its size, its children (with
+// `recursivo`), its snapshots and the ones made by hand, where it is mounted; and the copies
+// other machines keep of it. Whatever cannot be asked is left out, never guessed.
+//
+// Returns why it cannot be done as asked —without `recursivo`, a dataset with children or
+// snapshots, which ZFS refuses—, so that is said BEFORE asking; empty when it can.
+std::string impactoDeDestruir(Estado& e, const ZfsmUrl& donde, const std::string& ds,
+                              bool recursivo, Pregunta& p);
+// «a, b, c y 4 más»: a list that does not flood a question.
+std::string algunos(const std::vector<std::string>& nombres, std::size_t cuantos = 3);
+// The last component of a dataset or pool name: the word typed to confirm.
+std::string palabraDe(const std::string& nombre);
 // A secret the command needs: from the client in service mode, from the terminal otherwise.
 bool pideSecreto(const Estado& e, const std::string& prompt, std::string& out, std::string& err);
 bool aplicaFiltro(Estado& e, Tabla& t, std::initializer_list<std::size_t> columnas = {0});
@@ -859,8 +889,9 @@ bool lanzaOEspera(Estado& e, const Peticion& pet, const ZfsmUrl& destino,
 bool enviaComoTrabajo(Estado& e, const ZfsmUrl& destino, const std::vector<std::string>& argv);
 bool zpoolGeneric(Estado& e, const ZfsmUrl& destino, const std::vector<std::string>& argv);
 bool cmdMantenimientoPool(Estado& e, const LineaAnalizada& linea, const char* op);
+// `pregunta`, when the operation asks first: the question for that pool.
 bool cmdPoolSimple(Estado& e, const LineaAnalizada& linea, const char* verbo, const char* op,
-                   const char* aviso);
+                   const std::function<Pregunta(const std::string& pool)>& pregunta);
 bool poolImportable(Estado& e, const ZfsmUrl& conexion, const std::string& nombre,
                     H::ImportablePoolInfo& info, std::map<std::string, std::string>& rutas);
 bool cmdStatus(Estado& e, const LineaAnalizada& linea);

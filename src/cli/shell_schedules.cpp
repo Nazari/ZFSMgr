@@ -602,11 +602,19 @@ bool cmdSchedule(Estado& e, const LineaAnalizada& linea) {
                          destino.dataset.c_str(), soltar.c_str());
             return false;
         }
-        if (!confirma(e, B::format(T("t_conf_sch_soltar",
-                                     "Se van a soltar %1 retenciones de %2. Esa copia dejará de "
-                                     "tener su base protegida: si vuelve, puede necesitar un "
-                                     "envío completo. ¿Continuar?"),
-                                   {std::to_string(aSoltar.size()), soltar}))) {
+        Pregunta q;
+        std::string quien = soltar;
+        for (const auto& fila : t.filas) {
+            if (!fila.empty() && fila[0] == soltar) {
+                quien = fila[1] + " (" + fila[2] + ")";
+            }
+        }
+        q.titulo = B::format(
+            T("t_pq_sch_soltar_t", "Dejar de guardar la base de la copia que trae %1"), {quien});
+        q.notas.push_back(T("t_pq_sch_soltar_nota",
+                            "Es para una máquina que ya no va a volver. Si vuelve, su copia "
+                            "puede tener que traerse otra vez entera."));
+        if (!confirma(e, q)) {
             std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
             return false;
         }
@@ -635,10 +643,13 @@ bool cmdSchedule(Estado& e, const LineaAnalizada& linea) {
 
     // Quitarla del todo: se heredan las propiedades, que es lo contrario de escribirlas.
     if (pet.tiene("--clear")) {
-        if (!confirma(e, B::format(T("t_conf_sch_clear",
-                                     "Se va a borrar la programación de %1. "
-                                     "¿Continuar?"),
-                                   {destino.dataset}))) {
+        Pregunta q;
+        q.titulo =
+            B::format(T("t_pq_sch_clear_t", "Quitar la programación de %1"), {destino.dataset});
+        q.notas.push_back(T("t_pq_sch_clear_nota",
+                            "Dejan de hacerse snapshots y copias automáticas. Los snapshots que "
+                            "ya hay no se borran."));
+        if (!confirma(e, q)) {
             std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
             return false;
         }

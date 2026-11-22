@@ -1683,8 +1683,10 @@ def casos_servicio(ctx):
             if ev is None:
                 return None, preguntas
             if ev.get("type") == "confirm":
-                preguntas.append(ev.get("text", ""))
-                p.stdin.write(json.dumps({"id": i, "answer": bool(respuesta)}) + "\n")
+                preguntas.append(ev)
+                # `respuesta` may be a dict: the answer with the word typed.
+                extra = respuesta if isinstance(respuesta, dict) else {"answer": bool(respuesta)}
+                p.stdin.write(json.dumps({"id": i, **extra}) + "\n")
                 p.stdin.flush()
                 continue
             return ev, preguntas
@@ -1707,11 +1709,27 @@ def casos_servicio(ctx):
         _, vista = sh(ctx, f"zfs get -H -o source atime {P}/datos", root=True)
         comprueba("servicio: inherit la devuelve a heredada", [] if r and r["rc"] == 0
                   and vista.strip() != "local" else [f"{r} / source={vista.strip()}"])
-        r, preguntas = pide(5, f"destroy {U}", respuesta=False)
+        r, preguntas = pide(5, f"destroy -r {U}", respuesta=False)
         _, vista = sh(ctx, f"zfs list -H -o name {P}/datos", root=True)
+        q0 = preguntas[0] if preguntas else {}
         comprueba("servicio: la confirmación llega como evento y un «no» no destruye",
-                  [] if preguntas and "DESTRUIR" in preguntas[0] and r and r["rc"] != 0
+                  [] if q0.get("title", "").startswith("Destruir") and r and r["rc"] != 0
                   and vista.strip() == f"{P}/datos" else [f"{preguntas} {r} {vista}"])
+        comprueba("servicio: la pregunta trae lo que se pierde y la palabra que escribir",
+                  [] if q0.get("irreversible") is True and q0.get("type_to_confirm") == "datos"
+                  and any("de datos" in x for x in q0.get("lose", []))
+                  and "Escribe" not in q0.get("text", "") else [f"{q0}"])
+        r, _ = pide(51, f"destroy -r {U}", respuesta={"answer": True})
+        _, vista = sh(ctx, f"zfs list -H -o name {P}/datos", root=True)
+        comprueba("servicio: un «sí» sin escribir el nombre tampoco destruye",
+                  [] if r and r["rc"] != 0 and vista.strip() == f"{P}/datos"
+                  else [f"{r} {vista}"])
+        sh(ctx, f"zfs create {P}/borrame", root=True)
+        r, _ = pide(52, f"destroy zfsm://local/{P}/borrame",
+                    respuesta={"answer": True, "typed": "borrame"})
+        rc_l, _ = sh(ctx, f"zfs list -H -o name {P}/borrame", root=True)
+        comprueba("servicio: con el nombre escrito, sí", [] if r and r["rc"] == 0 and rc_l != 0
+                  else [f"{r}"])
         r, _ = pide(6, f"ls zfsm://local/{P}")
         try:
             filas = json.loads(r["stdout"]).get("entries", [])
@@ -1925,6 +1943,20 @@ def casos_pantalla(ctx):
         comprueba("pantalla: una pregunta s/N y su respuesta quedan, también tras repintar",
                   [] if hay and re.search(r"\[s/N\]: n$", vista, re.M) and "cancelado" in vista
                   else ["no se ve la pregunta con su «n» y el «cancelado»"], vista)
+
+        # What cannot be undone asks for the name, and a word that is not it does nothing.
+        t.teclas(f"destroy -r zfsm://local/{P}/datos", "Enter")
+        hay = t.espera(r"Escribe «datos» para confirmar: *$", segs=15)
+        t.teclas("dato", "Enter")
+        t.espera("no se hace nada")
+        # Back at an empty prompt before going on: a Ctrl-C that arrives while the command is
+        # still returning ends the whole interpreter, not the line being edited.
+        t.espera(rf"^zfsm://local/{P}/datos> *$")
+        vista = t.pantalla()
+        rc_l, _ = sh(ctx, f"zfs list -H -o name {P}/datos", root=True)
+        comprueba("pantalla: lo irreversible pide escribir el nombre, y otra palabra no destruye",
+                  [] if hay and "Se pierde para siempre:" in vista and rc_l == 0
+                  else [f"pregunta={bool(hay)} rc_list={rc_l}"], vista)
 
         t.teclas("abc", "C-c")
         time.sleep(0.5)

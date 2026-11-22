@@ -1030,7 +1030,7 @@ const std::vector<Orden> kOrdenes = {
       {"-p", false, {"t_nat_create_p", "Dataset: crea también los padres que falten."}}, {"-u", false, {"t_nat_create_u", "Dataset: no lo monta al crearlo."}}, {"-v", false, {"t_nat_create_v", "Dataset: cuenta lo que va haciendo."}}, {"-P", false, {"t_nat_create_Pmay", "Dataset: ensayo, en formato analizable."}},
       {"-s", false, {"t_nat_create_s", "Volumen: sin reservar el espacio por adelantado."}}, {"-b", true, {"t_nat_create_b", "Volumen: tamaño de bloque."}}, {"-V", true, {"t_nat_create_Vmay", "Crea un VOLUMEN de ese tamaño, no un sistema de ficheros."}}}},
     {"destroy", {"t_grupo_crear", "Crear y destruir, en cualquier nivel"}, {"t_destino_r__8b306f", "[destino] [-r|-R] [-f]"},
-     {"t_destruye_l_77f9b5", "Destruye lo que hay DONDE ESTÁS. Pide confirmación siempre."},
+     {"t_destruye_l_77f9b5", "Destruye lo que hay DONDE ESTÁS. Antes dice qué se pierde y qué se conserva; para un pool o un dataset hay que escribir su nombre."},
      {{{"t_r_90cdb7", "-r"}, {"t_con_sus_de_7eb43b", "Con sus descendientes."}},
       {{"t_r_24fd93", "-R"}, {"t_con_sus_de_b90f87", "Con sus descendientes y lo que dependa de ellos."}},
       {{"t_f_0abbcb", "-f"}, {"t_fuerza_aun_e2d851", "Fuerza aunque esté en uso."}}},
@@ -1861,7 +1861,8 @@ bool imprimeAyudaDe(const std::string& nombre, int ancho) {
                         "\n"
                         "En las que MODIFICAN —destroy, set, mount, unmount, hold, release,\n"
                         "scrub, install-daemon— el patrón solo puede ir en el último tramo, se\n"
-                        "enseña SIEMPRE la lista exacta y se pide confirmación salvo -y. Con\n"
+                        "enseña SIEMPRE la lista exacta y se pide confirmación salvo -y (para\n"
+                        "destroy y rollback, escribiendo cuántos son). Con\n"
                         "--check se ve la lista sin tocar nada:\n"
                         "  destroy tank/data@auto-2024-* --check\n"
                         "\n"

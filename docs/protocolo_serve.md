@@ -69,12 +69,28 @@ Uno por línea, en la salida estándar.
 ### `confirm`: la orden pregunta antes de seguir
 
 ```json
-{"type":"confirm","id":7,"text":"Se va a DESTRUIR …"}
+{"type":"confirm","id":7,
+ "title":"Destruir ppal/user/srvs en unib", "irreversible":true,
+ "lose":["200G de datos, con sus 2 datasets hijos (Correo, DocHistorica)",
+         "sus 31 snapshots, uno hecho a mano: @antes-de-migrar",
+         "está montado en /home/linarese/srvs: lo que use esos ficheros dejará de encontrarlos"],
+ "keep":["la copia que trae fc16 (back/user/srvs)"],
+ "notes":[],
+ "type_to_confirm":"srvs",
+ "text":"Destruir ppal/user/srvs en unib\nEsto no se puede deshacer.\n…"}
 ```
 
+- Lo redacta el CLI, ya en el idioma de `--lang`, y calcula lo que puede preguntándolo a la
+  máquina: tamaño, hijos, snapshots hechos a mano, dónde está montado, qué copias hay en otras
+  máquinas. Lo que no puede preguntar no sale; nunca se supone.
+- `text` es la pregunta entera en texto, la misma que enseña el terminal: para un cliente que
+  no quiera pintar los campos.
+- `irreversible` es lo que no se puede deshacer. `lose`, `keep` y `notes` pueden venir vacíos.
 - Se contesta con `{"id":7,"answer":true}` o `false`.
-- El texto ya explica qué se pierde. El cliente lo enseña tal cual: no lo reescribe ni
-  decide por su cuenta si hace falta preguntar.
+- Con `type_to_confirm` no vacío, la respuesta tiene que traer la palabra escrita por la
+  persona: `{"id":7,"answer":true,"typed":"srvs"}`. **La comprueba el CLI**: un `true` sin ella,
+  o con otra, se toma por un no (`rc` 1, y en `stderr` el porqué).
+- El cliente lo enseña tal cual: no lo reescribe ni decide por su cuenta si hace falta preguntar.
 
 ### `secret`: la orden necesita un secreto
 
