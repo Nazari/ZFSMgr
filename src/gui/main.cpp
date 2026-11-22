@@ -42,6 +42,9 @@ public:
             // shows once the machines have had time to answer, and ends.
             const QString capture = qEnvironmentVariable("ZFSMGR_GUI_CAPTURE");
             if (!capture.isEmpty()) {
+                if (qEnvironmentVariableIntValue("ZFSMGR_GUI_ADVANCED") > 0) {
+                    w->setAdvanced(true, /*remember=*/false);
+                }
                 w->showPage(qEnvironmentVariableIntValue("ZFSMGR_GUI_PAGE"));
                 if (const QString r = qEnvironmentVariable("ZFSMGR_GUI_REVEAL"); !r.isEmpty()) {
                     // «machine» or «machine/pool/dataset»: the Machines page, opened there.
@@ -109,6 +112,9 @@ private:
 int main(int argc, char** argv) {
     QApplication app(argc, argv);
     QApplication::setApplicationName(QStringLiteral("ZFSMgr"));
+    // Preferences in ~/.config/ZFSMgr/zfsmgr-gui2.conf, beside the CLI's configuration.
+    QApplication::setOrganizationName(QStringLiteral("ZFSMgr"));
+    QApplication::setApplicationName(QStringLiteral("zfsmgr-gui2"));
     // Without windows open while the password is being asked, closing the last dialog must
     // not end the program before the main window exists.
     QApplication::setQuitOnLastWindowClosed(false);

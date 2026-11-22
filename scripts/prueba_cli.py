@@ -538,6 +538,13 @@ def casos_json_gui(ctx):
     comprueba("json: jobs --history trae cuándo empezó y acabó, y qué hacía",
               [] if trabajos and all("started" in j and "finished" in j and "description" in j
                                      for j in trabajos) else [f"{trabajos[:1]}"], salida)
+    d, salida = doc(["install-daemon -a --check"])
+    items = d.get("items", [])
+    comprueba("json: install-daemon --check da códigos fijos además del texto",
+              [] if items and all(i.get("code") in ("install", "update", "ok", "ahead",
+                                                    "disconnected")
+                                  and i.get("cli_code") in ("update", "ok", "skip") for i in items)
+              else [f"{items[:1]}"], salida)
     if ctx.remoto:
         d, salida = doc(["peers zfsm://unib"])
         pares = d.get("peers", [])

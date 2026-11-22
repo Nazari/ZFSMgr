@@ -119,6 +119,7 @@ Un campo nuevo se puede añadir sin avisar. Quitar o renombrar uno es un cambio 
 | `ls zfsm://<conexión>` | `{"pools":[{"name","imported","size","free","health",…}]}` |
 | `ls -r zfsm://<conexión>/<pool>` | `{"entries":[{"name","type","used","encryption","mounted",…}]}`, todo el árbol |
 | `jobs [--history] zfsm://<conexión>` | `{"jobs":[{"id","state","type","description","bytes","started","finished","error",…}]}`; horas en ISO UTC |
+| `install-daemon -a --check` | `{"items":[{"connection","daemon","action","cli","cli_action","code","cli_code"}]}`; `code`: `install`, `update`, `ok`, `ahead`, `disconnected`; `cli_code`: `update`, `ok`, `skip`. `action` y `cli_action` son texto para una persona |
 | `peers zfsm://<conexión>` | `{"peers":[{"id","host","port","uid","role"}]}`; `role` es `pull`, `full` o `-` (daemon anterior a saberlo) |
 | `ls <conexión/pool/dataset>` | `{"entries":[…]}`, una fila por hijo |
 | `overview [-a]` | `{"machines":[…],"warnings":[…]}`; ver abajo |

@@ -10,6 +10,7 @@
 #include <QHash>
 #include <QMainWindow>
 
+class QCheckBox;
 class QListWidget;
 class QStackedWidget;
 
@@ -34,6 +35,12 @@ public:
     void openAddMachine();
     // The Machines page, opened down to that machine or dataset.
     void showMachine(const QString& machine, const QString& dataset = {});
+    // `remember`: kept for the next start. Tests switch it on without touching the setting.
+    void setAdvanced(bool on, bool remember = true);
+    bool advanced() const;
+
+Q_SIGNALS:
+    void advancedChanged(bool on);
 
 private:
     void wire(CliService* s);
@@ -45,6 +52,7 @@ private:
     CliService* m_general;
     QHash<QString, CliService*> m_perMachine;
     QListWidget* m_nav{nullptr};
+    QCheckBox* m_advanced{nullptr};
     QStackedWidget* m_pages{nullptr};
     StateStore* m_store{nullptr};
     StatusPage* m_status{nullptr};

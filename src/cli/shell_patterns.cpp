@@ -535,6 +535,12 @@ bool instalaDaemonEnTodas(Estado& e, const LineaAnalizada& an,
                         T("t_cab_accion", "ACCIÓN"), T("t_cab_cli", "CLI"),
                         T("t_cab_accion_cli", "ACCIÓN CLI")};
     t.campos = {"connection", "daemon", "action", "cli", "cli_action"};
+    // In JSON also fixed codes, the same in any language: the texts above are for a person.
+    const bool json = e.formato == Formato::Json;
+    if (json) {
+        t.cabecerasTexto.insert(t.cabecerasTexto.end(), {"CODE", "CLI CODE"});
+        t.campos.insert(t.campos.end(), {"code", "cli_code"});
+    }
     std::vector<const Fila*> aTocar;
     for (const Fila& fila : filas) {
         std::string accion;
@@ -568,6 +574,20 @@ bool instalaDaemonEnTodas(Estado& e, const LineaAnalizada& an,
                                                                      : fila.cli.sonda.fullVersion)
                                : std::string("-"),
                            desconectada ? std::string("-") : textoDePlanCli(fila.cli)});
+        if (json) {
+            // install, update, ok, ahead, disconnected; and for the CLI: update, ok, skip.
+            const char* code = fila.accion == Accion::Instalar     ? "install"
+                               : fila.accion == Accion::Actualizar ? "update"
+                               : fila.accion == Accion::AlDia      ? "ok"
+                               : fila.accion == Accion::PorDelante ? "ahead"
+                                                                   : "disconnected";
+            const char* cliCode = desconectada                                ? "skip"
+                                  : cliToca                                   ? "update"
+                                  : fila.cli.accion == PlanCli::Accion::AlDia ? "ok"
+                                                                              : "skip";
+            t.filas.back().push_back(code);
+            t.filas.back().push_back(cliCode);
+        }
     }
     t.imprime(e.formato);
     if (aTocar.empty()) {

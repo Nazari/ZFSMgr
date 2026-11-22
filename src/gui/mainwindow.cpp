@@ -2,6 +2,7 @@
 
 #include "copiespage.h"
 #include "addmachinedialog.h"
+#include "adminpage.h"
 #include "jobspage.h"
 #include "machinespage.h"
 #include "newcopywizard.h"
@@ -10,7 +11,9 @@
 #include "statuspage.h"
 #include "text.h"
 
+#include <QCheckBox>
 #include <QHBoxLayout>
+#include <QSettings>
 #include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
@@ -33,11 +36,17 @@ MainWindow::MainWindow(QString cliPath, QByteArray masterPassword, CliService* g
 
     auto* central = new QWidget(this);
     auto* lay = new QHBoxLayout(central);
+    auto* side = new QVBoxLayout();
     m_nav = new QListWidget(central);
     m_nav->setFixedWidth(180);
     m_nav->addItems({L("Status", "Estado"), L("Copies", "Copias"), L("Machines", "Máquinas"),
-                     L("Jobs", "Trabajos")});
-    lay->addWidget(m_nav);
+                     L("Jobs", "Trabajos"), L("Administration", "Administración")});
+    side->addWidget(m_nav, 1);
+    // Advanced mode: what a person who knows ZFS wants and the rest is better without. It is
+    // remembered on this computer.
+    m_advanced = new QCheckBox(L("Advanced mode", "Modo avanzado"), central);
+    side->addWidget(m_advanced);
+    lay->addLayout(side);
     m_pages = new QStackedWidget(central);
     m_store = new StateStore(m_general, [this](const QString& id) { return serviceFor(id); }, this);
     m_status = new StatusPage(m_store, m_pages);
@@ -66,6 +75,13 @@ MainWindow::MainWindow(QString cliPath, QByteArray masterPassword, CliService* g
         m_nav->item(0)->setText(n > 0 ? L("Status (%1)", "Estado (%1)").arg(n)
                                       : L("Status", "Estado"));
     });
+    auto* admin = new AdminPage(m_store, m_pages);
+    m_pages->addWidget(admin);
+    connect(admin, &AdminPage::message, this, say);
+    connect(admin, &AdminPage::addMachineRequested, this, &MainWindow::openAddMachine);
+    connect(m_advanced, &QCheckBox::toggled, this, [this](bool on) { setAdvanced(on); });
+    m_advanced->setChecked(QSettings().value(QStringLiteral("gui/advanced"), false).toBool());
+    setAdvanced(m_advanced->isChecked(), false);
     m_nav->setCurrentRow(0);
     m_store->refresh();
 }
@@ -94,6 +110,25 @@ void MainWindow::openAddMachine() {
     d->setAttribute(Qt::WA_DeleteOnClose);
     connect(d, &AddMachineDialog::added, m_store, &StateStore::refresh);
     d->open();
+}
+
+bool MainWindow::advanced() const {
+    return m_advanced->isChecked();
+}
+
+void MainWindow::setAdvanced(bool on, bool remember) {
+    if (remember) {
+        QSettings().setValue(QStringLiteral("gui/advanced"), on);
+    }
+    if (m_advanced->isChecked() != on) {
+        const QSignalBlocker block(m_advanced);
+        m_advanced->setChecked(on);
+    }
+    m_nav->item(4)->setHidden(!on);
+    if (!on && m_nav->currentRow() == 4) {
+        m_nav->setCurrentRow(0);
+    }
+    Q_EMIT advancedChanged(on);
 }
 
 void MainWindow::showPage(int index) {
