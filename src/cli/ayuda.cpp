@@ -862,6 +862,8 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
        {"t_ej_peers_3", "para que pueda RECIBIR una nivelación"}},
       {"peers --listen 127.0.0.1",
        {"t_ej_peers_4", "vuelve a atender solo por el túnel"}},
+      {"peers --check --on zfsm://backup",
+       {"t_ej_peers_check", "a cuáles llega de verdad la máquina de copias"}},
      }},
     {"log",
      {
@@ -1625,7 +1627,10 @@ const std::vector<Orden> kOrdenes = {
       {{"t_peers_role", "--role <pull|full>"},
        {"t_peers_role_q", "Con --push: «pull» entrega solo credenciales de TRAER copias (mirar, recibir, retener su base); «full», las completas, que es lo que pide nivelar hacia otra máquina."}},
       {{"t_peers_listen", "--listen <0.0.0.0|::|127.0.0.1>"},
-       {"t_peers_listen_q", "En qué dirección atiende su daemon. Reinicia el daemon."}}},
+       {"t_peers_listen_q", "En qué dirección atiende su daemon. Reinicia el daemon."}},
+      {{"t_peers_check", "--check"},
+       {"t_peers_check_q", "Prueba, desde el daemon de esta máquina y con sus credenciales, a "
+        "hablar con el de cada una de las demás: ok, sin credenciales, no llega o le rechazan."}}},
      {{"t_peers_det1", "Hace falta para NIVELAR una programación contra otra máquina: eso lo hace el "
        "daemon por su cuenta, de madrugada y sin nadie delante, así que las credenciales "
        "tienen que estar en la máquina y no en su portátil."},

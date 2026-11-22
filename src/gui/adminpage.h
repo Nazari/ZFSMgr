@@ -32,14 +32,15 @@ protected:
 private:
     void load();
     void render();
-    void act(const QString& line, const QString& done);
+    void act(const QString& line, const QString& done, int delayMs = 0);
     void editMachine(const QString& id);
 
     StateStore* m_store;
     QScrollArea* m_scroll{nullptr};
     QJsonArray m_connections;             // `ls zfsm://`
     QJsonArray m_daemons;                 // `install-daemon -a --check`
-    QHash<QString, QJsonArray> m_peers;   // machine → `peers`
+    QHash<QString, QJsonArray> m_checks;  // machine → `peers --check`: whom it reaches
+    QHash<QString, QString> m_checkError;  // machine → why it could not be asked
     QHash<QString, QString> m_probeText;  // machine → what «Test» said
     bool m_loading{false};
 };

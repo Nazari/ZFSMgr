@@ -18,6 +18,7 @@
 #include <QJsonDocument>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMenu>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QScrollBar>
@@ -37,16 +38,6 @@ QJsonObject firstObject(const QString& out) {
 
 QString url(const QString& machine) {
     return QStringLiteral("zfsm://") + machine;
-}
-
-QString roleWord(const QString& role) {
-    if (role == QLatin1String("pull")) {
-        return L("pull only", "solo traer");
-    }
-    if (role == QLatin1String("full")) {
-        return L("full", "completa");
-    }
-    return L("unknown", "no se sabe");
 }
 
 QPushButton* small(const QString& text, QWidget* parent) {
@@ -90,9 +81,19 @@ void AdminPage::load() {
                 continue;
             }
             const QString id = c.value(QStringLiteral("id")).toString();
+            // From each machine, to every other it holds a key of: on its own service, so a
+            // machine that takes long only delays its own row.
             m_store->forMachine(id)->request(
-                QStringLiteral("peers ") + url(id), this, [this, id](const CliResult& p) {
-                    m_peers.insert(id, firstObject(p.out).value(QStringLiteral("peers")).toArray());
+                QStringLiteral("peers --check --on ") + url(id), this,
+                [this, id](const CliResult& p) {
+                    if (p.ok()) {
+                        m_checks.insert(
+                            id, firstObject(p.out).value(QStringLiteral("checks")).toArray());
+                        m_checkError.remove(id);
+                    } else {
+                        m_checks.remove(id);
+                        m_checkError.insert(id, p.err.trimmed());
+                    }
                     render();
                 });
         }
@@ -105,11 +106,13 @@ void AdminPage::load() {
     });
 }
 
-void AdminPage::act(const QString& line, const QString& done) {
-    m_store->general()->request(line, this, [this, done](const CliResult& r) {
+void AdminPage::act(const QString& line, const QString& done, int delayMs) {
+    m_store->general()->request(line, this, [this, done, delayMs](const CliResult& r) {
         Q_EMIT message(r.ok() ? done : r.err.trimmed());
         m_store->refresh();
-        load();
+        // A daemon that restarts answers again a few seconds later: checked before, every
+        // square towards it would read «does not get there».
+        QTimer::singleShot(delayMs, this, [this] { load(); });
     });
 }
 
@@ -282,72 +285,174 @@ void AdminPage::render() {
                              body));
     }
 
-    // ── Credentials between machines.
+    // ── Between machines: can the daemon on the left reach the one on top by itself, with the
+    // credentials it holds? What a scheduled copy needs, tested for real (`peers --check`).
     {
-        lay->addWidget(
-            heading(L("Credentials between machines", "Credenciales entre máquinas"), body));
-        lay->addWidget(
-            muted(L("For a machine to copy from another without going through here, it "
-                    "needs a credential of it. FULL ones can do anything —sending needs "
-                    "them—; PULL-ONLY ones can read and take copies, never delete.",
-                    "Para que una máquina copie de otra sin pasar por aquí, necesita una "
-                    "credencial suya. Las COMPLETAS pueden hacer de todo —las necesita "
-                    "quien envía—; las de SOLO TRAER pueden leer y llevarse copias, nunca "
-                    "borrar."),
-                  body));
-        QFrame* box = card(body);
-        auto* g = new QGridLayout(box);
-        g->addWidget(muted(L("Machine", "Máquina"), box), 0, 0);
-        g->addWidget(muted(L("Can reach", "Puede llegar a"), box), 0, 1);
-        int row = 1;
+        lay->addWidget(heading(L("Between machines", "Entre máquinas"), body));
+        lay->addWidget(muted(
+            L("Each square says whether the machine on the left can connect BY ITSELF to the one "
+              "on top —what it needs to pull copies from it or to send them to it without going "
+              "through this computer—. It needs two things: a key of the other one, which you "
+              "give it, and the other one listening on the network.",
+              "Cada casilla dice si la máquina de la izquierda puede conectarse POR SU CUENTA a la "
+              "de arriba: lo que necesita para traer copias de ella o enviárselas sin pasar por "
+              "este ordenador. Le hacen falta dos cosas: una llave de la otra, que se la das tú, "
+              "y que la otra escuche en la red."),
+            body));
+        lay->addWidget(muted(
+            L("Keys: «pull only» lets it read and take copies, never delete; «pull and send» also "
+              "lets it write and delete snapshots there, and is what the machine that SENDS "
+              "needs. Giving keys gives them for all the others at once.",
+              "Llaves: «solo traer» deja leer y llevarse copias, nunca borrar; «traer y enviar» "
+              "deja además escribir y borrar snapshots allí, y es la que necesita la máquina que "
+              "ENVÍA. Dar llaves se las da de todas las demás a la vez."),
+            body));
+        QStringList ids;
+        QHash<QString, QString> names;
         for (const QJsonValue& v : m_connections) {
             const QJsonObject c = v.toObject();
-            if (!c.value(QStringLiteral("connected")).toBool(true)) {
-                continue;
+            if (c.value(QStringLiteral("connected")).toBool(true)) {
+                const QString id = c.value(QStringLiteral("id")).toString();
+                ids << id;
+                names.insert(id, c.value(QStringLiteral("name")).toString(id));
             }
-            const QString id = c.value(QStringLiteral("id")).toString();
-            QStringList reach;
-            for (const QJsonValue& p : m_peers.value(id)) {
-                const QJsonObject po = p.toObject();
-                reach << QStringLiteral("%1 (%2)").arg(
-                    po.value(QStringLiteral("id")).toString(),
-                    roleWord(po.value(QStringLiteral("role")).toString()));
-            }
-            g->addWidget(label(c.value(QStringLiteral("name")).toString(id), box, false), row, 0);
-            g->addWidget(
-                label(reach.isEmpty() ? L("none", "ninguna") : reach.join(QStringLiteral(", ")),
-                      box),
-                row, 1);
-            auto* pull = small(L("Give pull-only…", "Dar solo traer…"), box);
-            connect(pull, &QPushButton::clicked, this, [this, id] {
-                act(QStringLiteral("peers --push --role pull --on ") + url(id),
-                    L("Pull-only credentials given.", "Credenciales de solo traer entregadas."));
-            });
-            g->addWidget(pull, row, 2);
-            auto* full = small(L("Give full…", "Dar completas…"), box);
-            connect(full, &QPushButton::clicked, this, [this, id] {
-                act(QStringLiteral("peers --push --role full --on ") + url(id),
-                    L("Full credentials given.", "Credenciales completas entregadas."));
-            });
-            g->addWidget(full, row, 3);
-            auto* listen = small(L("Listen on the network…", "Escuchar en la red…"), box);
-            connect(listen, &QPushButton::clicked, this, [this, id] {
-                act(QStringLiteral("peers --listen 0.0.0.0 --on ") + url(id),
-                    L("Its daemon now listens on the network.", "Su daemon ya escucha en la red."));
-            });
-            g->addWidget(listen, row, 4);
-            ++row;
         }
-        g->setColumnStretch(1, 1);
+        QFrame* box = card(body);
+        auto* g = new QGridLayout(box);
+        g->setSpacing(6);
+        g->addWidget(label(L("from ↓  to →", "desde ↓  a →"), box, false), 0, 0);
+        for (int c = 0; c < ids.size(); ++c) {
+            g->addWidget(heading(names.value(ids[c]), box), 0, c + 1, Qt::AlignCenter);
+        }
+        const auto keyButtons = [this](QWidget* parent, QVBoxLayout* cl, const QString& from,
+                                       const QString& text) {
+            auto* b = small(text, parent);
+            auto* menu = new QMenu(b);
+            menu->addAction(L("Pull only", "Solo traer"), this, [this, from] {
+                act(QStringLiteral("peers --push --role pull --on ") + url(from),
+                    L("Keys given: pull only.", "Llaves entregadas: solo traer."));
+            });
+            menu->addAction(L("Pull and send", "Traer y enviar"), this, [this, from] {
+                act(QStringLiteral("peers --push --role full --on ") + url(from),
+                    L("Keys given: pull and send.", "Llaves entregadas: traer y enviar."));
+            });
+            b->setMenu(menu);
+            cl->addWidget(b, 0, Qt::AlignLeft);
+        };
+        for (int r = 0; r < ids.size(); ++r) {
+            const QString from = ids[r];
+            g->addWidget(heading(names.value(from), box), r + 1, 0);
+            const auto checks = m_checks.constFind(from);
+            for (int c = 0; c < ids.size(); ++c) {
+                const QString to = ids[c];
+                auto* cell = new QFrame(box);
+                cell->setFrameShape(QFrame::StyledPanel);
+                auto* cl = new QVBoxLayout(cell);
+                cl->setContentsMargins(6, 4, 6, 4);
+                g->addWidget(cell, r + 1, c + 1);
+                if (from == to) {
+                    cl->addWidget(muted(QStringLiteral("—"), cell), 0, Qt::AlignCenter);
+                    continue;
+                }
+                if (checks == m_checks.constEnd()) {
+                    const QString why = m_checkError.value(from);
+                    auto* x =
+                        muted(why.isEmpty() ? L("… checking", "… comprobando")
+                                            : L("? could not ask it", "? no se le pudo preguntar"),
+                              cell);
+                    x->setToolTip(why);
+                    cl->addWidget(x);
+                    continue;
+                }
+                QJsonObject chk;
+                for (const QJsonValue& v : *checks) {
+                    if (v.toObject().value(QStringLiteral("connection")).toString() == to) {
+                        chk = v.toObject();
+                    }
+                }
+                const QString state = chk.isEmpty() ? QStringLiteral("no_credentials")
+                                                    : chk.value(QStringLiteral("state")).toString();
+                const QString role = chk.value(QStringLiteral("role")).toString();
+                const QString detail = chk.value(QStringLiteral("detail")).toString();
+                QString text;
+                QString look;
+                if (state == QLatin1String("ok")) {
+                    look = QStringLiteral("ok");
+                    text = role == QLatin1String("pull")
+                               ? L("● reaches it: pull only", "● llega: solo traer")
+                           : role == QLatin1String("full")
+                               ? L("● reaches it: pull and send", "● llega: traer y enviar")
+                               : L("● reaches it", "● llega");
+                } else if (state == QLatin1String("no_credentials")) {
+                    look = QStringLiteral("pending");
+                    text = L("○ has no key", "○ sin llave");
+                } else if (state == QLatin1String("unreachable")) {
+                    look = QStringLiteral("error");
+                    text = L("✕ does not get there", "✕ no llega");
+                } else if (state == QLatin1String("refused")) {
+                    look = QStringLiteral("error");
+                    text = L("✕ its key is refused", "✕ le rechazan la llave");
+                } else {
+                    look = QStringLiteral("warning");
+                    text = L("▲ unclear", "▲ no está claro");
+                }
+                auto* t = label(text, cell, false);
+                t->setStyleSheet(QStringLiteral("color:%1").arg(colourOf(look)));
+                t->setToolTip(detail);
+                cl->addWidget(t);
+                if (state == QLatin1String("unreachable")) {
+                    // Almost always: the one on top answers only on itself.
+                    auto* b =
+                        small(L("Open %1 to the network", "Abrir %1 a la red").arg(names.value(to)),
+                              cell);
+                    b->setToolTip(L("Its daemon restarts.", "Su daemon se reinicia."));
+                    connect(b, &QPushButton::clicked, this, [this, to] {
+                        act(QStringLiteral("peers --listen 0.0.0.0 --on ") + url(to),
+                            L("It listens on the network now.", "Ya escucha en la red."),
+                            /*delayMs=*/8000);
+                    });
+                    cl->addWidget(b, 0, Qt::AlignLeft);
+                } else if (state == QLatin1String("ok")) {
+                    keyButtons(cell, cl, from, L("Change keys", "Cambiar llaves"));
+                } else {
+                    keyButtons(cell, cl, from,
+                               state == QLatin1String("refused")
+                                   ? L("Give keys again", "Darle llaves de nuevo")
+                                   : L("Give keys", "Darle llaves"));
+                }
+            }
+            // Keys for machines that are none of this client's: handed over by another one.
+            if (checks != m_checks.constEnd()) {
+                QStringList stray;
+                for (const QJsonValue& v : *checks) {
+                    const QJsonObject o = v.toObject();
+                    const QString conn = o.value(QStringLiteral("connection")).toString();
+                    if (conn.isEmpty() || conn == QLatin1String("-")) {
+                        stray << o.value(QStringLiteral("id")).toString();
+                    }
+                }
+                if (!stray.isEmpty()) {
+                    auto* x =
+                        muted(L("Also has keys of %1, which is none of your machines.",
+                                "Tiene además llaves de %1, que no es ninguna de tus máquinas.")
+                                  .arg(stray.join(QStringLiteral(", "))),
+                              box);
+                    g->addWidget(x, r + 1, ids.size() + 1);
+                }
+            }
+        }
+        for (int c = 1; c <= ids.size(); ++c) {
+            g->setColumnStretch(c, 1);
+        }
         lay->addWidget(box);
-        lay->addWidget(
-            muted(L("«Listen on the network» is needed on the machine others copy FROM "
-                    "(pulling) or TO (sending): by default its daemon only answers on the "
-                    "machine itself. The daemon restarts.",
-                    "«Escuchar en la red» hace falta en la máquina DE la que otras traen o "
-                    "A la que otras envían: por omisión su daemon solo atiende en la propia "
-                    "máquina. El daemon se reinicia."),
-                  body));
+        auto* again = small(L("Check again", "Comprobar de nuevo"), body);
+        connect(again, &QPushButton::clicked, this, [this] {
+            m_checks.clear();
+            m_checkError.clear();
+            render();
+            load();
+        });
+        lay->addWidget(again, 0, Qt::AlignLeft);
     }
 
     // ── Language: the system's unless one is chosen; it applies on the next start, since every

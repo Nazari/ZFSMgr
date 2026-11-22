@@ -126,6 +126,7 @@ Un campo nuevo se puede añadir sin avisar. Quitar o renombrar uno es un cambio 
 | `breakdown --list --on <dataset>` | `{"directories":[{"dir","bytes","files"}]}` |
 | `install-daemon -a --check` | `{"items":[{"connection","daemon","action","cli","cli_action","code","cli_code"}]}`; `code`: `install`, `update`, `ok`, `latest` (ya tiene el que hay para instalar), `ahead`, `disconnected`; `cli_code`: `update`, `ok`, `skip`. `action` y `cli_action` son texto para una persona |
 | `peers zfsm://<conexión>` | `{"peers":[{"id","host","port","uid","role"}]}`; `role` es `pull`, `full` o `-` (daemon anterior a saberlo) |
+| `peers --check --on zfsm://<conexión>` | `{"checks":[{"id","connection","uid","host","role","state","detail"}]}`: desde el daemon de esa máquina, con sus llaves, a cada otra que conoce. `state`: `ok`, `no_credentials`, `unreachable` (casi siempre: la otra no escucha en la red), `refused` o `unknown`; `connection` es la conexión de ESTE cliente a la que corresponde esa llave (`-` si ninguna); `detail`, la versión del otro daemon o el motivo |
 | `ls <conexión/pool/dataset>` | `{"entries":[…]}`, una fila por hijo |
 | `overview [-a]` | `{"machines":[…],"warnings":[…]}`; ver abajo |
 | `probe <conexión>` | un objeto con lo que hay al otro lado; ver abajo |

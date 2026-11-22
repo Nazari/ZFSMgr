@@ -3,6 +3,8 @@
 
 #include "shell_internal.h"
 
+#include "agentmsg.h"
+
 #include <map>
 
 namespace zfsmgr::cli::detail {
@@ -289,6 +291,88 @@ bool cmdPeers(Estado& e, const LineaAnalizada& linea) {
                         "%s atiende ahora en %s; su daemon se está "
                         "reiniciando\n"),
                      destino.connection.c_str(), dir.c_str());
+        return true;
+    }
+    // `--check`: from THIS machine's daemon, with the credentials it holds, to each of the
+    // others it knows — the same test a pulled copy does before levelling. One row per other
+    // machine, with a fixed code: what the interface's matrix paints in each cell.
+    if (pet.tiene("--check")) {
+        std::string out;
+        if (!agente(e, destino, PET::peerList(), out, 20000)) {
+            return false;
+        }
+        const PR::View vista = PR::parse(out);
+        // Which of THIS client's connections each credential is for. The names inside were
+        // written by whoever handed them over —another client may call fc16 «fc16» where
+        // here it is «local»—, so the machine identity decides first; then the name or host;
+        // and a name that is this computer's own is the LOCAL connection.
+        const auto conexionDe = [&e](const PR::Peer& par) -> std::string {
+            const auto igual = [](const std::string& a, const std::string& b) {
+                return !a.empty() && B::toLowerAscii(B::trim(a)) == B::toLowerAscii(B::trim(b));
+            };
+            const auto idDe = [](const B::ConnectionProfile& p) {
+                return p.id.empty() ? p.name : p.id;
+            };
+            for (const B::ConnectionProfile& p : e.conns.perfiles) {
+                if (igual(par.uid, p.machineUid)) {
+                    return idDe(p);
+                }
+            }
+            for (const B::ConnectionProfile& p : e.conns.perfiles) {
+                if (igual(par.id, idDe(p)) || igual(par.id, p.name)
+                    || (!par.host.empty() && igual(par.host, p.host))) {
+                    return idDe(p);
+                }
+            }
+            if (igual(par.id, PR::thisMachineName()) || igual(par.host, PR::thisMachineName())) {
+                for (const B::ConnectionProfile& p : e.conns.perfiles) {
+                    if (B::toUpperAscii(p.connType) == "LOCAL") {
+                        return idDe(p);
+                    }
+                }
+            }
+            return {};
+        };
+        Tabla t;
+        t.nombreJson = "checks";
+        t.cabecerasTexto = {T("t_cab_id", "ID"),
+                            T("t_cab_conexion_par", "CONEXIÓN"),
+                            T("t_cab_identidad", "IDENTIDAD"),
+                            T("t_cab_host", "HOST"),
+                            T("t_cab_papel", "PAPEL"),
+                            T("t_cab_estado_par", "ESTADO"),
+                            T("t_cab_detalle", "DETALLE")};
+        t.campos = {"id", "connection", "uid", "host", "role", "state", "detail"};
+        t.tipos = {Tipo::Cadena, Tipo::Cadena, Tipo::Cadena, Tipo::Cadena,
+                   Tipo::Cadena, Tipo::Cadena, Tipo::Cadena};
+        for (const PR::Peer& par : vista.pares) {
+            std::string res;
+            std::string error;
+            std::string estado = "ok";
+            std::string detalle;
+            if (agente(e, destino, PET::peerCheck(par.id), res, 30000, &error)) {
+                detalle = B::trim(res);
+                if (B::startsWith(detalle, "VERSION=")) {
+                    detalle = detalle.substr(8);
+                }
+            } else {
+                // The daemon's own code, not its sentence: the sentence is in this client's
+                // language and may change; the code is the contract.
+                const std::string& codigo = zfsmgr::base::agentmsg::lastCode();
+                estado = codigo == "gsa_no_peer_credentials" ? "no_credentials"
+                         : codigo == "peer_unreachable" || codigo == "peer_bad_answer"
+                             ? "unreachable"
+                         : codigo == "peer_refused" ? "refused"
+                                                    : "unknown";
+                detalle = B::trim(error);
+            }
+            const std::string conexion = conexionDe(par);
+            t.filas.push_back({par.id, conexion.empty() ? std::string("-") : conexion, par.uid,
+                               par.host, par.role.empty() ? std::string("-") : par.role, estado,
+                               detalle});
+        }
+        e.ultimoRc = 0;
+        t.imprime(e.formato);
         return true;
     }
     if (!pet.tiene("--push")) {

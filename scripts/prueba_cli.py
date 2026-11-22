@@ -557,6 +557,16 @@ def casos_json_gui(ctx):
         comprueba("json: peers dice el papel de cada credencial",
                   [] if pares and all(p.get("role") in ("pull", "full", "-") for p in pares)
                   else [f"{pares[:1]}"], salida)
+        # `--check`: whom it really reaches, with a fixed code per credential, and which of
+        # THIS client's connections each one is — unib calls this machine by its own name.
+        d, salida = doc(["peers --check --on zfsm://unib"])
+        filas = d.get("checks", [])
+        comprueba("json: peers --check dice a quién llega, con códigos fijos y su conexión",
+                  [] if filas and all(f.get("state") in ("ok", "no_credentials", "unreachable",
+                                                         "refused", "unknown") for f in filas)
+                  and any(f.get("connection") == "local" and f.get("state") == "ok"
+                          for f in filas)
+                  else [f"{filas}"[:300]], salida)
 
 
 def casos_sudo_sin_argv(ctx):
