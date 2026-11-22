@@ -187,9 +187,9 @@ void AdminPage::render() {
                   body));
     }
 
-    // ── Daemons and zfsmgr-cli: two different programs on each machine, each in its own
-    // columns. In one row «left alone» (the daemon) and «update» (its zfsmgr-cli) read as a
-    // contradiction.
+    // ── Programs: zfsmgr-agent and zfsmgr-cli on each machine, each in its own columns —in
+    // one row, «up to date» for one and «update» for the other read as a contradiction—, and
+    // zfsmgr-gui2 with the zfsmgr-cli it runs, on this computer.
     {
         int daemons = 0;
         int clis = 0;
@@ -204,13 +204,12 @@ void AdminPage::render() {
             }
         }
         auto* head = new QHBoxLayout();
-        head->addWidget(heading(L("Daemons and zfsmgr-cli", "Daemons y zfsmgr-cli"), body));
+        head->addWidget(heading(L("Programs", "Programas"), body));
         head->addStretch(1);
         if (daemons + clis > 0) {
             QStringList what;
             if (daemons > 0) {
-                what << (daemons == 1 ? L("1 daemon", "1 daemon")
-                                      : L("%1 daemons", "%1 daemons").arg(daemons));
+                what << QStringLiteral("%1 zfsmgr-agent").arg(daemons);
             }
             if (clis > 0) {
                 what << QStringLiteral("%1 zfsmgr-cli").arg(clis);
@@ -223,12 +222,23 @@ void AdminPage::render() {
             head->addWidget(all);
         }
         lay->addLayout(head);
+        // The two of THIS computer: the interface itself and the zfsmgr-cli it runs.
+#ifdef ZFSMGR_APP_VERSION
+        const QString gui = QStringLiteral(ZFSMGR_APP_VERSION);
+#else
+        const QString gui = QStringLiteral("?");
+#endif
+        const QString cli = m_store->general()->cliVersion();
+        lay->addWidget(label(L("On this computer: zfsmgr-gui2 %1, which runs zfsmgr-cli %2.",
+                               "En este ordenador: zfsmgr-gui2 %1, que usa zfsmgr-cli %2.")
+                                 .arg(gui, cli.isEmpty() ? QStringLiteral("?") : cli),
+                             body));
         QFrame* box = card(body);
         auto* g = new QGridLayout(box);
-        const QStringList heads{L("Machine", "Máquina"), L("Daemon", "Daemon"),
-                                L("Daemon: would", "Daemon: qué se haría"),
+        const QStringList heads{L("Machine", "Máquina"), QStringLiteral("zfsmgr-agent"),
+                                L("What would be done", "Qué se haría"),
                                 QStringLiteral("zfsmgr-cli"),
-                                L("zfsmgr-cli: would", "zfsmgr-cli: qué se haría")};
+                                L("What would be done", "Qué se haría")};
         for (int c = 0; c < heads.size(); ++c) {
             g->addWidget(muted(heads[c], box), 0, c);
         }
@@ -247,7 +257,7 @@ void AdminPage::render() {
             g->addWidget(label(d.value(QStringLiteral("cli_action")).toString(), box), row, 4);
             const QString a = d.value(QStringLiteral("code")).toString();
             if (a == QLatin1String("update") || a == QLatin1String("install")) {
-                auto* b = small(L("Update its daemon", "Actualizar su daemon"), box);
+                auto* b = small(L("Update its zfsmgr-agent", "Actualizar su zfsmgr-agent"), box);
                 connect(b, &QPushButton::clicked, this, [this, id] {
                     act(QStringLiteral("install-daemon --on ") + url(id),
                         L("Daemon of %1 updated.", "Daemon de %1 actualizado.").arg(id));
@@ -259,14 +269,16 @@ void AdminPage::render() {
         g->setColumnStretch(2, 1);
         g->setColumnStretch(4, 1);
         lay->addWidget(box);
-        lay->addWidget(muted(L("The daemon does the work on each machine; updating it restarts it, "
-                               "and the CLI checks first that it is not copying anything. "
-                               "zfsmgr-cli is the command line program of that machine; updating "
-                               "it restarts nothing.",
-                               "El daemon hace el trabajo en cada máquina; actualizarlo lo "
-                               "reinicia, y el CLI comprueba antes que no esté copiando nada. "
-                               "zfsmgr-cli es el programa de línea de órdenes de esa máquina; "
-                               "actualizarlo no reinicia nada."),
+        lay->addWidget(muted(L("zfsmgr-agent is the daemon that does the work on each machine; "
+                               "updating it restarts it, and it is checked first that it is not "
+                               "copying anything. zfsmgr-cli is the command line program; updating "
+                               "it restarts nothing. zfsmgr-gui2, this window, is only on this "
+                               "computer.",
+                               "zfsmgr-agent es el daemon que hace el trabajo en cada máquina; "
+                               "actualizarlo lo reinicia, y antes se comprueba que no esté "
+                               "copiando nada. zfsmgr-cli es el programa de línea de órdenes; "
+                               "actualizarlo no reinicia nada. zfsmgr-gui2, esta ventana, solo "
+                               "está en este ordenador."),
                              body));
     }
 

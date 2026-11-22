@@ -168,11 +168,11 @@
     "t_cli_desplegando": "updating zfsmgr-cli on %s (%s)...\n",
     "t_cli_empaquetado_viejo": "warning: the zfsmgr-cli bundled for that machine is %s and this one is %s\n",
     "t_cli_fallo": "could not update zfsmgr-cli on %s: %s\n",
-    "t_cli_plan_enlace": "it is the .app's: left alone",
-    "t_cli_plan_este": "it is the one running: left alone",
-    "t_cli_plan_no_hay": "none: not installed",
+    "t_cli_plan_enlace": "updated with the .app",
+    "t_cli_plan_este": "up to date (it is this one)",
+    "t_cli_plan_no_hay": "not installed",
     "t_cli_plan_sin_binario": "to update, but this machine does not have its CLI",
-    "t_cli_plan_windows": "Windows: left alone",
+    "t_cli_plan_windows": "not used on Windows",
     "t_clone_btn_001": "Clone",
     "t_clone_det1": "A RELATIVE name hangs off the snapshot's dataset: standing on `tank/datos@ayer`, «clone copia» leaves `tank/datos/copia`. To put it elsewhere give the full ZFS name: «clone tank/copia».",
     "t_clone_det2": "The clone shares blocks with the snapshot, so at first it takes up almost nothing — and that snapshot CANNOT be destroyed while the clone exists. «promote» breaks that tie.",
@@ -733,9 +733,9 @@
     "t_info_res3": "The detail of whatever is named: a connection (with its daemon), a pool —also one not imported, with its devices—, a dataset, a snapshot or a file (`#content`, `#path`) and the dataset it belongs to.",
     "t_inicio_ref_521ce1": "Refresh start: %1 [%2]",
     "t_instala_accion_actualizar": "update",
-    "t_instala_accion_al_dia": "up to date: left alone",
-    "t_instala_accion_delante": "ahead of the client: left alone",
-    "t_instala_accion_desconectada": "disconnected: skipped",
+    "t_instala_accion_al_dia": "up to date",
+    "t_instala_accion_delante": "newer than this client",
+    "t_instala_accion_desconectada": "disconnected",
     "t_instala_accion_instalar": "install",
     "t_instala_check_no": "it would not be installed: %1",
     "t_instala_check_uno": "%s: daemon %s → %s; zfsmgr-cli: %s\n",
@@ -1681,6 +1681,6 @@
     "t_pq_ctrl_c": "cancelled with Ctrl-C",
     "t_pr_interrumpida": "interrupted",
     "t_cab_papel": "ROLE",
-    "t_instala_accion_ultimo": "already has the one there is to install: left alone"
+    "t_instala_accion_ultimo": "up to date"
   }
 }

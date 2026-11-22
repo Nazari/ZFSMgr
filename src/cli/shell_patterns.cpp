@@ -555,17 +555,16 @@ bool instalaDaemonEnTodas(Estado& e, const LineaAnalizada& an,
                 accion = T("t_instala_accion_actualizar", "actualizar");
                 break;
             case Accion::AlDia:
-                accion = T("t_instala_accion_al_dia", "al día: no se toca");
+                accion = T("t_instala_accion_al_dia", "actualizado");
                 break;
             case Accion::PorDelante:
-                accion = T("t_instala_accion_delante", "va por delante del cliente: no se toca");
+                accion = T("t_instala_accion_delante", "más nuevo que este cliente");
                 break;
             case Accion::Desconectada:
-                accion = T("t_instala_accion_desconectada", "desconectada: se salta");
+                accion = T("t_instala_accion_desconectada", "desconectada");
                 break;
             case Accion::YaElUltimo:
-                accion =
-                    T("t_instala_accion_ultimo", "ya tiene el que hay para instalar: no se toca");
+                accion = T("t_instala_accion_ultimo", "actualizado");
                 break;
         }
         const bool agenteToca =

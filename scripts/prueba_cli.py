@@ -1744,7 +1744,9 @@ def casos_servicio(ctx):
 
     try:
         listo = evento()
-        comprueba("servicio: anuncia que está listo", [] if listo and listo.get("type") == "ready"
+        comprueba("servicio: anuncia que está listo, con la versión del CLI",
+                  [] if listo and listo.get("type") == "ready"
+                  and re.match(r"\d+\.\d+\.\d+", listo.get("version") or "")
                   else [f"primer evento: {listo}"])
         r, _ = pide(1, "noexiste")
         comprueba("servicio: una orden desconocida da 127 y lo dice",

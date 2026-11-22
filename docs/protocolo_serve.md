@@ -20,8 +20,9 @@ zfsmgr-cli --serve [--lang es|en] [--config-dir <dir>] [--password-fd <n>]
   ni por entorno.
 - Si no abre los secretos, sale con código 1 tras escribir
   `{"type":"error","text":"wrong master password"}`.
-- Si abre, escribe una vez `{"type":"ready"}`. Puede traer `"warning"`: un aviso al cargar
-  la configuración, para enseñarlo tal cual.
+- Si abre, escribe una vez `{"type":"ready","version":"1.4.3.959941325"}`: `version` es la
+  de este zfsmgr-cli, con su compilación. Puede traer `"warning"`: un aviso al cargar la
+  configuración, para enseñarlo tal cual.
 - `--lang` decide el idioma de TODOS los textos: errores, preguntas, avisos.
 
 ## Peticiones

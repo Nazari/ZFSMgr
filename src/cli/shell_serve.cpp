@@ -214,6 +214,8 @@ int servirOrdenes(Sesion& ses) {
 
     J::Value listo;
     listo.set("type", J::Value(std::string("ready")));
+    // Which zfsmgr-cli this is, with its build: the interface shows it beside its own.
+    listo.set("version", J::Value(B::agentversion::expected()));
     if (!e.conns.aviso.empty()) {
         listo.set("warning", J::Value(e.conns.aviso));
     }

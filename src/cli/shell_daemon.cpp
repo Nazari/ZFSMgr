@@ -59,17 +59,17 @@ std::string versionParaInstalar(Estado& e, const B::ConnectionProfile& perfil) {
 std::string textoDePlanCli(const PlanCli& plan) {
     switch (plan.accion) {
         case PlanCli::Accion::NoHay:
-            return T("t_cli_plan_no_hay", "no tiene: no se instala");
+            return T("t_cli_plan_no_hay", "no instalado");
         case PlanCli::Accion::Windows:
-            return T("t_cli_plan_windows", "Windows: no se toca");
+            return T("t_cli_plan_windows", "no se usa en Windows");
         case PlanCli::Accion::Enlace:
-            return T("t_cli_plan_enlace", "es el del .app: no se toca");
+            return T("t_cli_plan_enlace", "actualizado con el .app");
         case PlanCli::Accion::EsEste:
-            return T("t_cli_plan_este", "es el que está en marcha: no se toca");
+            return T("t_cli_plan_este", "actualizado (es este mismo)");
         case PlanCli::Accion::AlDia:
-            return T("t_instala_accion_al_dia", "al día: no se toca");
+            return T("t_instala_accion_al_dia", "actualizado");
         case PlanCli::Accion::PorDelante:
-            return T("t_instala_accion_delante", "va por delante del cliente: no se toca");
+            return T("t_instala_accion_delante", "más nuevo que este cliente");
         case PlanCli::Accion::Actualizar:
             return T("t_instala_accion_actualizar", "actualizar");
         case PlanCli::Accion::SinBinario:
@@ -160,17 +160,15 @@ bool cmdInstalarDaemon(Estado& e, const LineaAnalizada& linea) {
         } else {
             switch (B::agentversion::verdictFor(version, B::agentversion::expected())) {
                 case B::agentversion::Verdict::UpToDate:
-                    accion = T("t_instala_accion_al_dia", "al día: no se toca");
+                    accion = T("t_instala_accion_al_dia", "actualizado");
                     break;
                 case B::agentversion::Verdict::Update:
                     accion = version == versionParaInstalar(e, conSudo(e, *p))
-                                 ? T("t_instala_accion_ultimo",
-                                     "ya tiene el que hay para instalar: no se toca")
+                                 ? T("t_instala_accion_ultimo", "actualizado")
                                  : T("t_instala_accion_actualizar", "actualizar");
                     break;
                 case B::agentversion::Verdict::Ahead:
-                    accion =
-                        T("t_instala_accion_delante", "va por delante del cliente: no se toca");
+                    accion = T("t_instala_accion_delante", "más nuevo que este cliente");
                     break;
             }
         }

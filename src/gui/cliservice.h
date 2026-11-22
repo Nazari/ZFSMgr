@@ -55,6 +55,8 @@ public:
     // (empty when nothing is encrypted). Never through argv or the environment.
     void start(const QByteArray& masterPassword);
     bool isReady() const { return m_ready; }
+    // The zfsmgr-cli version this service runs, as its `ready` said.
+    const QString& cliVersion() const { return m_version; }
 
     using Done = std::function<void(const CliResult&)>;
     // Queues one command line, exactly as it would be typed in the terminal.
@@ -98,6 +100,7 @@ private:
     QProcess m_proc;
     QByteArray m_buffer;
     bool m_ready{false};
+    QString m_version;
     bool m_failed{false};
     int m_nextId{1};
     std::deque<Pending> m_queue;

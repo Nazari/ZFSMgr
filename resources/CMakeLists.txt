@@ -637,7 +637,8 @@ qt_add_executable(zfsmgr-gui2
     ../src/gui/createpooldialog.cpp
 )
 target_link_libraries(zfsmgr-gui2 PRIVATE Qt6::Widgets)
-target_compile_definitions(zfsmgr-gui2 PRIVATE QT_NO_KEYWORDS)
+target_compile_definitions(zfsmgr-gui2 PRIVATE QT_NO_KEYWORDS
+                           ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}")
 
 add_executable(zfsmgr_agent
     ../src/daemon/main.cpp

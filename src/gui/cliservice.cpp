@@ -141,6 +141,7 @@ void CliService::handleEvent(const QJsonObject& ev) {
     const QString type = ev.value(QStringLiteral("type")).toString();
     if (type == QLatin1String("ready")) {
         m_ready = true;
+        m_version = ev.value(QStringLiteral("version")).toString();
         Q_EMIT ready(ev.value(QStringLiteral("warning")).toString());
         sendNext();
         return;
