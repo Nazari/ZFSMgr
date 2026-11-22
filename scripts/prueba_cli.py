@@ -448,6 +448,62 @@ def casos_volumenes(ctx):
         sh(ctx, f"zfs destroy {P}/apagado", root=True)
 
 
+def casos_overview(ctx):
+    """`overview`: the state of a machine in one answer, for a status panel. The states are
+    fixed codes in any language, and the warnings come already written — here, a mirror with
+    one disk taken offline must come out as a degraded pool."""
+    P = f"{POOL_LOCAL}ov"
+    a, b = f"{IMG_DIR}/{P}-a.img", f"{IMG_DIR}/{P}-b.img"
+    sh(ctx, f"zpool destroy -f {P}", root=True)
+    sh(ctx, f"rm -f {a} {b} && truncate -s 128M {a} {b}")
+    rc, salida = sh(ctx, f"zpool create -f -m none {P} mirror {a} {b}", root=True)
+    if rc != 0:
+        ctx.fallos.append(("overview: preparar el espejo", [salida.strip()], ""))
+        print("  FALLO  overview: no se pudo crear el espejo de pruebas")
+        return
+    try:
+        sh(ctx, f"zpool offline {P} {b}", root=True)
+        _, js = cli(ctx, ["format json", "overview zfsm://local"], idioma="es")
+        problemas = []
+        try:
+            doc = json_de(js)
+            m = doc["machines"][0]
+            if m.get("connection") != "local" or m.get("reachable") is not True:
+                problemas.append(f"máquina: {m.get('connection')} reachable={m.get('reachable')}")
+            pools = {x["name"]: x for x in m.get("pools", [])}
+            if pools.get(P, {}).get("health") != "DEGRADED" or pools.get(P, {}).get("status") != "warning":
+                problemas.append(f"el espejo: {pools.get(P)}")
+            if m.get("status") not in ("warning", "error"):
+                problemas.append(f"estado de la máquina: {m.get('status')}")
+            estados = {s.get("state") for s in m.get("schedules", [])}
+            if not estados <= {"ok", "error", "pending"}:
+                problemas.append(f"estados de programación que no son códigos: {estados}")
+            avisos = [w for w in doc.get("warnings", []) if w.get("subject") == f"pool {P}"]
+            if not avisos or avisos[0].get("level") != "warning" or "disco" not in avisos[0].get("text", ""):
+                problemas.append(f"aviso del espejo: {avisos}")
+        except Exception as exc:          # noqa: BLE001
+            problemas.append(f"json ilegible: {exc}")
+        if problemas:
+            ctx.fallos.append(("overview: un espejo con un disco fuera sale degradado y avisado", problemas, js[:400]))
+            print("  FALLO  overview: un espejo con un disco fuera sale degradado y avisado")
+        else:
+            ctx.pasados.append("overview: un espejo con un disco fuera sale degradado y avisado")
+            print("  ok     overview: un espejo con un disco fuera sale degradado y avisado")
+        caso(ctx, "overview: en texto, el pool y el aviso al final",
+             ["overview zfsm://local"], rc=0, idioma="es",
+             espera=[rf"^\s+{P}\s+DEGRADED", r"^Avisos:", rf"el pool {P} de local funciona con"])
+        caso(ctx, "overview: en inglés el aviso cambia y el código no",
+             ["format json", "overview zfsm://local"], rc=0, idioma="en",
+             espera=[r'"status": "warning"', rf"pool {P} on local runs with a disk missing"])
+        caso(ctx, "overview -a: también la máquina remota",
+             ["format json", "overview -a"], rc=0, espera=[r'"connection": "unib"'])
+        caso(ctx, "overview: en la raíz sin -a se niega y dice cómo",
+             ["cd zfsm://", "overview"], rc=1, idioma="es", espera=[r"overview -a"])
+    finally:
+        sh(ctx, f"zpool destroy -f {P}", root=True)
+        sh(ctx, f"rm -f {a} {b}")
+
+
 def casos_dedup(ctx):
     """La columna DEDUP del listado de POOLS, sobre un pool que deduplica de verdad.
 
@@ -3240,7 +3296,7 @@ def casos_arranque(ctx):
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
 LOCALES = [casos_arranque, casos_identidad, casos_devices, casos_ayuda, casos_version_openzfs, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
-           casos_volumenes, casos_dedup, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_send_level, casos_recepcion_a_medias, casos_send_fichero, casos_send_comprimido, casos_gsa, casos_sin_montar, casos_cp_destino, casos_load_key, casos_editor_ancho, casos_tab_continua, casos_pantalla, casos_monitor_conexiones, casos_path, casos_info_labelclear, casos_servicio, casos_servicio_conexiones, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
+           casos_volumenes, casos_dedup, casos_overview, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_send_level, casos_recepcion_a_medias, casos_send_fichero, casos_send_comprimido, casos_gsa, casos_sin_montar, casos_cp_destino, casos_load_key, casos_editor_ancho, casos_tab_continua, casos_pantalla, casos_monitor_conexiones, casos_path, casos_info_labelclear, casos_servicio, casos_servicio_conexiones, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
 def rpc_directo(ctx, entrada, cmd, args):

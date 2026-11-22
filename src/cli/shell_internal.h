@@ -385,6 +385,7 @@ bool cmdPeers(Estado& e, const LineaAnalizada& linea);
 bool cmdAccounts(Estado& e, const LineaAnalizada& linea);
 bool cmdLog(Estado& e, const LineaAnalizada& linea);
 bool cmdSchedules(Estado& e, const LineaAnalizada& linea);
+bool cmdOverview(Estado& e, const LineaAnalizada& linea);
 B::gsa::ConnectionState estadoDeProgramaciones(Sesion& ses, const B::ConnectionProfile& p,
                                                int timeoutMs);
 std::string horaLocal(long long epoch);

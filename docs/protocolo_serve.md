@@ -100,5 +100,39 @@ Un campo nuevo se puede añadir sin avisar. Quitar o renombrar uno es un cambio 
 | Orden | Documento |
 |---|---|
 | `ls <conexión/pool/dataset>` | `{"entries":[…]}`, una fila por hijo |
+| `overview [-a]` | `{"machines":[…],"warnings":[…]}`; ver abajo |
 
 *(Esta tabla crece con cada orden que use la interfaz nueva.)*
+
+### `overview`
+
+```json
+{
+  "machines": [
+    {
+      "connection": "local", "os": "Linux", "reachable": true,
+      "daemon_version": "1.4.2.489679014", "daemon": "ok",
+      "status": "warning",
+      "pools": [{"name": "back", "health": "ONLINE", "size": "2.46T", "free": "749G",
+                 "capacity": 70, "status": "ok"}],
+      "schedules_checked": true,
+      "schedules": [{"dataset": "back/user/srvs", "kind": "pull", "peer": "zfsm://unib/ppal/user/srvs",
+                     "state": "ok", "last_snapshot": "GSA-daily-…", "last_snapshot_time": 1795000000,
+                     "last_level_time": 1795000000, "job": "", "error": ""}],
+      "jobs": [{"id": "…", "state": "running", "type": "gsa-pull", "snap": "…", "description": "…",
+                "bytes": 2100000000, "rate": 94.1, "elapsed": 23}]
+    }
+  ],
+  "warnings": [{"level": "warning", "connection": "local", "subject": "pool sback",
+                "text": "el pool sback de local funciona con algún disco que falta o falla: …"}]
+}
+```
+
+- Códigos fijos, iguales en cualquier idioma: `status` de máquina y de pool (`ok`, `warning`,
+  `error`), `daemon` (`ok`, `outdated`, `ahead`, `unknown`), `kind` (`push`, `pull`, `local`) y
+  `state` de programación (`ok`, `error`, `pending`).
+- Una máquina que no responde lleva `reachable: false` y `reason`, sin el resto de campos.
+- `warnings` van ya redactados en el idioma de `--lang`, los errores primero. Qué es un aviso lo
+  decide el CLI: el cliente solo los enseña.
+- Para un panel, mejor `overview <conexión>` en el `--serve` de cada máquina, en paralelo, que
+  un solo `overview -a`: así una máquina apagada no retrasa a las demás.

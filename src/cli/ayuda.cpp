@@ -503,6 +503,15 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
       {"schedules -a",
        {"t_ej_schedules_2", "en todas las conexiones"}},
      }},
+    {"overview",
+     {
+      {"overview",
+       {"t_ej_overview_1", "cómo está esta máquina"}},
+      {"overview -a",
+       {"t_ej_overview_2", "cómo están todas, con los avisos al final"}},
+      {"overview -a --format json",
+       {"t_ej_overview_3", "lo mismo para un programa: lo que enseña un panel de estado"}},
+     }},
     {"change-key",
      {
       {"change-key",
@@ -1203,6 +1212,16 @@ const std::vector<Orden> kOrdenes = {
      // `status` y `run` son palabras de la orden, como `cancel` en `job`; «status» lleva
      // detrás, opcionalmente, el nombre de una conexión.
      {{"texto", Ranura::Tipo::Texto, Ranura::Cuantas::CeroOMas}}},
+    {"overview", {"t_grupo_snapshots", "Snapshots"}, {"t_ov_uso", "[-a]"},
+     {"t_ov_res", "Cómo está una máquina, o todas: lo que necesita atención."},
+     {{{"t_ov_a", "-a"}, {"t_ov_a_q", "Todas las conexiones, a la vez."}}},
+     {{"t_ov_det1", "Por máquina: si responde, la versión de su daemon, sus pools con salud y "
+       "ocupación, sus programaciones (al día, pendientes o con error) y sus trabajos en "
+       "curso. Al final, los avisos ya redactados: un pool degradado o casi lleno, una "
+       "programación que falla, un daemon anticuado, una máquina que no responde."},
+      {"t_ov_det2", "En JSON cada estado es un código fijo (ok, warning, error, pending), "
+       "igual en cualquier idioma; los textos de los avisos van en el idioma elegido."}},
+     Objetivo::Cualquiera, {}},
     {"schedules", {"t_grupo_snapshots", "Snapshots"}, {"t_schs_uso2", "[-a]"},
      {"t_schs_res", "Qué hay programado en esta máquina."},
      {{{"t_schs_a", "-a"}, {"t_schs_a_q", "En todas las conexiones, no solo en esta."}}},

@@ -524,6 +524,7 @@ const std::map<std::string, Manejador>& ordenesDelInterprete() {
          [](Estado& s, const LineaAnalizada& l) { return cmdClaves(s, l, "change-key"); }},
         {"schedule", cmdSchedule},
         {"schedules", cmdSchedules},
+        {"overview", cmdOverview},
         {"log", cmdLog},
         {"peers", cmdPeers},
         {"accounts", cmdAccounts},
