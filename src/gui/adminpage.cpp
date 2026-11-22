@@ -187,28 +187,38 @@ void AdminPage::render() {
                   body));
     }
 
-    // ── Daemons.
+    // ── Daemons and zfsmgr-cli: two different programs on each machine, each in its own
+    // columns. In one row «left alone» (the daemon) and «update» (its zfsmgr-cli) read as a
+    // contradiction.
     {
-        int toUpdate = 0;
+        int daemons = 0;
+        int clis = 0;
         for (const QJsonValue& v : m_daemons) {
             const QJsonObject d = v.toObject();
             const QString a = d.value(QStringLiteral("code")).toString();
-            const QString ca = d.value(QStringLiteral("cli_code")).toString();
-            if (a == QLatin1String("update") || a == QLatin1String("install")
-                || ca == QLatin1String("update")) {
-                ++toUpdate;
+            if (a == QLatin1String("update") || a == QLatin1String("install")) {
+                ++daemons;
+            }
+            if (d.value(QStringLiteral("cli_code")).toString() == QLatin1String("update")) {
+                ++clis;
             }
         }
         auto* head = new QHBoxLayout();
-        head->addWidget(heading(L("Daemons", "Daemons"), body));
+        head->addWidget(heading(L("Daemons and zfsmgr-cli", "Daemons y zfsmgr-cli"), body));
         head->addStretch(1);
-        if (toUpdate > 0) {
-            auto* all = small(
-                L("Update the %1 that need it", "Actualizar las %1 que lo necesitan").arg(toUpdate),
-                body);
+        if (daemons + clis > 0) {
+            QStringList what;
+            if (daemons > 0) {
+                what << (daemons == 1 ? L("1 daemon", "1 daemon")
+                                      : L("%1 daemons", "%1 daemons").arg(daemons));
+            }
+            if (clis > 0) {
+                what << QStringLiteral("%1 zfsmgr-cli").arg(clis);
+            }
+            auto* all =
+                small(L("Update %1", "Actualizar %1").arg(what.join(L(" and ", " y "))), body);
             connect(all, &QPushButton::clicked, this, [this] {
-                act(QStringLiteral("install-daemon -a"),
-                    L("Daemons updated.", "Daemons actualizados."));
+                act(QStringLiteral("install-daemon -a"), L("Updated.", "Actualizado."));
             });
             head->addWidget(all);
         }
@@ -216,13 +226,15 @@ void AdminPage::render() {
         QFrame* box = card(body);
         auto* g = new QGridLayout(box);
         const QStringList heads{L("Machine", "Máquina"), L("Daemon", "Daemon"),
-                                L("What it would do", "Qué haría"), QStringLiteral("zfsmgr-cli")};
+                                L("Daemon: would", "Daemon: qué se haría"),
+                                QStringLiteral("zfsmgr-cli"),
+                                L("zfsmgr-cli: would", "zfsmgr-cli: qué se haría")};
         for (int c = 0; c < heads.size(); ++c) {
             g->addWidget(muted(heads[c], box), 0, c);
         }
         int row = 1;
         if (m_daemons.isEmpty()) {
-            g->addWidget(muted(L("Asking…", "Preguntando…"), box), row, 0, 1, 4);
+            g->addWidget(muted(L("Asking…", "Preguntando…"), box), row, 0, 1, 5);
         }
         for (const QJsonValue& v : m_daemons) {
             const QJsonObject d = v.toObject();
@@ -230,27 +242,32 @@ void AdminPage::render() {
             g->addWidget(label(id, box, false), row, 0);
             g->addWidget(label(d.value(QStringLiteral("daemon")).toString(), box, false), row, 1);
             // The CLI's own words: already in the interface's language.
-            g->addWidget(label(d.value(QStringLiteral("action")).toString(), box, false), row, 2);
-            g->addWidget(label(d.value(QStringLiteral("cli_action")).toString(), box, false), row,
-                         3);
+            g->addWidget(label(d.value(QStringLiteral("action")).toString(), box), row, 2);
+            g->addWidget(label(d.value(QStringLiteral("cli")).toString(), box, false), row, 3);
+            g->addWidget(label(d.value(QStringLiteral("cli_action")).toString(), box), row, 4);
             const QString a = d.value(QStringLiteral("code")).toString();
             if (a == QLatin1String("update") || a == QLatin1String("install")) {
-                auto* b = small(L("Update", "Actualizar"), box);
+                auto* b = small(L("Update its daemon", "Actualizar su daemon"), box);
                 connect(b, &QPushButton::clicked, this, [this, id] {
                     act(QStringLiteral("install-daemon --on ") + url(id),
                         L("Daemon of %1 updated.", "Daemon de %1 actualizado.").arg(id));
                 });
-                g->addWidget(b, row, 4);
+                g->addWidget(b, row, 5);
             }
             ++row;
         }
         g->setColumnStretch(2, 1);
+        g->setColumnStretch(4, 1);
         lay->addWidget(box);
-        lay->addWidget(
-            muted(L("Before reinstalling, the CLI checks the daemon is not copying anything.",
-                    "Antes de reinstalar, el CLI comprueba que el daemon no esté copiando "
-                    "nada."),
-                  body));
+        lay->addWidget(muted(L("The daemon does the work on each machine; updating it restarts it, "
+                               "and the CLI checks first that it is not copying anything. "
+                               "zfsmgr-cli is the command line program of that machine; updating "
+                               "it restarts nothing.",
+                               "El daemon hace el trabajo en cada máquina; actualizarlo lo "
+                               "reinicia, y el CLI comprueba antes que no esté copiando nada. "
+                               "zfsmgr-cli es el programa de línea de órdenes de esa máquina; "
+                               "actualizarlo no reinicia nada."),
+                             body));
     }
 
     // ── Credentials between machines.
