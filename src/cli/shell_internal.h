@@ -887,6 +887,7 @@ bool cmdInstalarDaemon(Estado& e, const LineaAnalizada& linea);
 // nothing to update, however far this client is ahead: a development build of the CLI is
 // newer than every daemon it carries.
 std::string versionParaInstalar(Estado& e, const B::ConnectionProfile& perfil);
+std::string versionParaInstalar(Sesion& ses, const B::ConnectionProfile& perfil);
 std::map<std::string, std::string> clavesDe(const std::string& texto);
 bool cmdJobs(Estado& e, const LineaAnalizada& linea);
 bool cmdJob(Estado& e, const LineaAnalizada& linea);

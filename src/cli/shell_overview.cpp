@@ -95,6 +95,14 @@ MachineView viewOf(Sesion& ses, const B::ConnectionProfile& p) {
                 daemon = "ok";
                 break;
             case B::agentversion::Verdict::Update:
+                // Older than this client, but the newest there is to install: nothing to
+                // update, as `ls` of a machine already says. Each build has its own
+                // fingerprint, and the warning stayed after «update the daemon» had sent
+                // the very same binary again.
+                if (version == versionParaInstalar(ses, p)) {
+                    daemon = "latest";
+                    break;
+                }
                 daemon = "outdated";
                 warn("warning", "daemon",
                      B::format(T("t_ov_daemon_viejo",

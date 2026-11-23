@@ -57,11 +57,15 @@ PlanCli planDelCli(Estado& e, const B::ConnectionProfile& perfil) {
     return plan;
 }
 
-std::string versionParaInstalar(Estado& e, const B::ConnectionProfile& perfil) {
+std::string versionParaInstalar(Sesion& ses, const B::ConnectionProfile& perfil) {
     namespace DI = B::daemoninstall;
     const std::string binario = rutaDelAgente(
-        DI::platformOf(perfil), DI::remoteArchitecture(e.ses->transporte, perfil, e.ses->verboso));
+        DI::platformOf(perfil), DI::remoteArchitecture(ses.transporte, perfil, ses.verboso));
     return binario.empty() ? std::string() : B::agentversion::versionInBinary(binario);
+}
+
+std::string versionParaInstalar(Estado& e, const B::ConnectionProfile& perfil) {
+    return versionParaInstalar(*e.ses, perfil);
 }
 
 std::string textoDePlanCli(const PlanCli& plan) {
