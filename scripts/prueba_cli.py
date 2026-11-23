@@ -23,6 +23,7 @@ import re
 import time
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 
@@ -1662,6 +1663,124 @@ def casos_editor_ancho(ctx):
     else:
         ctx.pasados.append(nombre)
         print(f"  ok     {nombre}")
+
+
+def casos_sesion_unica(ctx):
+    """One interactive session per machine: a second shell on a terminal finds the first, says
+    whose it is and offers to close it; a script feeding the shell through a pipe is not a
+    session and goes ahead. The lock is the battery's own (ZFSMGR_SESSION_LOCK, set in main):
+    the interface open on this machine does not count.
+    """
+    import pty, select
+    fichero = os.path.join(ctx.dir_tmp, ".maestra")
+
+    class Terminal:
+        def __init__(self):
+            r, w = os.pipe()
+            with open(fichero) as f:
+                os.write(w, f.read().encode())
+            os.close(w)
+            self.pid, self.fd = pty.fork()
+            if self.pid == 0:
+                os.dup2(r, 9)
+                os.execv(CLI, [CLI, "--lang", "es", "--password-fd", "9", "--no-tui"])
+            os.close(r)
+            self.salida = b""
+
+        def lee(self, t, hasta=None):
+            fin = time.time() + t
+            while time.time() < fin:
+                if hasta and hasta.encode() in self.salida:
+                    return
+                listo, _, _ = select.select([self.fd], [], [], 0.1)
+                if listo:
+                    try:
+                        self.salida += os.read(self.fd, 65536)
+                    except OSError:
+                        return
+
+        def texto(self):
+            return self.salida.decode("utf-8", "replace")
+
+        def fin(self, t=5):
+            """The exit code, or None if it is still running after `t` seconds."""
+            limite = time.time() + t
+            while time.time() < limite:
+                self.lee(0.1)
+                p, estado = os.waitpid(self.pid, os.WNOHANG)
+                if p == self.pid:
+                    return os.waitstatus_to_exitcode(estado)
+            return None
+
+        def mata(self):
+            try:
+                os.kill(self.pid, signal.SIGKILL)
+                os.waitpid(self.pid, 0)
+            except (ProcessLookupError, ChildProcessError):
+                pass
+
+    def resultado(nombre, problemas, salida):
+        if problemas:
+            ctx.fallos.append((nombre, problemas, salida[-600:]))
+            print(f"  FALLO  {nombre}")
+            for x in problemas:
+                print(f"         {x}")
+        else:
+            ctx.pasados.append(nombre)
+            print(f"  ok     {nombre}")
+
+    a = Terminal()
+    try:
+        a.lee(4, hasta="zfsm://")
+        nombre = "sesión: un segundo intérprete encuentra al primero y no abre si no se cierra"
+        b = Terminal()
+        b.lee(4, hasta="[s/N]")
+        problemas = []
+        if "ZFSMgr ya está abierto en esta máquina" not in b.texto():
+            problemas.append("no dice que ya está abierto")
+        if f"PID {a.pid}" not in b.texto():
+            problemas.append(f"no dice el PID del primero ({a.pid})")
+        os.write(b.fd, b"n\r")
+        rc = b.fin()
+        if rc != 1:
+            problemas.append(f"termina con {rc}, no con 1")
+            b.mata()
+        if "zfsm://" in b.texto().split("[s/N]", 1)[-1]:
+            problemas.append("abrió el intérprete igualmente")
+        resultado(nombre, problemas, b.texto())
+
+        nombre = "sesión: un guion por tubería no es una sesión"
+        with open(fichero) as f:
+            r, w = os.pipe()
+            os.write(w, f.read().encode())
+            os.close(w)
+        p = subprocess.run([CLI, "--lang", "es", "--password-fd", str(r), "--no-tui"],
+                           input="ls\nexit\n", capture_output=True, text=True, pass_fds=(r,),
+                           timeout=60)
+        os.close(r)
+        problemas = []
+        if p.returncode != 0 or "ya está abierto" in p.stderr:
+            problemas.append(f"rc={p.returncode}; {p.stderr.strip()[:200]}")
+        resultado(nombre, problemas, p.stdout + p.stderr)
+
+        nombre = "sesión: cerrar la otra desde el segundo y abrir este"
+        c = Terminal()
+        c.lee(4, hasta="[s/N]")
+        os.write(c.fd, b"s\r")
+        c.lee(12, hasta="zfsm://")
+        problemas = []
+        rc_a = a.fin(3)
+        if rc_a is None:
+            problemas.append("el primero sigue vivo")
+        if "zfsm://" not in c.texto().split("[s/N]", 1)[-1]:
+            problemas.append("el segundo no llegó al intérprete")
+        os.write(c.fd, b"exit\r")
+        if c.fin() is None:
+            problemas.append("el segundo no sale con exit")
+            c.mata()
+        resultado(nombre, problemas, c.texto())
+    finally:
+        a.mata()
 
 
 class Tmux:
@@ -3762,7 +3881,7 @@ def casos_arranque(ctx):
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
 LOCALES = [casos_arranque, casos_identidad, casos_devices, casos_ayuda, casos_version_openzfs, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
-           casos_volumenes, casos_dedup, casos_overview, casos_json_gui, casos_sudo_sin_argv, casos_probe, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_send_level, casos_recepcion_a_medias, casos_send_fichero, casos_send_comprimido, casos_gsa, casos_sin_montar, casos_cp_destino, casos_load_key, casos_editor_ancho, casos_tab_continua, casos_pantalla, casos_ctrl_c, casos_monitor_conexiones, casos_path, casos_info_labelclear, casos_servicio, casos_primera_maestra, casos_servicio_llave, casos_servicio_conexiones, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
+           casos_volumenes, casos_dedup, casos_overview, casos_json_gui, casos_sudo_sin_argv, casos_probe, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_send_level, casos_recepcion_a_medias, casos_send_fichero, casos_send_comprimido, casos_gsa, casos_sin_montar, casos_cp_destino, casos_load_key, casos_editor_ancho, casos_sesion_unica, casos_tab_continua, casos_pantalla, casos_ctrl_c, casos_monitor_conexiones, casos_path, casos_info_labelclear, casos_servicio, casos_primera_maestra, casos_servicio_llave, casos_servicio_conexiones, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
 def rpc_directo(ctx, entrada, cmd, args):
@@ -4044,6 +4163,9 @@ def main():
     with os.fdopen(args.sudo_fd) as f:
         sudo = f.readline().strip()
     ctx = Contexto(maestra, sudo, args.remoto)
+    # The battery's own session lock: the interface somebody has open on this machine would
+    # otherwise stop every shell the battery opens on a terminal (casos_sesion_unica).
+    os.environ["ZFSMGR_SESSION_LOCK"] = os.path.join(ctx.dir_tmp, "session.lock")
 
     if not os.path.exists(CLI):
         raise SystemExit(f"no está {CLI}")

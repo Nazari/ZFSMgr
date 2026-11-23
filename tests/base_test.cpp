@@ -18,6 +18,7 @@
 #include "connectionjson.h"
 #include "listings.h"
 #include "storefiles.h"
+#include "sessionlock.h"
 #include "storewarnings.h"
 #include "connectionprofile.h"
 #include "copyspec.h"
@@ -25,6 +26,7 @@
 #include "helpers.h"
 #ifndef _WIN32
 #include <sys/file.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -5292,6 +5294,73 @@ void caso59() {
     std::filesystem::remove_all(vieja);
 }
 
+// One session per machine: the lock the CLI's shell and the interface take.
+void caso60() {
+    namespace S = zfsmgr::base::session;
+    const std::string ruta = "/tmp/zfsmgr-base-test-session.lock";
+    ::unlink(ruta.c_str());
+    ::setenv("ZFSMGR_SESSION_LOCK", ruta.c_str(), 1);
+
+    S::Lock a;
+    S::Holder h;
+    std::string det;
+    comprobar(a.acquire("cli", h, det) == S::Acquire::Held && a.held(),
+              "sesion: la primera la toma");
+    struct ::stat st{};
+    comprobar(::stat(ruta.c_str(), &st) == 0 && (st.st_mode & 0777) == 0666,
+              "sesion: el fichero lo puede abrir cualquier usuario");
+    S::Lock b;
+    comprobar(b.acquire("gui", h, det) == S::Acquire::Busy && !b.held(),
+              "sesion: la segunda encuentra la primera");
+    comprobar(h.kind == "cli" && h.pid == ::getpid() && h.user == S::currentUser() && h.since > 0,
+              "sesion: y sabe quien la tiene");
+    a.release();
+    comprobar(b.acquire("gui", h, det) == S::Acquire::Held, "sesion: suelta, la toma otra");
+    b.release();
+
+    // A process that dies lets go by itself, and a hung one is closed by stop().
+    int tubo[2];
+    comprobar(::pipe(tubo) == 0, "sesion: tubo");
+    const pid_t hijo = ::fork();
+    if (hijo == 0) {
+        ::close(tubo[0]);
+        S::Lock c;
+        S::Holder x;
+        std::string d;
+        const bool ok = c.acquire("gui", x, d) == S::Acquire::Held;
+        const char r = ok ? '1' : '0';
+        (void)!::write(tubo[1], &r, 1);
+        ::signal(SIGTERM, SIG_IGN);  // hung: only SIGKILL ends it
+        for (;;) {
+            ::pause();
+        }
+    }
+    ::close(tubo[1]);
+    char r = 0;
+    (void)!::read(tubo[0], &r, 1);
+    ::close(tubo[0]);
+    comprobar(r == '1', "sesion: el hijo la toma");
+    S::Lock d;
+    comprobar(d.acquire("cli", h, det) == S::Acquire::Busy && h.pid == hijo && h.kind == "gui",
+              "sesion: la tiene el hijo");
+    S::Holder viejo = h;
+    viejo.since -= 1;
+    comprobar(S::stop(viejo, det) == S::Stop::Failed, "sesion: no se cierra a otro que el escrito");
+    comprobar(S::stop(h, det) == S::Stop::Stopped, "sesion: colgado, se cierra a la fuerza");
+    int estado = 0;
+    ::waitpid(hijo, &estado, 0);
+    comprobar(WIFSIGNALED(estado) && WTERMSIG(estado) == SIGKILL, "sesion: con SIGKILL");
+    comprobar(d.acquire("cli", h, det) == S::Acquire::Held, "sesion: y queda libre");
+    d.release();
+
+    // A link waiting in /tmp is not followed.
+    ::unlink(ruta.c_str());
+    (void)!::symlink("/tmp/zfsmgr-base-test-session.target", ruta.c_str());
+    comprobar(d.acquire("cli", h, det) == S::Acquire::Failed, "sesion: un enlace no se sigue");
+    ::unlink(ruta.c_str());
+    ::unsetenv("ZFSMGR_SESSION_LOCK");
+}
+
 const Caso kCasos[] = {
     {"trim", caso01},
     {"replaceAll", caso02},
@@ -5352,6 +5421,7 @@ const Caso kCasos[] = {
     {"create --opts-as", caso57},
     {"GSA stillToPrune", caso58},
     {"la clave de datos y sus ranuras", caso59},
+    {"una sesion por maquina", caso60},
 };
 
 }  // namespace

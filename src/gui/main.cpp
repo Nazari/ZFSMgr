@@ -8,8 +8,10 @@
 #include "buildstamp.h"
 #include "cliservice.h"
 #include "mainwindow.h"
+#include "singleinstance.h"
 #include "text.h"
 #include "unlockdialog.h"
+#include "../base/sessionlock.h"
 
 #include <QAbstractButton>
 #include <QApplication>
@@ -414,6 +416,13 @@ int main(int argc, char** argv) {
         QLocale::setDefault(
             QLocale(lang == QLatin1String("es") ? QLocale::Spanish : QLocale::English));
     }
+
+    // One session per machine, this interface or the CLI's shell: before anything is asked.
+    zfsmgr::base::session::Lock session;
+    if (!takeSession(session)) {
+        return 0;
+    }
+    listenForRaise(&app);
 
     const QString cli = findCli();
     if (cli.isEmpty()) {

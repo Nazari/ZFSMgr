@@ -25,6 +25,7 @@
 #include "json.h"
 #include "secretcipher.h"
 #include "secretinput.h"
+#include "sessionlock.h"
 #include "storefiles.h"
 #include "storewarnings.h"
 #include "strutil.h"
@@ -33,6 +34,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
 
 #ifdef _WIN32
 #include <io.h>
@@ -74,6 +76,8 @@ void uso(std::FILE* salida) {
                     "\n"
                     "Sin ninguna orden entra en MODO INTERACTIVO: un intérprete donde la\n"
                     "posición es una URL zfsm:// y todas las órdenes actúan sobre ella.\n"
+                    "En un terminal es una SESIÓN, y solo hay una a la vez en cada máquina,\n"
+                    "sea este intérprete o la interfaz gráfica.\n"
                     "\n"
                     "Órdenes:\n"
                     "  (ninguna)             Modo interactivo, empezando en la raíz (zfsm://)\n"
@@ -204,6 +208,107 @@ int listarConexiones(const Opciones& op, const std::string& maestra) {
 // puede dejar una rotación interrumpida. Ahora se recorren todos.
 bool hasSomethingEncrypted(const std::string& dirConfig) {
     return ST::hasSomethingEncrypted(dirConfig);
+}
+
+// Who holds the session, said for a person: «the interface of linarese (PID 1234, since
+// 10:32)».
+std::string quienTieneLaSesion(const B::session::Holder& h) {
+    if (h.pid <= 0) {
+        return T("t_ses_desconocida", "otra sesión, que todavía no ha dicho cuál es");
+    }
+    std::string desde = "?";
+    if (h.since > 0) {
+        const std::time_t t = static_cast<std::time_t>(h.since);
+        const std::time_t ahora = std::time(nullptr);
+        std::tm cuando{};
+        std::tm hoy{};
+#ifdef _WIN32
+        localtime_s(&cuando, &t);
+        localtime_s(&hoy, &ahora);
+#else
+        localtime_r(&t, &cuando);
+        localtime_r(&ahora, &hoy);
+#endif
+        char buf[32];
+        const bool mismoDia = cuando.tm_year == hoy.tm_year && cuando.tm_yday == hoy.tm_yday;
+        std::strftime(buf, sizeof buf, mismoDia ? "%H:%M" : "%Y-%m-%d %H:%M", &cuando);
+        desde = buf;
+    }
+    const std::string pid = std::to_string(h.pid);
+    if (h.kind == "gui") {
+        return B::format(T("t_ses_gui", "la interfaz gráfica de %1 (PID %2, desde %3)"),
+                         {h.user, pid, desde});
+    }
+    return B::format(T("t_ses_cli", "el intérprete de zfsmgr-cli de %1 (PID %2, desde %3)"),
+                     {h.user, pid, desde});
+}
+
+// One interactive session per machine (src/base/sessionlock.h). Held by `lock` until the
+// program ends. False: another one is open and stays open, so this one does not start.
+bool tomaLaSesion(B::session::Lock& lock) {
+    for (int vuelta = 0; vuelta < 2; ++vuelta) {
+        B::session::Holder h;
+        std::string detalle;
+        const auto r = lock.acquire("cli", h, detalle);
+        if (r == B::session::Acquire::Held) {
+            return true;
+        }
+        if (r == B::session::Acquire::Failed) {
+            // Not a reason to refuse: only that two could be open at once, as before.
+            std::fprintf(stderr,
+                         TC("t_ses_sin_candado",
+                            "%s: no se puede comprobar si ZFSMgr ya está abierto en esta "
+                            "máquina (%s); se sigue igualmente\n"),
+                         kNombre, detalle.c_str());
+            return true;
+        }
+        std::fprintf(stderr, "%s: %s\n", kNombre,
+                     B::format(T("t_ses_ocupada",
+                                 "ZFSMgr ya está abierto en esta máquina: %1. Solo puede haber "
+                                 "una sesión a la vez en cada máquina, sea la interfaz o este "
+                                 "intérprete."),
+                               {quienTieneLaSesion(h)})
+                         .c_str());
+        if (vuelta > 0 || h.pid <= 0) {
+            return false;
+        }
+        // Closing it is offered —it may be a window forgotten somewhere, or hung—, never done
+        // without asking.
+        std::string resp;
+        std::string err;
+        if (!zfsmgr::cli::preguntarPorTerminal(
+                T("t_ses_cerrarla", "¿Cerrar esa sesión y abrir esta? [s/N]: "), resp, err)) {
+            return false;
+        }
+        const std::string a = B::toLowerAscii(B::trim(resp));
+        if (!(a == "s" || a == "si" || a == "sí" || a == "y" || a == "yes")) {
+            return false;
+        }
+        switch (B::session::stop(h, detalle)) {
+            case B::session::Stop::Stopped:
+                break;
+            case B::session::Stop::NotAllowed:
+                std::fprintf(
+                    stderr, "%s: %s\n", kNombre,
+                    B::format(T("t_ses_otro_usuario",
+                                "es de %1, y solo esa persona o un administrador puede cerrarla: "
+                                "desde su sesión, o con «sudo kill %2»"),
+                              {h.user, std::to_string(h.pid)})
+                        .c_str());
+                return false;
+            case B::session::Stop::StillRunning:
+                std::fprintf(
+                    stderr, "%s: %s\n", kNombre,
+                    B::format(T("t_ses_sigue", "el proceso %1 no termina"), {std::to_string(h.pid)})
+                        .c_str());
+                return false;
+            case B::session::Stop::Failed:
+                std::fprintf(stderr, TC("t_ses_no_cierra", "%s: no se pudo cerrar: %s\n"), kNombre,
+                             detalle.c_str());
+                return false;
+        }
+    }
+    return false;
 }
 
 // One line of standard input, read byte by byte (see --serve). False at end of input.
@@ -599,6 +704,14 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, TC("t_s_orden_de_81e64c", "%s: orden desconocida\n"), kNombre);
         uso(stderr);
         return 2;
+    }
+
+    // The shell on a terminal is a SESSION, and there is one per machine: taken before the
+    // master password is asked, so nobody types it to be told no. The `--serve` services, a
+    // script feeding the shell through a pipe and `connections list` take nothing.
+    B::session::Lock sesion;
+    if (!op.servir && op.orden.empty() && zfsmgr::cli::hayTerminal() && !tomaLaSesion(sesion)) {
+        return 1;
     }
 
     // `maestra` ends up holding the DATA KEY, not the password: what is read here —the

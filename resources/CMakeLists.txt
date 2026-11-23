@@ -192,6 +192,8 @@ add_library(zfsmgr_base STATIC
     ../src/base/processes.cpp
     ../src/base/processes.h
     ../src/base/storefiles.cpp
+    ../src/base/sessionlock.cpp
+    ../src/base/sessionlock.h
     ../src/base/storewarnings.cpp
     ../src/base/agentversion.cpp
     ../src/base/tlsserver.cpp
@@ -611,6 +613,10 @@ qt_add_executable(zfsmgr-gui
     ../src/gui/unlockdialog.h
     ../src/gui/adminpage.cpp
     ../src/gui/createpooldialog.cpp
+    ../src/gui/singleinstance.cpp
+    # One session per machine (src/base/sessionlock.h): compiled here as it is —it needs only
+    # the standard library and the system's calls— rather than linking zfsmgr_base.
+    ../src/base/sessionlock.cpp
     gui.qrc
 )
 target_link_libraries(zfsmgr-gui PRIVATE Qt6::Widgets)
