@@ -7,10 +7,6 @@ namespace zfsmgr::cli::detail {
 PlanCli planDelCli(Estado& e, const B::ConnectionProfile& perfil) {
     namespace DI = B::daemoninstall;
     PlanCli plan;
-    if (T::isWindowsConnection(perfil)) {
-        plan.accion = PlanCli::Accion::Windows;
-        return plan;
-    }
     plan.sonda = DI::probeRemoteCli(e.ses->transporte, perfil, e.ses->verboso);
     if (!plan.sonda.found) {
         return plan;
@@ -23,7 +19,10 @@ PlanCli planDelCli(Estado& e, const B::ConnectionProfile& perfil) {
     if (T::isLocalConnection(perfil)) {
         std::error_code ec;
         const auto a = std::filesystem::canonical(plan.sonda.path, ec);
-        const auto b = std::filesystem::canonical(dirDelEjecutable() + "/zfsmgr-cli", ec);
+        const auto b = std::filesystem::canonical(
+            dirDelEjecutable()
+                + (T::isWindowsConnection(perfil) ? "/zfsmgr-cli.exe" : "/zfsmgr-cli"),
+            ec);
         if (!a.empty() && a == b) {
             plan.accion = PlanCli::Accion::EsEste;
             return plan;
@@ -60,8 +59,6 @@ std::string textoDePlanCli(const PlanCli& plan) {
     switch (plan.accion) {
         case PlanCli::Accion::NoHay:
             return T("t_cli_plan_no_hay", "no instalado");
-        case PlanCli::Accion::Windows:
-            return T("t_cli_plan_windows", "no se usa en Windows");
         case PlanCli::Accion::Enlace:
             return T("t_cli_plan_enlace", "actualizado con el .app");
         case PlanCli::Accion::EsEste:
@@ -83,7 +80,7 @@ bool actualizaCli(Estado& e, const B::ConnectionProfile& perfilConSudo, const Pl
     namespace DI = B::daemoninstall;
     const std::string quien = perfilConSudo.name.empty() ? perfilConSudo.id : perfilConSudo.name;
     if (plan.accion != PlanCli::Accion::Actualizar) {
-        if (plan.accion != PlanCli::Accion::NoHay && plan.accion != PlanCli::Accion::Windows) {
+        if (plan.accion != PlanCli::Accion::NoHay) {
             std::fprintf(stderr, TC("t_cli_de", "zfsmgr-cli de %s: %s\n"), quien.c_str(),
                          textoDePlanCli(plan).c_str());
         }

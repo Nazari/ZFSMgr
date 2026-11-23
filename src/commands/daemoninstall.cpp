@@ -12,8 +12,10 @@
 
 #include <cstdio>
 #include <cstring>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <random>
 #include <sstream>
 #include <system_error>
 
@@ -427,14 +429,24 @@ CliProbe readCliProbe(const std::string& salida) {
     return r;
 }
 
+std::string cliProbeCommandWindows() {
+    // The PATH first, as on Unix; then where both Windows installers put it (the Setup and
+    // install-windows.ps1): an SSH session may not have the machine PATH the installer set.
+    return "$p=$null; $c=Get-Command zfsmgr-cli -ErrorAction SilentlyContinue; "
+           "if ($c) { $p=$c.Source }; "
+           "if (-not $p) { $q=Join-Path $env:ProgramFiles 'ZFSMgr\\bin\\zfsmgr-cli.exe'; "
+           "if (Test-Path -LiteralPath $q) { $p=$q } }; "
+           "if ($p) { Write-Output ('ZFSMGR_CLI=' + $p); "
+           "$v = & $p version 2>$null | Select-Object -First 1; "
+           "Write-Output ('ZFSMGR_CLI_VER=' + $v) }";
+}
+
 CliProbe probeRemoteCli(TransportSession& ses, const ConnectionProfile& p, bool verboso) {
-    if (T::isWindowsConnection(p)) {
-        return {};  // en Windows no se toca: el CLI llega con su instalador
-    }
     std::string out;
     std::string err;
     int rc = -1;
-    T::runSsh(ses, p, cliProbeCommand(), 20000, out, err, rc, {}, {}, {}, {}, false, verboso);
+    T::runSsh(ses, p, T::isWindowsConnection(p) ? cliProbeCommandWindows() : cliProbeCommand(),
+              20000, out, err, rc, {}, {}, {}, {}, false, verboso);
     return readCliProbe(out);
 }
 
@@ -468,7 +480,7 @@ std::string tarArchive(const std::vector<std::pair<std::string, std::string>>& e
         octal(108, 8, 0);
         octal(116, 8, 0);
         octal(124, 12, datos.size());
-        octal(136, 12, 0);
+        octal(136, 12, static_cast<unsigned long long>(std::time(nullptr)));  // mtime: now
         std::memset(cab + 148, ' ', 8);   // la suma se calcula con su propio campo en blanco
         cab[156] = '0';                   // fichero corriente
         std::memcpy(cab + 257, "ustar", 6);
@@ -485,6 +497,44 @@ std::string tarArchive(const std::vector<std::pair<std::string, std::string>>& e
     }
     tar.append(1024, '\0');   // fin del archivo: dos bloques vacíos
     return tar;
+}
+
+std::string cliInstallScriptWindows(const std::string& binPath, const std::string& upload) {
+    // The layout of both Windows installers: bin\zfsmgr-cli.exe with its catalogues in
+    // bin\i18n, and {app}\agents, {app}\cli next to bin. The running exe cannot be
+    // overwritten but can be renamed: the old one is moved aside and removed if it can be.
+    // tar.exe ships with Windows since 10 1803.
+    const auto q = [](std::string v) {
+        std::string r = "'";
+        for (char c : v) {
+            r += c;
+            if (c == '\'') {
+                r += '\'';
+            }
+        }
+        return r + "'";
+    };
+    return "$ErrorActionPreference='Stop'; $up=" + q(upload) + "; $bin=" + q(binPath)
+           + "; $bd=Split-Path -Parent $bin; $app=Split-Path -Parent $bd; "
+             "$d=Join-Path $env:TEMP ('zfsmgr-cli-' + [guid]::NewGuid()); "
+             "New-Item -ItemType Directory -Force -Path $d | Out-Null; "
+             "try { "
+             "& tar.exe -xf $up -C $d; "
+             "if ($LASTEXITCODE -ne 0) { throw 'tar could not unpack the kit' }; "
+             "$new=$bin + '.new'; $old=$bin + '.old'; "
+             "Remove-Item -Force -LiteralPath $old -ErrorAction SilentlyContinue; "
+             "Copy-Item -Force -LiteralPath (Join-Path $d 'bin\\zfsmgr-cli.exe') -Destination $new; "
+             "if (Test-Path -LiteralPath $bin) { Move-Item -Force -LiteralPath $bin -Destination $old }; "
+             "Move-Item -Force -LiteralPath $new -Destination $bin; "
+             "Remove-Item -Force -LiteralPath $old -ErrorAction SilentlyContinue; "
+             "New-Item -ItemType Directory -Force -Path (Join-Path $bd 'i18n') | Out-Null; "
+             "Copy-Item -Force -Path (Join-Path $d 'i18n\\*.json') -Destination (Join-Path $bd 'i18n'); "
+             "foreach ($s in @('agents','cli')) { $src=Join-Path $d $s; "
+             "if (Test-Path -LiteralPath $src) { Copy-Item -Recurse -Force -Path $src -Destination $app } } "
+             "} finally { "
+             "Remove-Item -Recurse -Force -LiteralPath $d -ErrorAction SilentlyContinue; "
+             "Remove-Item -Force -LiteralPath $up -ErrorAction SilentlyContinue } "
+             "& $bin version; exit $LASTEXITCODE";
 }
 
 std::string cliInstallScript(const std::string& binPath) {
@@ -512,8 +562,9 @@ Result installCli(TransportSession& ses, const ConnectionProfile& perfil,
                   const std::string& binPath,
                   const std::function<void(const std::string&)>& traza, bool verboso) {
     Result r;
+    const bool windows = T::isWindowsConnection(perfil);
     std::vector<std::pair<std::string, std::string>> kit;
-    kit.emplace_back("bin/zfsmgr-cli", cliBinary);
+    kit.emplace_back(windows ? "bin/zfsmgr-cli.exe" : "bin/zfsmgr-cli", cliBinary);
     std::error_code ec;
     for (const auto& j : std::filesystem::directory_iterator(i18nDir, ec)) {
         if (j.path().extension() == ".json") {
@@ -548,6 +599,49 @@ Result installCli(TransportSession& ses, const ConnectionProfile& perfil,
     std::string out;
     std::string errSsh;
     int rc = -1;
+    if (windows) {
+        // By scp, as the Windows agent: PowerShell does not come back from reading megabytes
+        // on its standard input.
+        const std::string subida = "C:/Users/Public/zfsmgr-cli.upload.tar";
+        std::error_code ec2;
+        const std::filesystem::path local =
+            std::filesystem::temp_directory_path(ec2)
+            / ("zfsmgr-cli-kit-" + std::to_string(std::random_device{}()) + ".tar");
+        {
+            std::ofstream f(local, std::ios::binary | std::ios::trunc);
+            f.write(tar.data(), static_cast<std::streamsize>(tar.size()));
+            if (!f) {
+                r.fallo = Failure::UploadFailed;
+                r.detail = local.string();
+                return r;
+            }
+        }
+        ExecResult sr;
+        if (T::isLocalConnection(perfil)) {
+            std::filesystem::remove(subida, ec2);
+            std::filesystem::copy_file(local, subida, ec2);
+            sr.rc = ec2 ? 1 : 0;
+            sr.err = ec2 ? subida + ": " + ec2.message() : std::string();
+        } else {
+            const H::ScpInvocation inv = H::scpUpload(perfil, local.string(), subida, false);
+            sr = runExecStream(inv.program, inv.args, std::string(), 300000, StreamCallbacks{});
+        }
+        std::filesystem::remove(local, ec2);
+        if (sr.rc != 0) {
+            r.fallo = Failure::UploadFailed;
+            r.rc = sr.rc;
+            r.detail = trim(sr.err);
+            return r;
+        }
+        if (!T::runSsh(ses, perfil, cliInstallScriptWindows(binPath, subida), 300000, out, errSsh,
+                       rc, traza, traza, {}, {}, false, verboso)
+            || rc != 0) {
+            r.fallo = Failure::InstallFailed;
+            r.rc = rc;
+            r.detail = trim(errSsh.empty() ? out : errSsh);
+        }
+        return r;
+    }
     if (!T::runSsh(ses, perfil, H::withSudoCommand(perfil, cliInstallScript(binPath)), 300000, out,
                    errSsh, rc, traza, traza, {}, tar, false, verboso)
         || rc != 0) {

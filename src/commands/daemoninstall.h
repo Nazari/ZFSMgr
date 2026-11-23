@@ -120,6 +120,7 @@ struct CliProbe {
 CliProbe probeRemoteCli(TransportSession& ses, const ConnectionProfile& profile, bool verbose);
 // La sonda y su lectura, públicas para poder probarlas sin máquina.
 std::string cliProbeCommand();
+std::string cliProbeCommandWindows();
 CliProbe readCliProbe(const std::string& output);
 
 // Un tar (ustar) en memoria con esos ficheros: (nombre dentro del tar, ruta local). Vacío y
@@ -131,6 +132,7 @@ std::string tarArchive(const std::vector<std::pair<std::string, std::string>>& e
 // `binPath` y, a su lado, `<prefijo>/share/zfsmgr`, que es donde el CLI busca sus catálogos y
 // agentes. El binario se sustituye por renombrado, así que uno en marcha no se rompe.
 std::string cliInstallScript(const std::string& binPath);
+std::string cliInstallScriptWindows(const std::string& binPath, const std::string& upload);
 
 // Sube el kit y lo coloca. `cliBinary` es el de la plataforma de la otra punta; `i18nDir` y
 // `agentsDir`, los de este equipo.

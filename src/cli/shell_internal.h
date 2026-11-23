@@ -872,7 +872,7 @@ std::vector<std::string> trabajosEnCurso(Estado& e, const B::ConnectionProfile& 
 // que `install-daemon` pone al día también el CLI. Solo donde ya hay uno: instalarlo donde
 // nadie lo pidió no es actualizar.
 struct PlanCli {
-    enum class Accion { NoHay, Windows, Enlace, EsEste, AlDia, PorDelante, Actualizar, SinBinario };
+    enum class Accion { NoHay, Enlace, EsEste, AlDia, PorDelante, Actualizar, SinBinario };
     Accion accion{Accion::NoHay};
     B::daemoninstall::CliProbe sonda;
     std::string binario;  // el de su plataforma, en este equipo

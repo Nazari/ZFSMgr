@@ -186,7 +186,6 @@
     "t_cli_plan_este": "actualizado (es este mismo)",
     "t_cli_plan_no_hay": "no instalado",
     "t_cli_plan_sin_binario": "a actualizar, pero este equipo no tiene su CLI",
-    "t_cli_plan_windows": "no se usa en Windows",
     "t_clonado": "clonado %s -> %s\n",
     "t_clone_det1": "Un nombre RELATIVO cuelga del dataset del snapshot: estando en `tank/datos@ayer`, «clone copia» deja `tank/datos/copia`. Para ponerlo en otro sitio se da el nombre ZFS entero: «clone tank/copia».",
     "t_clone_det2": "El clon comparte los bloques con el snapshot, así que al principio no ocupa casi nada — y ese snapshot NO se puede destruir mientras el clon exista. Para romper esa atadura está «promote».",
