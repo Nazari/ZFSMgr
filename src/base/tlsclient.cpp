@@ -11,6 +11,9 @@
 #include <chrono>
 #include <cstring>
 #include <string>
+#include <condition_variable>
+#include <memory>
+#include <mutex>
 #include <thread>
 
 #ifdef _WIN32
@@ -19,7 +22,9 @@
 using SockT = SOCKET;
 constexpr SockT kSockInvalido = INVALID_SOCKET;
 #else
+#include <fcntl.h>
 #include <netdb.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -78,29 +83,120 @@ void ponTiempoLimite(SockT s, int ms) {
 #endif
 }
 
+// The name resolved within `ms`, or null. `getaddrinfo` cannot be told how long to try, and a
+// name the resolver does not know can take 30 s to come back as nothing (a FreeBSD VM asking
+// libvirt's DNS for «unib», 2026-11-23): one unknown peer took the whole `peers --check` past
+// the client's tunnel. The lookup runs in a thread of its own; if it is late, it is left to
+// finish by itself and its result is thrown away.
+addrinfo* resuelveConPlazo(const std::string& host, const std::string& puerto, int ms) {
+    struct Estado {
+        std::mutex m;
+        std::condition_variable cv;
+        bool hecho{false};
+        bool abandonado{false};
+        addrinfo* res{nullptr};
+    };
+    auto st = std::make_shared<Estado>();
+    std::thread([st, host, puerto] {
+        addrinfo pistas{};
+        pistas.ai_family = AF_UNSPEC;
+        pistas.ai_socktype = SOCK_STREAM;
+        addrinfo* res = nullptr;
+        if (getaddrinfo(host.c_str(), puerto.c_str(), &pistas, &res) != 0) {
+            res = nullptr;
+        }
+        std::lock_guard<std::mutex> lock(st->m);
+        if (st->abandonado) {
+            if (res) {
+                freeaddrinfo(res);
+            }
+            return;
+        }
+        st->res = res;
+        st->hecho = true;
+        st->cv.notify_all();
+    }).detach();
+    std::unique_lock<std::mutex> lock(st->m);
+    if (!st->cv.wait_for(lock, std::chrono::milliseconds(ms), [&] { return st->hecho; })) {
+        st->abandonado = true;
+        return nullptr;
+    }
+    return st->res;
+}
+
+// connect() that gives up after `ms`: non-blocking and waiting with poll. A blocking connect
+// with SO_SNDTIMEO is not bounded everywhere (BSD and macOS ignore it there).
+bool conectaConPlazo(SockT s, const sockaddr* addr, socklen_t len, int ms) {
+#ifdef _WIN32
+    u_long noBloquea = 1;
+    ioctlsocket(s, FIONBIO, &noBloquea);
+    int r = ::connect(s, addr, static_cast<int>(len));
+    bool ok = r == 0;
+    if (!ok && WSAGetLastError() == WSAEWOULDBLOCK) {
+        WSAPOLLFD p{};
+        p.fd = s;
+        p.events = POLLOUT;
+        if (WSAPoll(&p, 1, ms) == 1 && (p.revents & POLLOUT)) {
+            int err = 0;
+            int l = sizeof err;
+            ok = getsockopt(s, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&err), &l) == 0
+                 && err == 0;
+        }
+    }
+    noBloquea = 0;
+    ioctlsocket(s, FIONBIO, &noBloquea);
+    return ok;
+#else
+    const int fl = fcntl(s, F_GETFL, 0);
+    fcntl(s, F_SETFL, fl | O_NONBLOCK);
+    bool ok = ::connect(s, addr, len) == 0;
+    if (!ok && errno == EINPROGRESS) {
+        pollfd p{};
+        p.fd = s;
+        p.events = POLLOUT;
+        int r = 0;
+        do {
+            r = ::poll(&p, 1, ms);
+        } while (r < 0 && errno == EINTR);
+        if (r == 1 && (p.revents & POLLOUT)) {
+            int err = 0;
+            socklen_t l = sizeof err;
+            ok = getsockopt(s, SOL_SOCKET, SO_ERROR, &err, &l) == 0 && err == 0;
+        }
+    }
+    fcntl(s, F_SETFL, fl);
+    return ok;
+#endif
+}
+
 // Conecta por TCP, probando todas las direcciones que devuelva la resolución: una máquina
-// con IPv6 e IPv4 puede tener la primera caída y la segunda no.
+// con IPv6 e IPv4 puede tener la primera caída y la segunda no. Todo dentro de `timeoutMs`:
+// la resolución y cada intento comparten el mismo plazo.
 SockT conecta(const std::string& host, unsigned short port, int timeoutMs, std::string& error) {
 #ifdef _WIN32
     aseguraWinsock();
 #endif
-    addrinfo pistas{};
-    pistas.ai_family = AF_UNSPEC;
-    pistas.ai_socktype = SOCK_STREAM;
-    addrinfo* res = nullptr;
+    const auto limite = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+    const auto queda = [&limite] {
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            limite - std::chrono::steady_clock::now())
+                            .count();
+        return static_cast<int>(std::max<long long>(ms, 0));
+    };
     const std::string puerto = std::to_string(port);
-    if (getaddrinfo(host.c_str(), puerto.c_str(), &pistas, &res) != 0 || !res) {
+    addrinfo* res = resuelveConPlazo(host, puerto, timeoutMs);
+    if (!res) {
         error = agentmsg::inClientLanguage("tls_cannot_resolve", {host});
         return kSockInvalido;
     }
     SockT s = kSockInvalido;
-    for (addrinfo* it = res; it; it = it->ai_next) {
+    for (addrinfo* it = res; it && queda() > 0; it = it->ai_next) {
         s = socket(it->ai_family, it->ai_socktype, it->ai_protocol);
         if (s == kSockInvalido) {
             continue;
         }
-        ponTiempoLimite(s, timeoutMs);
-        if (::connect(s, it->ai_addr, static_cast<int>(it->ai_addrlen)) == 0) {
+        if (conectaConPlazo(s, it->ai_addr, static_cast<socklen_t>(it->ai_addrlen), queda())) {
+            ponTiempoLimite(s, timeoutMs);
             break;
         }
         cierra(s);
@@ -156,19 +252,14 @@ bool pemPrivateKeyIsValid(const std::string& pem) {
     return true;
 }
 
-bool tlsRequestLine(const TlsClientConfig& cfg,
-                    const std::string& requestLine,
-                    std::string& responseLine,
-                    std::string& error) {
+bool tlsRequestLine(const TlsClientConfig& cfg, const std::string& requestLine,
+                    std::string& responseLine, std::string& error) {
     TlsFailure f = TlsFailure::None;
     return tlsRequestLine(cfg, requestLine, responseLine, error, f, TlsRequestHooks{});
 }
 
-bool tlsRequestLine(const TlsClientConfig& cfg,
-                    const std::string& requestLine,
-                    std::string& responseLine,
-                    std::string& error,
-                    TlsFailure& failure,
+bool tlsRequestLine(const TlsClientConfig& cfg, const std::string& requestLine,
+                    std::string& responseLine, std::string& error, TlsFailure& failure,
                     const TlsRequestHooks& hooks) {
     responseLine.clear();
     error.clear();
@@ -345,9 +436,8 @@ bool tlsRequestLine(const TlsClientConfig& cfg,
                 (motivo == SSL_ERROR_SYSCALL
                  && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR));
 #endif
-            const bool soloEsperando =
-                (motivo == SSL_ERROR_WANT_READ || motivo == SSL_ERROR_WANT_WRITE
-                 || esperaDelSistema);
+            const bool soloEsperando = (motivo == SSL_ERROR_WANT_READ
+                                        || motivo == SSL_ERROR_WANT_WRITE || esperaDelSistema);
             if (!soloEsperando) {
                 break;  // el otro cerró de verdad: se acabó
             }

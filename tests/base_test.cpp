@@ -1948,6 +1948,24 @@ void caso34() {
         comprobar(ok, std::string("tls-lento: se espera la respuesta lenta (") + errT + ")");
         igual(resp, "{\"rc\":0}", "tls-lento: y llega entera");
         comprobar(ms > 1000, "tls-lento: se esperaron de verdad los 1200 ms, no se corto a los 300");
+
+        // A machine that does not answer the connection gives up within connectTimeoutMs:
+        // a blocking connect() was bounded only where SO_SNDTIMEO applies to it.
+        {
+            TC::TlsClientConfig nadie = cfg;
+            nadie.host = "10.255.255.1";  // routed nowhere: the SYN gets no answer
+            nadie.connectTimeoutMs = 800;
+            std::string r2;
+            std::string e2;
+            const auto t1 = std::chrono::steady_clock::now();
+            const bool ok2 = TC::tlsRequestLine(nadie, "{}\n", r2, e2);
+            const auto ms2 = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 std::chrono::steady_clock::now() - t1)
+                                 .count();
+            comprobar(!ok2 && ms2 < 2500,
+                      "tls-plazo: una maquina que no contesta se abandona en su plazo ("
+                          + std::to_string(ms2) + " ms)");
+        }
         comprobar(atendio.load(), "tls-lento: el servidor llego a atender");
 
         vivo = false;
