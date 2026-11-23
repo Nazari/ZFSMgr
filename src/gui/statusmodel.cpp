@@ -1,5 +1,7 @@
 #include "statusmodel.h"
 
+#include <QSet>
+
 #include "text.h"
 
 #include <QJsonArray>
@@ -108,6 +110,8 @@ Summary summarize(const QVector<MachineView>& ms) {
 
 QVector<Attention> attention(const QVector<MachineView>& ms) {
     QVector<Attention> out;
+    // ZFSMgr open elsewhere comes back from every machine that session reaches: once.
+    QSet<QString> sessions;
     for (const MachineView& m : ms) {
         if (!m.connected || !m.loaded) {
             continue;
@@ -120,6 +124,12 @@ QVector<Attention> attention(const QVector<MachineView>& ms) {
         }
         for (const QJsonValue& v : m.warnings()) {
             const QJsonObject w = v.toObject();
+            if (const QString sid = w.value(QStringLiteral("session")).toString(); !sid.isEmpty()) {
+                if (sessions.contains(sid)) {
+                    continue;
+                }
+                sessions.insert(sid);
+            }
             out.push_back({w.value(QStringLiteral("level")).toString() == QLatin1String("error"),
                            m.id, w.value(QStringLiteral("text")).toString()});
         }

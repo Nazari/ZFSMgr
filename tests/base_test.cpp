@@ -19,6 +19,7 @@
 #include "listings.h"
 #include "storefiles.h"
 #include "sessionlock.h"
+#include "sessions.h"
 #include "storewarnings.h"
 #include "connectionprofile.h"
 #include "copyspec.h"
@@ -5372,6 +5373,29 @@ void caso60() {
               "sesion: la lista, nada");
     comprobar(!S::hostName().empty() && S::hostName().find('.') == std::string::npos,
               "sesion: el nombre de la maquina, sin dominio");
+
+    // What the daemons answer, merged.
+    namespace SS = zfsmgr::commands::sessions;
+    const std::string deLocal =
+        "SESSION={\"id\":\"a1\",\"kind\":\"cli\",\"host\":\"unib\",\"user\":\"ana\","
+        "\"pid\":77,\"since\":1700000000,\"seen_ago\":12}\n"
+        "SESSION=esto no es json\n"
+        "SESSION={\"id\":\"b2\",\"kind\":\"gui\",\"host\":\"fc16\",\"user\":\"ana\","
+        "\"pid\":5,\"since\":1700000100,\"seen_ago\":3}\n"
+        "SESSIONS_COUNT=2\n";
+    const std::string deUnib =
+        "SESSION={\"id\":\"a1\",\"kind\":\"cli\",\"host\":\"unib\",\"user\":\"ana\","
+        "\"pid\":77,\"since\":1700000000,\"seen_ago\":4}\nSESSIONS_COUNT=1\n";
+    std::vector<SS::Session> todas = SS::parseList(deLocal, "local");
+    comprobar(todas.size() == 2 && todas[0].pid == 77
+                  && todas[0].machines == std::vector<std::string>{"local"},
+              "sesiones: se leen, y la linea ilegible se salta");
+    SS::merge(todas, SS::parseList(deUnib, "unib"));
+    comprobar(todas.size() == 2 && todas[0].seenAgo == 4
+                  && todas[0].machines == std::vector<std::string>{"local", "unib"},
+              "sesiones: la misma desde dos maquinas es una, con las dos y lo mas reciente");
+    const auto otras = SS::othersThan(todas, "fc16");
+    comprobar(otras.size() == 1 && otras[0].id == "a1", "sesiones: la de esta maquina es esta");
 }
 
 const Caso kCasos[] = {

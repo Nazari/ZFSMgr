@@ -905,6 +905,11 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
       {"cls",
        {"t_ej_cls_1", "limpia la pantalla; «clear» es la del pool"}},
      }},
+    {"sessions",
+     {
+      {"sessions",
+       {"t_ej_sessions_1", "quién más tiene ZFSMgr abierto, y a qué máquinas llega"}},
+     }},
     {"master-key",
      {
       {"master-key",
@@ -1699,6 +1704,18 @@ const std::vector<Orden> kOrdenes = {
      {}, {{"t_cls_det", "Se llama «cls» y no «clear» porque `clear` ya existe y es la del pool: pone a "
       "cero sus contadores de error. Escribir `clear` esperando limpiar el terminal es "
       "fácil y no era inocuo, así que aquélla pregunta antes."}}},
+    {"sessions", {"t_del_int_rp_d5d82a", "Del intérprete"}, {"", ""},
+     {"t_ses_res", "Quién más tiene ZFSMgr abierto: interfaces e intérpretes de otras máquinas."},
+     {},
+     {{"t_ses_det1", "Cada sesión —la interfaz, o este intérprete en un terminal— se anuncia cada "
+       "30 s a los daemons de todas las máquinas a las que llega, y se despide al terminar. "
+       "Esta orden les pregunta a todos y junta lo que dicen: la misma sesión vista desde "
+       "varias máquinas sale una vez, con todas ellas en LLEGA A."},
+      {"t_ses_det2", "Una sesión que se cuelga o cuya máquina se apaga deja de anunciarse, y a "
+       "los 90 s los daemons la olvidan solos. En cada máquina solo puede haber una sesión a la "
+       "vez, así que la de esta máquina es esta (ESTA = sí)."}},
+     Objetivo::None_,
+     {}},
     {"master-key", {"t_del_int_rp_d5d82a", "Del intérprete"},
      {"t_mk_uso_c", "[list|add [--label <nombre>]|remove <N>]"},
      {"t_mk_res2", "Llaves de seguridad FIDO2 que abren ZFSMgr además de la contraseña maestra."},

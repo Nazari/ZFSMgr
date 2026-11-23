@@ -38,6 +38,7 @@
 #include "advanced.h"
 #include "listings.h"
 #include "requests.h"
+#include "sessions.h"
 #include "pools.h"
 #include "snapshots.h"
 #include "datasets.h"
@@ -438,6 +439,29 @@ std::string horaLocal(long long epoch);
 std::string motivoDeFallo(const std::string& conexion, const B::gsa::DatasetState& d,
                           long long ultimaPasada);
 bool cmdScheduleStatus(Estado& e, const LineaAnalizada& linea);
+// The other interactive sessions —interfaces and CLI shells on a terminal—, as the daemons of
+// every connected machine say, merged (shell_sessions.cpp). Each machine in its own thread and
+// background session: one that is off costs its own timeout only.
+std::vector<zfsmgr::commands::sessions::Session> sesionesEnLaRed(const Sesion& ses,
+                                                                 const Conexiones& conns,
+                                                                 int timeoutMs);
+// «the zfsmgr-cli shell of ana on unib (PID 77, since 17:41)».
+std::string describeSesion(const zfsmgr::commands::sessions::Session& s);
+// The warning for a person, the same in the shell, in `overview` and in the interface.
+std::string avisoDeSesion(const zfsmgr::commands::sessions::Session& s);
+bool cmdSessions(Estado& e, const LineaAnalizada& linea);
+
+// At start, in the background: if ZFSMgr is open on another machine that reaches the same
+// daemons, one line says so (through `encolaAviso`, like the schedules' check).
+class AvisoDeSesiones {
+public:
+    AvisoDeSesiones(const Sesion& ses, const Conexiones& conns);
+    ~AvisoDeSesiones();
+
+private:
+    std::thread m_hilo;
+};
+
 // The STARTUP check: the state of every connection's schedules, in the background, and one
 // line that sums it up. Otherwise a levelling failing for days only shows in the agent's log.
 //

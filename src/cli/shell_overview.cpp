@@ -4,6 +4,7 @@
 // person's attention, already written. The CLI decides what is a warning, so no client has
 // to: a panel only shows them.
 
+#include "sessionlock.h"
 #include "shell_internal.h"
 
 #include <algorithm>
@@ -22,11 +23,16 @@ struct Warning {
     std::string connection;
     std::string subject;  // «machine», «daemon», «pool <name>», «schedule <dataset>»
     std::string text;
+    // For subject «session»: the session's id. Asked machine by machine, the same session
+    // comes back from each one that knows it; a client shows it once.
+    std::string session{};
 };
 
 struct MachineView {
     J::Value json{J::Object{}};
     std::vector<Warning> warnings;
+    // The interactive sessions its daemon knows of (presence.h), merged afterwards.
+    std::vector<zfsmgr::commands::sessions::Session> sessions;
 };
 
 // «70%» → 70; -1 when it is not a percentage.
@@ -309,6 +315,14 @@ MachineView viewOf(Sesion& ses, const B::ConnectionProfile& p) {
     }
     m.json.set("jobs", jobs);
 
+    // Who has ZFSMgr open and reaches this machine. Read here, with the rest of the machine;
+    // the warnings are written once all machines are in (cmdOverview), one per session.
+    out.clear();
+    err.clear();
+    if (ejecutarAgente(ses, p, PET::sessionList(), out, err, rc, &why, 8000) && rc == 0) {
+        m.sessions = zfsmgr::commands::sessions::parseList(out, id);
+    }
+
     std::string status = "ok";
     for (const Warning& w : m.warnings) {
         if (w.level == "error") {
@@ -376,8 +390,17 @@ bool cmdOverview(Estado& e, const LineaAnalizada& linea) {
     }
 
     std::vector<Warning> warnings;
+    std::vector<zfsmgr::commands::sessions::Session> sessions;
     for (const MachineView& v : views) {
         warnings.insert(warnings.end(), v.warnings.begin(), v.warnings.end());
+        zfsmgr::commands::sessions::merge(sessions, v.sessions);
+    }
+    // ZFSMgr open on another machine: one warning per session, however many machines know
+    // it. The one on this machine is this one (one session per machine).
+    sessions = zfsmgr::commands::sessions::othersThan(sessions, zfsmgr::base::session::hostName());
+    for (const auto& s : sessions) {
+        warnings.push_back({"warning", s.machines.empty() ? std::string() : s.machines.front(),
+                            "session", avisoDeSesion(s), s.id});
     }
     std::stable_sort(warnings.begin(), warnings.end(), [](const Warning& a, const Warning& b) {
         return a.level == "error" && b.level != "error";
@@ -397,9 +420,30 @@ bool cmdOverview(Estado& e, const LineaAnalizada& linea) {
             wv.set("connection", J::Value(w.connection));
             wv.set("subject", J::Value(w.subject));
             wv.set("text", J::Value(w.text));
+            if (!w.session.empty()) {
+                wv.set("session", J::Value(w.session));
+            }
             ws.push(wv);
         }
         doc.set("warnings", ws);
+        J::Value ss{J::Array{}};
+        for (const auto& s : sessions) {
+            J::Value sv{J::Object{}};
+            sv.set("id", J::Value(s.id));
+            sv.set("kind", J::Value(s.kind));
+            sv.set("host", J::Value(s.host));
+            sv.set("user", J::Value(s.user));
+            sv.set("pid", J::Value(static_cast<double>(s.pid)));
+            sv.set("since", J::Value(static_cast<double>(s.since)));
+            sv.set("seen_ago", J::Value(static_cast<double>(s.seenAgo)));
+            J::Value ms{J::Array{}};
+            for (const std::string& m : s.machines) {
+                ms.push(J::Value(m));
+            }
+            sv.set("machines", ms);
+            ss.push(sv);
+        }
+        doc.set("sessions", ss);
         std::printf("%s\n", J::toIndented(doc).c_str());
         return true;
     }

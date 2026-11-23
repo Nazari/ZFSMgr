@@ -563,6 +563,7 @@ const std::map<std::string, Manejador>& ordenesDelInterprete() {
         {"schedule", cmdSchedule},
         {"schedules", cmdSchedules},
         {"overview", cmdOverview},
+        {"sessions", cmdSessions},
         {"probe", cmdProbe},
         {"log", cmdLog},
         {"peers", cmdPeers},
@@ -929,6 +930,12 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
     // on, that is, for the shell on a terminal.
     std::unique_ptr<Presencia> presencia = anunciaPresencia(ses, e.conns);
     std::string huellaPresencia = Presencia::huella(e.conns);
+    // And whether ZFSMgr is open on another machine that reaches the same daemons: one line,
+    // when the daemons have answered.
+    std::unique_ptr<AvisoDeSesiones> avisoSesiones;
+    if (presencia) {
+        avisoSesiones = std::make_unique<AvisoDeSesiones>(ses, e.conns);
+    }
     if (interactivo) {
         std::fputs(TC("t_zfsmgr_cli_44809f",
                       "zfsmgr-cli — «help» lista las órdenes y «help <orden>» explica una.\n"

@@ -192,7 +192,12 @@ Un campo nuevo se puede añadir sin avisar. Quitar o renombrar uno es un cambio 
     }
   ],
   "warnings": [{"level": "warning", "connection": "local", "subject": "pool sback",
-                "text": "el pool sback de local funciona con algún disco que falta o falla: …"}]
+                "text": "el pool sback de local funciona con algún disco que falta o falla: …"},
+               {"level": "warning", "connection": "local", "subject": "session",
+                "session": "3f9c0a7e51d2b864",
+                "text": "ZFSMgr también está abierto en otra máquina: …"}],
+  "sessions": [{"id": "3f9c0a7e51d2b864", "kind": "cli", "host": "unib", "user": "linarese",
+                "pid": 4242, "since": 1795450000, "seen_ago": 12, "machines": ["local"]}]
 }
 ```
 
@@ -206,6 +211,11 @@ Un campo nuevo se puede añadir sin avisar. Quitar o renombrar uno es un cambio 
   decide el CLI: el cliente solo los enseña.
 - Para un panel, mejor `overview <conexión>` en el `--serve` de cada máquina, en paralelo, que
   un solo `overview -a`: así una máquina apagada no retrasa a las demás.
+- `sessions`: las sesiones interactivas de OTRAS máquinas —interfaces e intérpretes del CLI en
+  un terminal— que conocen los daemons preguntados (ver «Presencia» en docs/daemonize.md); la
+  de esta máquina no sale, porque en cada máquina solo hay una y es esta. Cada una lleva su
+  aviso, de `subject` `session` y con su id en `session`: preguntando máquina a máquina, la
+  misma sesión vuelve de cada máquina a la que llega, y el cliente la enseña UNA vez.
 
 ### `probe`
 

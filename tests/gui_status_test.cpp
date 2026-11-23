@@ -84,6 +84,24 @@ int main(int argc, char** argv) {
     check(ago(100000 - 30, 100000) == QLatin1String("30 s ago"), "seconds");
     check(ago(100000 - 7200, 100000) == QLatin1String("2 h ago"), "hours");
 
+    // ZFSMgr open on another machine comes back from every machine it reaches: once.
+    {
+        QVector<MachineView> two = machinesFromLs(QString::fromUtf8(kLs));
+        const char* sesA = R"({"machines":[{"connection":"local","reachable":true}],
+          "warnings":[{"level":"warning","connection":"local","subject":"session",
+                       "text":"S1","session":"abc"}]})";
+        const char* sesB = R"({"machines":[{"connection":"unib","reachable":true}],
+          "warnings":[{"level":"warning","connection":"unib","subject":"session",
+                       "text":"S1","session":"abc"},
+                      {"level":"warning","connection":"unib","subject":"session",
+                       "text":"S2","session":"xyz"}]})";
+        applyOverview(two[0], QString::fromUtf8(sesA));
+        applyOverview(two[1], QString::fromUtf8(sesB));
+        const QVector<Attention> b = attention(two);
+        check(b.size() == 2 && b[0].text == QLatin1String("S1") && b[1].text == QLatin1String("S2"),
+              "a session seen from two machines is one warning");
+    }
+
     // A failed request (no JSON) leaves the machine marked as failing, not as fine.
     MachineView broken;
     broken.connected = true;

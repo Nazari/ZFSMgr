@@ -259,6 +259,7 @@ add_library(zfsmgr_commands STATIC
     ../src/commands/daemoninstall.cpp
     ../src/commands/daemoninstall.h
     ../src/commands/requests.cpp
+    ../src/commands/sessions.cpp
     ../src/commands/zfsallow.cpp
     ../src/commands/zfsallow.h
     ../src/commands/transfer.cpp
@@ -541,6 +542,7 @@ add_executable(zfsmgr-cli
     ../src/cli/shell_admin.cpp
     ../src/cli/shell_masterkey.cpp
     ../src/cli/presence.cpp
+    ../src/cli/shell_sessions.cpp
     ../src/cli/shell_schedules.cpp
     ../src/cli/shell_overview.cpp
     ../src/cli/shell_probe.cpp
