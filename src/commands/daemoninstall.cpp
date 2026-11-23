@@ -47,9 +47,50 @@ std::string labelOf(Failure f) {
             return i18n::tr("t_cmd_daemoninstall_instalacion_fallo_maquina", "la instalación falló en la máquina");
         case Failure::UnsupportedOpenZfs:
             return i18n::tr("t_cmd_daemoninstall_esa_maquina_tiene_version", "esa máquina no tiene una versión de OpenZFS con la que esto funcione");
+        case Failure::BlockedByAntivirus:
+            return i18n::tr("t_cmd_daemoninstall_antivirus",
+                            "el antivirus ha bloqueado el agente (en Windows, Defender lo da por "
+                            "amenaza: excluya C:\\ProgramData\\ZFSMgr\\agent, la carpeta "
+                            "agents del paquete y C:\\Users\\Public\\zfsmgr-agent.upload, o "
+                            "notifique el falso positivo)");
     }
     return {};
 }
+
+namespace {
+
+// What the Windows install script (daemonpayload.cpp) says when it fails, in words. An
+// unknown answer is passed on as it came.
+void windowsInstallFailure(const std::string& out, const std::string& err, int rc, Result& r) {
+    r.rc = rc;
+    if (out.find("ZFSMGR_WIN_AGENT_AV_BLOCKED") != std::string::npos) {
+        r.fallo = Failure::BlockedByAntivirus;
+        r.detail = DP::windowsBinPath();
+        return;
+    }
+    r.fallo = Failure::InstallFailed;
+    const auto dice = [&](const char* marca) { return out.find(marca) != std::string::npos; };
+    if (dice("ZFSMGR_WIN_AGENT_UPLOAD_MISSING")) {
+        r.detail = i18n::tr("t_win_ag_no_llego", "el binario no llegó a la máquina");
+    } else if (dice("ZFSMGR_WIN_AGENT_MOVE_FAIL")) {
+        r.detail = i18n::tr("t_win_ag_mover", "no se pudo poner el binario en su sitio");
+    } else if (dice("ZFSMGR_WIN_AGENT_TLS_FAIL")) {
+        r.detail = i18n::tr("t_win_ag_tls", "el agente no arrancó para preparar su TLS");
+    } else if (dice("ZFSMGR_WIN_AGENT_TASK_FAIL")) {
+        r.detail = i18n::tr("t_win_ag_tarea", "no se pudo crear la tarea programada del daemon");
+    } else if (dice("ZFSMGR_WIN_AGENT_NOT_RUNNING")) {
+        r.detail = i18n::tr("t_win_ag_no_arranca", "el daemon quedó instalado pero no arranca");
+    } else {
+        r.detail = trim(err.empty() ? out : err);
+        return;
+    }
+    const std::string resto = trim(err);
+    if (!resto.empty()) {
+        r.detail += ": " + resto;
+    }
+}
+
+}  // namespace
 
 std::string platformOf(const ConnectionProfile& p) {
     if (T::isWindowsConnection(p)) {
@@ -359,10 +400,8 @@ Result install(TransportSession& ses, const ConnectionProfile& perfil,
         }
         if (!T::runSsh(ses, perfil, H::withSudoCommand(perfil, DP::windowsNativeInstallCommand()),
                        300000, out, err, rc, traza, traza, {}, {}, false, verboso)
-            || rc != 0) {
-            r.fallo = Failure::InstallFailed;
-            r.rc = rc;
-            r.detail = trim(err.empty() ? out : err);
+            || rc != 0 || out.find("ZFSMGR_WIN_AGENT_OK") == std::string::npos) {
+            windowsInstallFailure(out, err, rc, r);
             return r;
         }
         if (traza && out.find("ZFSMGR_WIN_AGENT_POWER_WARN") != std::string::npos) {
@@ -719,7 +758,11 @@ Result installLocal(const std::string& plataforma, const std::string& rutaBinari
     const bool windows = (plataforma == "windows");
     const std::string contenido = leeFicheroEntero(rutaBinario);
     if (contenido.empty()) {
-        r.fallo = Failure::UnreadableBinary;
+        // There, with bytes, and nothing comes out: something stands between —an antivirus
+        // that has quarantined it reads as exactly this—.
+        std::error_code ec;
+        const auto tam = std::filesystem::file_size(rutaBinario, ec);
+        r.fallo = (!ec && tam > 0) ? Failure::BlockedByAntivirus : Failure::UnreadableBinary;
         r.detail = rutaBinario;
         return r;
     }
@@ -764,9 +807,7 @@ Result installLocal(const std::string& plataforma, const std::string& rutaBinari
         }
         const ExecResult ej = runLocalPowerShell(DP::windowsNativeInstallCommand());
         if (ej.rc != 0 || ej.out.find("ZFSMGR_WIN_AGENT_OK") == std::string::npos) {
-            r.fallo = Failure::InstallFailed;
-            r.rc = ej.rc;
-            r.detail = trim(ej.err.empty() ? ej.out : ej.err);
+            windowsInstallFailure(ej.out, ej.err, ej.rc, r);
             return r;
         }
         if (traza && ej.out.find("ZFSMGR_WIN_AGENT_POWER_WARN") != std::string::npos) {

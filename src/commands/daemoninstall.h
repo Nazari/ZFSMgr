@@ -29,13 +29,16 @@ namespace zfsmgr::base::daemoninstall {
 // it», which is not.
 enum class Failure {
     None_,
-    UnreadableBinary,     // the path does not exist, or the file is empty
-    UploadFailed,         // the scp, or the local copy, failed
-    InstallFailed,        // the script ran and returned something other than 0
+    UnreadableBinary,  // the path does not exist, or the file is empty
+    UploadFailed,      // the scp, or the local copy, failed
+    InstallFailed,     // the script ran and returned something other than 0
     // La otra máquina no tiene una versión de OpenZFS con la que esto funcione. Se mira
     // ANTES de subir nada: instalar un agente donde no hay ZFS da una máquina que contesta
     // STATUS=OK y no ve un solo pool, que es la peor forma de no funcionar.
     UnsupportedOpenZfs,
+    // An antivirus took the agent: the file is there and cannot be read, or Windows Defender
+    // reported it while installing. `detail` says which file.
+    BlockedByAntivirus,
 };
 
 std::string labelOf(Failure f);

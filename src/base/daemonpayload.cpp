@@ -61,8 +61,17 @@ std::string windowsNativeInstallCommand() {
             // ahí cuando la tarea todavía no existe —que es el caso normal en la primera
             // instalación—. Se comprueban explícitamente los pasos que sí importan.
             "$dir='%1'; $bin='%2'; $task='%3'; $up='%4'; "
-            "if (-not (Test-Path -LiteralPath $up)) { Write-Error 'the binary did not arrive'; "
-            "exit 1 } "
+            // Whether an antivirus took the agent in the last minutes: Windows Defender's
+            // machine-learning detection has quarantined a fresh build (2026-11-23,
+            // Trojan:Win32/Bearfoos.A!ml) the moment it reached its place, and every step after
+            // that failed in a way that looked like success. Without Defender, false.
+            "function AvTook { try { @(Get-MpThreatDetection -ErrorAction Stop | Where-Object { "
+            "$_.InitialDetectionTime -gt (Get-Date).AddMinutes(-10) -and ($_.Resources -join ' ') "
+            "-like '*zfsmgr*agent*' }).Count -gt 0 } catch { $false } }; "
+            "function Fail([string]$m) { if (AvTook) { Write-Output 'ZFSMGR_WIN_AGENT_AV_BLOCKED' "
+            "} "
+            "else { Write-Output $m }; exit 1 }; "
+            "if (-not (Test-Path -LiteralPath $up)) { Fail 'ZFSMGR_WIN_AGENT_UPLOAD_MISSING' } "
             "New-Item -ItemType Directory -Force -Path $dir | Out-Null; "
             "cmd /c \"schtasks /End /TN $task >nul 2>&1\" | Out-Null; "
             "cmd /c \"schtasks /Delete /F /TN $task >nul 2>&1\" | Out-Null; "
@@ -70,10 +79,12 @@ std::string windowsNativeInstallCommand() {
             "-Force; "
             "Start-Sleep -Milliseconds 500; "
             "Move-Item -Force -LiteralPath $up -Destination $bin; "
-            "if (-not (Test-Path -LiteralPath $bin)) { Write-Output 'ZFSMGR_WIN_AGENT_MOVE_FAIL'; "
-            "exit 1 } "
-            "& $bin --ensure-tls | Out-Null; "
-            "if ($LASTEXITCODE -ne 0) { Write-Output 'ZFSMGR_WIN_AGENT_TLS_FAIL'; exit 1 } "
+            "if (-not (Test-Path -LiteralPath $bin)) { Fail 'ZFSMGR_WIN_AGENT_MOVE_FAIL' } "
+            // A binary that cannot be started THROWS instead of setting $LASTEXITCODE, which
+            // keeps the 0 of an earlier schtasks: the exit code is taken only when it ran.
+            "$rc = 1; try { & $bin --ensure-tls | Out-Null; $rc = $LASTEXITCODE } catch { $rc = 1 "
+            "}; "
+            "if ($rc -ne 0) { Fail 'ZFSMGR_WIN_AGENT_TLS_FAIL' } "
             // [char]34 en vez de comillas escapadas: este texto atraviesa el literal de
             // C++, el envoltorio de shell y el -Command de PowerShell, y en cada capa se
             // reinterpretan los escapes. Así no depende de ninguna.
@@ -97,6 +108,7 @@ std::string windowsNativeInstallCommand() {
             "$q=[char]34; $action=$q + $bin + $q + ' --serve'; "
             "schtasks /Create /SC ONSTART /RL HIGHEST /RU SYSTEM /TN $task /TR $action /F | "
             "Out-Null; "
+            "if ($LASTEXITCODE -ne 0) { Fail 'ZFSMGR_WIN_AGENT_TASK_FAIL' } "
             // A task's default settings are for a chore, not a service: Windows STOPS it when
             // a laptop goes on battery and does not start it on battery, stops it after 72
             // hours, and never restarts it. a1278 —a MacBook Pro— lost its daemon on a power
@@ -111,6 +123,12 @@ std::string windowsNativeInstallCommand() {
             "if ((Get-ScheduledTask -TaskName $task).Settings.StopIfGoingOnBatteries) { "
             "Write-Output 'ZFSMGR_WIN_AGENT_POWER_WARN' } "
             "schtasks /Run /TN $task | Out-Null; "
+            // Installed is not running: it is OK only once the process is up (10 s at most).
+            "$up2 = $false; for ($i = 0; $i -lt 20; $i++) { Start-Sleep -Milliseconds 500; "
+            "if (Get-Process -Name zfsmgr-agent -ErrorAction SilentlyContinue) { $up2 = $true; "
+            "break } }; "
+            "if (-not $up2 -or -not (Test-Path -LiteralPath $bin)) { "
+            "Fail 'ZFSMGR_WIN_AGENT_NOT_RUNNING' } "
             "Write-Output 'ZFSMGR_WIN_AGENT_OK'; exit 0"),
         {windowsDirPath(), windowsBinPath(), windowsTaskName(), windowsUploadPath()});
 }

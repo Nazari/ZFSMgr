@@ -1,6 +1,12 @@
 {
   "language": "es",
   "translations": {
+    "t_cmd_daemoninstall_antivirus": "el antivirus ha bloqueado el agente (en Windows, Defender lo da por amenaza: excluya C:\\ProgramData\\ZFSMgr\\agent, la carpeta agents del paquete y C:\\Users\\Public\\zfsmgr-agent.upload, o notifique el falso positivo)",
+    "t_win_ag_no_llego": "el binario no llegó a la máquina",
+    "t_win_ag_mover": "no se pudo poner el binario en su sitio",
+    "t_win_ag_tls": "el agente no arrancó para preparar su TLS",
+    "t_win_ag_tarea": "no se pudo crear la tarea programada del daemon",
+    "t_win_ag_no_arranca": "el daemon quedó instalado pero no arranca",
     "t_a_qui_n_1cc417": "A quién.",
     "t_a_todos_2ed0f3": "A todos.",
     "t_a_un_conju_58094e": "A un conjunto con nombre.",

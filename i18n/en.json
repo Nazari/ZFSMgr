@@ -1,6 +1,12 @@
 {
   "language": "en",
   "translations": {
+    "t_cmd_daemoninstall_antivirus": "the antivirus blocked the agent (on Windows, Defender flags it as a threat: exclude C:\\ProgramData\\ZFSMgr\\agent, the package's agents folder and C:\\Users\\Public\\zfsmgr-agent.upload, or report the false positive)",
+    "t_win_ag_no_llego": "the binary did not reach the machine",
+    "t_win_ag_mover": "the binary could not be put in place",
+    "t_win_ag_tls": "the agent did not start to set up its TLS",
+    "t_win_ag_tarea": "the daemon's scheduled task could not be created",
+    "t_win_ag_no_arranca": "the daemon was installed but does not start",
     "t_pr_det3": "In JSON every state is a fixed code: sudo (ok, wrong_password, needs_password, missing, could_not_check, not_used), openzfs (ok, too_old, not_loaded, missing, unknown), daemon (ok, outdated, latest, ahead, unknown, unreachable).",
     "t_sin_sudo_freebsd": " On FreeBSD, as root: «pkg install sudo», and with «visudo» remove the # from the line «%wheel ALL=(ALL:ALL) ALL» (%1 has to be in the wheel group: «pw groupmod wheel -m %1»).",
     "t_sin_sudo": "%1 has no sudo installed, and the connection says it needs it: install it and let %2 use it, or take sudo off the connection («edit zfsm://%1 --no-sudo») if %2 can already manage ZFS.%3",

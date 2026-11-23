@@ -283,6 +283,11 @@ bool cmdInstalarDaemon(Estado& e, const LineaAnalizada& linea) {
                          r.detail.c_str());
             return false;
         }
+        if (r.fallo == DI::Failure::BlockedByAntivirus) {
+            std::fprintf(stderr, "%s: %s\n", DI::labelOf(r.fallo).c_str(), r.detail.c_str());
+            e.ultimoRc = 1;
+            return false;
+        }
         if (H::looksLikeSudoMissing(r.detail)) {
             std::fprintf(stderr, "%s\n", remedioSinSudo(perfil).c_str());
             e.ultimoRc = 1;
