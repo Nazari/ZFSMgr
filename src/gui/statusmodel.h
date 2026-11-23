@@ -42,6 +42,8 @@ struct Attention {
     bool error{false};
     QString connection;
     QString text;
+    QString subject;      // «machine», «daemon», «pool <name>», «session»…
+    QString sessionHost;  // for «session»: the machine it runs on, for `sessions close`
 };
 
 struct ScheduleRow {

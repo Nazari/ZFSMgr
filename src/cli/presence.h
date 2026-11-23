@@ -9,6 +9,7 @@
 // Each machine gets its own thread and its OWN background session, as the status monitor
 // does: one that is off costs its own timeout, never the others' nor the shell's.
 
+#include <functional>
 #include <memory>
 #include <string>
 
@@ -24,6 +25,11 @@ bool presenceOn();
 // The same for the whole process, across rebuilds: the daemons see one session, not one per
 // change of connections.
 const std::string& presenceId();
+
+// What to do when someone asks this session to close (`sessions close`): the daemons say so in
+// their answer to the next announcement. Called ONCE per process, from a presence thread, with
+// who asked: the shell finishes at its prompt, the interface's service tells the interface.
+void setOnCloseAsked(std::function<void(const std::string& host, const std::string& user)> f);
 
 class Presencia {
 public:

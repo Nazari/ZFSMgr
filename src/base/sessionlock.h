@@ -69,6 +69,18 @@ enum class Stop {
     Failed,        // `detail` says why
 };
 
+// The executable a process runs, as a full path; empty if it cannot be known (gone, or not
+// ours to look at).
+std::string processImage(long long pid);
+
+// Whether that executable is an interactive ZFSMgr —the interface or the CLI—, never the
+// agent: what a daemon may be asked to end (`--session-kill`).
+bool isSessionProgram(const std::string& image);
+
+// Ends a process: asked first (SIGTERM) and forced after `graceMs` (SIGKILL); on Windows it is
+// terminated straight away. Stopped when it is gone.
+Stop endProcess(long long pid, int graceMs, std::string& detail);
+
 // Ends the process holding the session: asked first (SIGTERM) and forced after a few seconds
 // (SIGKILL); on Windows it is terminated straight away. Only while it still holds the lock and
 // is the same process the file named, so a PID reused meanwhile is never touched.

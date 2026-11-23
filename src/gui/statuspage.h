@@ -29,9 +29,13 @@ Q_SIGNALS:
     // How many things need attention, for the navigation badge.
     void attentionChanged(int count);
     void machineRequested(const QString& id);
+    // A line for the status bar: what an action did.
+    void message(const QString& text);
 
 private:
     void render();
+    // `sessions close <host> [--force]`: the CLI asks first.
+    void closeSession(const QString& host, bool force);
     void updateAgo();
 
     StateStore* m_store;

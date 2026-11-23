@@ -131,7 +131,9 @@ QVector<Attention> attention(const QVector<MachineView>& ms) {
                 sessions.insert(sid);
             }
             out.push_back({w.value(QStringLiteral("level")).toString() == QLatin1String("error"),
-                           m.id, w.value(QStringLiteral("text")).toString()});
+                           m.id, w.value(QStringLiteral("text")).toString(),
+                           w.value(QStringLiteral("subject")).toString(),
+                           w.value(QStringLiteral("host")).toString()});
         }
     }
     std::stable_sort(out.begin(), out.end(),

@@ -141,6 +141,17 @@ Uno por línea, en la salida estándar.
 - Se contesta con `{"id":7,"secret":"…"}`, o `{"id":7,"secret":null}` para no darlo.
 - Una misma orden puede pedir varios: la frase de cifrado se pide dos veces.
 
+### `close_asked`: piden que esta sesión se cierre
+
+```json
+{"type":"close_asked","host":"unib","user":"ana"}
+```
+
+Solo en el servicio arrancado con `--presence`. Alguien, desde otra máquina, ha pedido con
+`sessions close <esta máquina>` que la sesión se cierre: `host` y `user` dicen quién. Llega como
+mucho una vez, en cualquier momento —también entre una petición y su `result`—. Qué hacer lo
+decide la interfaz: decírselo a la persona y cerrarse, salvo que elija seguir.
+
 ## Configuración compartida
 
 El servicio lee `config.json` al arrancar, y **vuelve a leerlo** antes y después de cada

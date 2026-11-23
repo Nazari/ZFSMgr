@@ -17,6 +17,12 @@
 #include <sys/file.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#if defined(__APPLE__)
+#include <libproc.h>
+#elif defined(__FreeBSD__)
+#include <sys/sysctl.h>
+#include <sys/types.h>
+#endif
 #endif
 
 namespace zfsmgr::base::session {
@@ -418,6 +424,125 @@ void Lock::release() {
         ::close(m_fd);
         m_fd = -1;
     }
+#endif
+}
+
+std::string processImage(long long pid) {
+    if (pid <= 0) {
+        return {};
+    }
+#ifdef _WIN32
+    HANDLE p = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, static_cast<DWORD>(pid));
+    if (!p) {
+        return {};
+    }
+    wchar_t buf[MAX_PATH * 2];
+    DWORD n = MAX_PATH * 2;
+    std::string out;
+    if (QueryFullProcessImageNameW(p, 0, buf, &n)) {
+        out = narrow(std::wstring(buf, n));
+    }
+    CloseHandle(p);
+    return out;
+#elif defined(__APPLE__)
+    char buf[PROC_PIDPATHINFO_MAXSIZE];
+    const int n = proc_pidpath(static_cast<int>(pid), buf, sizeof buf);
+    return n > 0 ? std::string(buf, static_cast<std::size_t>(n)) : std::string();
+#elif defined(__FreeBSD__)
+    int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, static_cast<int>(pid)};
+    char buf[1024];
+    size_t n = sizeof buf;
+    if (::sysctl(mib, 4, buf, &n, nullptr, 0) != 0 || n == 0) {
+        return {};
+    }
+    return std::string(buf, ::strnlen(buf, n));
+#else
+    char buf[4096];
+    const std::string link = "/proc/" + std::to_string(pid) + "/exe";
+    const ssize_t n = ::readlink(link.c_str(), buf, sizeof buf - 1);
+    if (n <= 0) {
+        return {};
+    }
+    std::string out(buf, static_cast<std::size_t>(n));
+    // A binary replaced while it runs —an update— reads «… (deleted)».
+    const std::string borrado = " (deleted)";
+    if (out.size() > borrado.size()
+        && out.compare(out.size() - borrado.size(), borrado.size(), borrado) == 0) {
+        out.resize(out.size() - borrado.size());
+    }
+    return out;
+#endif
+}
+
+bool isSessionProgram(const std::string& image) {
+    std::size_t slash = image.find_last_of("/\\");
+    std::string name = slash == std::string::npos ? image : image.substr(slash + 1);
+    for (char& c : name) {
+        if (c >= 'A' && c <= 'Z') {
+            c = static_cast<char>(c - 'A' + 'a');
+        }
+    }
+    if (name.size() > 4 && name.compare(name.size() - 4, 4, ".exe") == 0) {
+        name.resize(name.size() - 4);
+    }
+    // «ZFSMgr» is the interface inside ZFSMgr.app on macOS.
+    return name == "zfsmgr-cli" || name == "zfsmgr-gui" || name == "zfsmgr";
+}
+
+Stop endProcess(long long pid, int graceMs, std::string& detail) {
+    if (pid <= 0) {
+        detail = "no process";
+        return Stop::Failed;
+    }
+#ifdef _WIN32
+    (void)graceMs;
+    HANDLE p = OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, static_cast<DWORD>(pid));
+    if (!p) {
+        if (GetLastError() == ERROR_ACCESS_DENIED) {
+            return Stop::NotAllowed;
+        }
+        return Stop::Stopped;  // gone already
+    }
+    const bool ok = TerminateProcess(p, 1) != 0;
+    const DWORD e = GetLastError();
+    const bool gone = WaitForSingleObject(p, 5000) == WAIT_OBJECT_0;
+    CloseHandle(p);
+    if (!ok && !gone) {
+        if (e == ERROR_ACCESS_DENIED) {
+            return Stop::NotAllowed;
+        }
+        detail = "error " + std::to_string(static_cast<unsigned long>(e));
+        return Stop::Failed;
+    }
+    return gone ? Stop::Stopped : Stop::StillRunning;
+#else
+    const pid_t p = static_cast<pid_t>(pid);
+    const auto alive = [p] { return ::kill(p, 0) == 0 || errno == EPERM; };
+    if (::kill(p, SIGTERM) != 0) {
+        if (errno == ESRCH) {
+            return Stop::Stopped;
+        }
+        if (errno == EPERM) {
+            return Stop::NotAllowed;
+        }
+        detail = std::strerror(errno);
+        return Stop::Failed;
+    }
+    const auto waitGone = [&](int ms) {
+        const auto limit = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
+        while (std::chrono::steady_clock::now() < limit) {
+            if (!alive()) {
+                return true;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+        return !alive();
+    };
+    if (waitGone(graceMs)) {
+        return Stop::Stopped;
+    }
+    ::kill(p, SIGKILL);
+    return waitGone(3000) ? Stop::Stopped : Stop::StillRunning;
 #endif
 }
 

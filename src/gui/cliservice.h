@@ -113,6 +113,8 @@ Q_SIGNALS:
     void keyPresence(bool present);
     // `reason` «password» or «key»; `code` for a key: «not_registered», «pin_required»…
     void unlockFailed(const QString& reason, const QString& code);
+    // Someone on another machine asked this session to close (`sessions close`): who.
+    void closeAsked(const QString& host, const QString& user);
 
 private:
     struct Pending {

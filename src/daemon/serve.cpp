@@ -3,6 +3,7 @@
 
 #include "agent_internal.h"
 #include "commands/peers.h"
+#include "sessionlock.h"
 
 namespace zfsmgr::agent {
 
@@ -1100,6 +1101,11 @@ struct PresentSession {
     long long pid{0};
     long long since{0};
     std::chrono::steady_clock::time_point seen;
+    // Someone asked it to close (--session-ask-close): said in every answer to its announcement
+    // until it goes. Who asked, to tell the person.
+    bool closeAsked{false};
+    std::string closeByHost;
+    std::string closeByUser;
 };
 
 std::mutex g_presenceMutex;
@@ -1162,9 +1168,101 @@ ExecResult rpcSessionAnnounce(ServerState&, const std::string&, const std::vecto
         ponCodigo(exec, "internal", {"too many sessions"});
         return exec;
     }
-    g_presence[s.id] = s;
+    auto& slot = g_presence[s.id];
+    s.closeAsked = slot.closeAsked;
+    s.closeByHost = slot.closeByHost;
+    s.closeByUser = slot.closeByUser;
+    slot = s;
     exec.rc = 0;
     exec.out = "OK\nEXPIRES=" + std::to_string(kPresenceExpiry.count()) + "\n";
+    if (slot.closeAsked) {
+        exec.out += "CLOSE_ASKED=1\nCLOSE_BY_HOST=" + slot.closeByHost
+                    + "\nCLOSE_BY_USER=" + slot.closeByUser + "\n";
+    }
+    return exec;
+}
+
+// `--session-ask-close <id> <host> <user>`: asks that session to close; it learns at its next
+// announcement, within 30 s. `host` and `user` are who asks, to tell the person.
+ExecResult rpcSessionAskClose(ServerState&, const std::string&, const std::vector<std::string>& a) {
+    ExecResult exec;
+    if (a.size() != 3 || !presenceFieldOk(a[1], 128) || !presenceFieldOk(a[2], 128)) {
+        exec.rc = 1;
+        ponCodigo(exec, "usage", {"--session-ask-close <id> <host> <user>"});
+        return exec;
+    }
+    std::lock_guard<std::mutex> lock(g_presenceMutex);
+    forgetExpiredLocked(std::chrono::steady_clock::now());
+    const auto it = g_presence.find(a[0]);
+    if (it == g_presence.end()) {
+        exec.rc = 1;
+        ponCodigo(exec, "session_unknown", {a[0]});
+        return exec;
+    }
+    it->second.closeAsked = true;
+    it->second.closeByHost = a[1];
+    it->second.closeByUser = a[2];
+    exec.rc = 0;
+    exec.out = "OK\n";
+    return exec;
+}
+
+// `--session-kill <id>`: ends that session's process, for one that is hung. Only the daemon of
+// the machine it runs on can, and only if that PID is still an interactive ZFSMgr —the
+// interface or the CLI—: a PID reused by anything else is never touched.
+ExecResult rpcSessionKill(ServerState&, const std::string&, const std::vector<std::string>& a) {
+    namespace SL = zfsmgr::base::session;
+    ExecResult exec;
+    if (a.size() != 1) {
+        exec.rc = 1;
+        ponCodigo(exec, "usage", {"--session-kill <id>"});
+        return exec;
+    }
+    PresentSession s;
+    {
+        std::lock_guard<std::mutex> lock(g_presenceMutex);
+        forgetExpiredLocked(std::chrono::steady_clock::now());
+        const auto it = g_presence.find(a[0]);
+        if (it == g_presence.end()) {
+            exec.rc = 1;
+            ponCodigo(exec, "session_unknown", {a[0]});
+            return exec;
+        }
+        s = it->second;
+    }
+    if (s.host != SL::hostName()) {
+        exec.rc = 1;
+        ponCodigo(exec, "session_not_here", {s.host});
+        return exec;
+    }
+    const std::string image = SL::processImage(s.pid);
+    if (image.empty()) {
+        // Gone already: nothing to end.
+        std::lock_guard<std::mutex> lock(g_presenceMutex);
+        g_presence.erase(s.id);
+        exec.rc = 0;
+        exec.out = "KILLED=0\nGONE=1\n";
+        return exec;
+    }
+    if (!SL::isSessionProgram(image)) {
+        exec.rc = 1;
+        ponCodigo(exec, "session_not_zfsmgr", {std::to_string(s.pid), image});
+        return exec;
+    }
+    daemonLog("INFO", "ending session " + s.id + " (" + s.kind + " of " + s.user + ", pid "
+                          + std::to_string(s.pid) + ") on request");
+    std::string detail;
+    const SL::Stop r = SL::endProcess(s.pid, 5000, detail);
+    if (r != SL::Stop::Stopped) {
+        exec.rc = 1;
+        ponCodigo(exec, "session_kill_failed",
+                  {std::to_string(s.pid), detail.empty() ? std::string("still running") : detail});
+        return exec;
+    }
+    std::lock_guard<std::mutex> lock(g_presenceMutex);
+    g_presence.erase(s.id);
+    exec.rc = 0;
+    exec.out = "KILLED=1\n";
     return exec;
 }
 
@@ -1448,6 +1546,8 @@ ExecResult handleRpcRequest(ServerState& st, const AgentRuntimeConfig& cfg,
         {"--session-announce", rpcSessionAnnounce},
         {"--session-leave", rpcSessionLeave},
         {"--session-list", rpcSessionList},
+        {"--session-ask-close", rpcSessionAskClose},
+        {"--session-kill", rpcSessionKill},
     };
     if (const auto it = kDaemonVerbs.find(cmd); it != kDaemonVerbs.end()) {
         return it->second(st, cmd, rpcArgs);

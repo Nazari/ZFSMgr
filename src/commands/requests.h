@@ -204,5 +204,10 @@ std::vector<std::string> sessionAnnounce(const std::string& id, const std::strin
                                          long long pid, long long since);
 std::vector<std::string> sessionLeave(const std::string& id);
 std::vector<std::string> sessionList();
+// Asks a session to close (it learns at its next announcement); `host` and `user` are who asks.
+std::vector<std::string> sessionAskClose(const std::string& id, const std::string& host,
+                                         const std::string& user);
+// Ends a hung session's process: only the daemon of the machine it runs on does it.
+std::vector<std::string> sessionKill(const std::string& id);
 
 }  // namespace zfsmgr::commands::requests

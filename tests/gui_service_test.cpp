@@ -55,6 +55,9 @@ int main(int argc, char** argv) {
             // «ask»: a question first, and the answer line read, as a confirm does.
             "  case \"$line\" in *ask*) echo \"{\\\"type\\\":\\\"confirm\\\",\\\"id\\\":$id,"
             "\\\"title\\\":\\\"q\\\"}\"; read answer;; esac\n"
+            // «bye»: another machine asked this session to close, an event between results.
+            "  case \"$line\" in *bye*) echo '{\"type\":\"close_asked\",\"host\":\"unib\","
+            "\"user\":\"ana\"}';; esac\n"
             "  echo \"{\\\"type\\\":\\\"result\\\",\\\"id\\\":$id,\\\"rc\\\":0,"
             "\\\"stdout\\\":\\\"ok\\\",\\\"stderr\\\":\\\"\\\"}\"\n"
             "done\n");
@@ -79,6 +82,22 @@ int main(int argc, char** argv) {
     });
     waitFor([&] { return got > 0; });
     check(got == 1 && out == QLatin1String("ok"), "an answer reaches a live owner");
+
+    // Asked from another machine to close: the event says who, and the queue goes on.
+    {
+        QString host;
+        QString user;
+        QObject::connect(&s, &CliService::closeAsked, [&](const QString& h, const QString& u) {
+            host = h;
+            user = u;
+        });
+        int answered = 0;
+        s.request(QStringLiteral("bye"), &alive, [&answered](const CliResult&) { ++answered; });
+        waitFor([&] { return answered > 0; });
+        check(host == QLatin1String("unib") && user == QLatin1String("ana"),
+              "close_asked says who asked");
+        check(answered == 1, "and the request still gets its answer");
+    }
 
     // An owner deleted while its request travels: its answer is dropped. A second request after
     // it, with a live owner, proves the first answer did arrive and was handled.

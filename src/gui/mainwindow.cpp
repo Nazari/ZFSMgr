@@ -28,6 +28,9 @@
 #include <QStackedWidget>
 #include <QStatusBar>
 
+#include <memory>
+#include <QTimer>
+
 namespace zfsmgr::gui {
 
 MainWindow::MainWindow(QString cliPath, QByteArray masterPassword, bool isDataKey,
@@ -41,6 +44,7 @@ MainWindow::MainWindow(QString cliPath, QByteArray masterPassword, bool isDataKe
     resize(1100, 760);
     m_general->setParent(this);
     wire(m_general);
+    connect(m_general, &CliService::closeAsked, this, &MainWindow::closeAsked);
 
     auto* central = new QWidget(this);
     auto* lay = new QHBoxLayout(central);
@@ -69,6 +73,7 @@ MainWindow::MainWindow(QString cliPath, QByteArray masterPassword, bool isDataKe
     const auto say = [this](const QString& text) { statusBar()->showMessage(text, 15000); };
     connect(copies, &CopiesPage::message, this, say);
     connect(jobs, &JobsPage::message, this, say);
+    connect(m_status, &StatusPage::message, this, say);
     connect(machines, &MachinesPage::message, this, say);
     connect(this, &MainWindow::advancedChanged, machines, &MachinesPage::setAdvanced);
     connect(machines, &MachinesPage::createPoolRequested, this, [this](const QString& id) {
@@ -284,6 +289,47 @@ void MainWindow::wire(CliService* s) {
             statusBar()->showMessage(warning, 15000);
         }
     });
+}
+
+void MainWindow::closeAsked(const QString& host, const QString& user) {
+    if (findChild<QMessageBox*>(QStringLiteral("closeAsked"))) {
+        return;
+    }
+    auto* box = new QMessageBox(QMessageBox::Information, appTitle(), QString(),
+                                QMessageBox::NoButton, this);
+    box->setObjectName(QStringLiteral("closeAsked"));
+    box->setAttribute(Qt::WA_DeleteOnClose);
+    QPushButton* now = box->addButton(L("Close now", "Cerrar ahora"), QMessageBox::AcceptRole);
+    QPushButton* keep =
+        box->addButton(L("Keep it open", "Seguir abierto"), QMessageBox::RejectRole);
+    box->setDefaultButton(now);
+    auto left = std::make_shared<int>(20);
+    const QString who = user.isEmpty() ? QStringLiteral("?") : user;
+    const QString where = host.isEmpty() ? QStringLiteral("?") : host;
+    const auto text = [box, left, who, where] {
+        box->setText(L("%1, on %2, asked that ZFSMgr close here.",
+                       "%1, desde %2, ha pedido que ZFSMgr se cierre aquí.")
+                         .arg(who, where));
+        box->setInformativeText(L("It closes in %1 s.", "Se cierra en %1 s.").arg(*left));
+    };
+    text();
+    auto* timer = new QTimer(box);
+    connect(timer, &QTimer::timeout, box, [this, box, left, text] {
+        if (--*left <= 0) {
+            box->close();
+            close();
+            return;
+        }
+        text();
+    });
+    timer->start(1000);
+    connect(box, &QMessageBox::finished, this, [this, box, now, keep] {
+        if (box->clickedButton() == now) {
+            close();
+        }
+        (void)keep;
+    });
+    box->open();
 }
 
 void MainWindow::askQuestion(CliService* s, const CliQuestion& q) {

@@ -159,6 +159,8 @@ orden
     | V_SCHEDULES destino_opt                { astVerbo(res, $1); }
     | V_OVERVIEW destino_opt                 { astVerbo(res, $1); }
     | V_SESSIONS                             { astVerbo(res, $1); }
+    | V_SESSIONS palabra palabra             { astVerbo(res, $1); astRanura(res, "texto", $2);
+                                               astRanura(res, "texto", $3); }
     | V_PROBE destino_opt                    { astVerbo(res, $1); }
     | V_LOG destino_opt                      { astVerbo(res, $1); }
     | V_PEERS destino_opt                    { astVerbo(res, $1); }

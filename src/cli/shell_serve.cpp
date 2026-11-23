@@ -1,6 +1,8 @@
 #include "presence.h"
 #include "shell_internal.h"
 
+#include <mutex>
+
 #include "json.h"
 #include "storefiles.h"
 
@@ -65,8 +67,12 @@ HuellaConfig huellaConfig(const std::string& dirConfig) {
 // while a command runs, fd 1 points to its capture file.
 int g_eventos = -1;
 
+// Events may come from another thread too (presence: close asked): one line at a time.
+std::mutex g_emiteMutex;
+
 void emite(const J::Value& v) {
     const std::string linea = J::toCompact(v) + "\n";
+    std::lock_guard<std::mutex> lock(g_emiteMutex);
     std::size_t hecho = 0;
     while (hecho < linea.size()) {
         const auto n = SV_WRITE(g_eventos, linea.data() + hecho, linea.size() - hecho);
@@ -231,6 +237,15 @@ int servirOrdenes(Sesion& ses, bool anunciaClave) {
     }
     emite(listo);
 
+    // Asked from another machine to close (`sessions close`): the interface decides —it tells
+    // the person and closes—; this service only passes it on.
+    setOnCloseAsked([](const std::string& host, const std::string& user) {
+        J::Value ev;
+        ev.set("type", J::Value(std::string("close_asked")));
+        ev.set("host", J::Value(host));
+        ev.set("user", J::Value(user));
+        emite(ev);
+    });
     // The interface's presence in the daemons it reaches (presence.h): only for the service
     // the interface started with --presence, and rebuilt when the connections change.
     std::unique_ptr<Presencia> presencia = anunciaPresencia(ses, e.conns);

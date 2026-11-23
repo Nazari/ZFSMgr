@@ -50,6 +50,9 @@ Q_SIGNALS:
     void advancedChanged(bool on);
 
 private:
+    // Asked from another machine to close: says who and closes in a few seconds, unless the
+    // person here chooses to keep it open.
+    void closeAsked(const QString& host, const QString& user);
     void wire(CliService* s);
     void askQuestion(CliService* s, const CliQuestion& q);
     void askSecret(CliService* s, int id, const QString& text);

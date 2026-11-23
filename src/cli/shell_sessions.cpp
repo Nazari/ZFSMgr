@@ -103,9 +103,129 @@ std::string avisoDeSesion(const SS::Session& s) {
                      {describeSesion(s), std::to_string(s.seenAgo)});
 }
 
+namespace {
+
+std::string minusculas(std::string s) {
+    for (char& c : s) {
+        if (c >= 'A' && c <= 'Z') {
+            c = static_cast<char>(c - 'A' + 'a');
+        }
+    }
+    return s;
+}
+
+// `sessions close <machine> [--force]`: asks the session open on that machine to close, or ends
+// it there if it is hung. One session per machine, so the machine names it.
+bool cierraSesion(Estado& e, const Peticion& pet, const std::string& maquina) {
+    const std::string propia = zfsmgr::base::session::hostName();
+    if (minusculas(maquina) == minusculas(propia)) {
+        std::fprintf(
+            stderr, "%s\n",
+            T("t_ses_es_esta", "la sesión de esta máquina es esta: para cerrarla, «exit»").c_str());
+        return false;
+    }
+    const std::vector<SS::Session> todas = sesionesEnLaRed(*e.ses, e.conns, 8000);
+    const SS::Session* s = nullptr;
+    for (const SS::Session& x : todas) {
+        if (minusculas(x.host) == minusculas(maquina)) {
+            s = &x;
+        }
+    }
+    if (!s) {
+        std::fprintf(stderr, "%s\n",
+                     B::format(T("t_ses_no_hay",
+                                 "ninguna máquina conectada sabe de una sesión abierta en %1 "
+                                 "(«sessions» dice cuáles hay)"),
+                               {maquina})
+                         .c_str());
+        return false;
+    }
+    const bool fuerza = pet.tiene("--force");
+    Pregunta p;
+    if (fuerza) {
+        p.titulo = B::format(T("t_ses_q_fuerza", "Cerrar a la fuerza %1"), {describeSesion(*s)});
+        p.sePierde = {T("t_ses_q_pierde", "lo que esa sesión estuviera haciendo o escribiendo")};
+        p.seConserva = {T("t_ses_q_trabajos",
+                          "los trabajos y programaciones de los daemons, que siguen solos")};
+        p.notas = {T("t_ses_q_fuerza_nota",
+                     "Es para una sesión colgada: lo hace el daemon de su máquina, y solo si "
+                     "ese proceso sigue siendo ZFSMgr. Si responde, mejor pedírselo sin "
+                     "--force.")};
+    } else {
+        p.titulo = B::format(T("t_ses_q_pedir", "Pedir que se cierre %1"), {describeSesion(*s)});
+        p.notas = {T("t_ses_q_pedir_nota",
+                     "Se entera en menos de 30 s y se cierra ella misma, diciéndole a quien la "
+                     "use quién lo pidió. Si no lo hace, está colgada: «sessions close <máquina> "
+                     "--force».")};
+    }
+    if (!confirma(e, p)) {
+        return false;
+    }
+    const std::vector<std::string> pedido =
+        fuerza ? PET::sessionKill(s->id)
+               : PET::sessionAskClose(s->id, propia, zfsmgr::base::session::currentUser());
+    bool hecho = false;
+    std::vector<std::string> fallos;
+    for (const std::string& m : s->machines) {
+        const auto* perfil = buscarConexion(e.conns, m);
+        if (!perfil) {
+            continue;
+        }
+        std::string out;
+        std::string err;
+        int rc = -1;
+        std::string why;
+        if (!ejecutarAgente(*e.ses, *perfil, pedido, out, err, rc, &why, 20000)) {
+            fallos.push_back(m + ": " + why);
+            continue;
+        }
+        if (rc == 0) {
+            hecho = true;
+            // Ended by the one daemon on its machine: no need to ask the others.
+            if (fuerza) {
+                break;
+            }
+            continue;
+        }
+        // Not its machine: another daemon of the list is.
+        if (zfsmgr::base::agentmsg::lastCode() != "session_not_here") {
+            fallos.push_back(m + ": " + B::trim(err));
+        }
+    }
+    if (!hecho) {
+        if (fallos.empty() && fuerza) {
+            std::fprintf(stderr, "%s\n",
+                         B::format(T("t_ses_sin_daemon_suyo",
+                                     "ninguna conexión llega al daemon de %1, que es el único que "
+                                     "puede cerrarla: hace falta una conexión a esa máquina"),
+                                   {s->host})
+                             .c_str());
+        }
+        for (const std::string& f : fallos) {
+            std::fprintf(stderr, "%s\n", f.c_str());
+        }
+        return false;
+    }
+    std::printf("%s\n", (fuerza ? T("t_ses_cerrada", "cerrada")
+                                : T("t_ses_pedido", "pedido: se cerrará en menos de 30 s"))
+                            .c_str());
+    return true;
+}
+
+}  // namespace
+
 bool cmdSessions(Estado& e, const LineaAnalizada& linea) {
     Peticion pet;
     if (!prepara(e, linea, pet)) {
+        return false;
+    }
+    const std::vector<std::string> args = pet.lista("texto");
+    if (!args.empty()) {
+        if (args.size() == 2 && args[0] == "close") {
+            return cierraSesion(e, pet, args[1]);
+        }
+        std::fprintf(stderr, "%s\n",
+                     T("t_ses_uso_mal", "uso: sessions [close <máquina> [--force]]").c_str());
         return false;
     }
     const std::string propia = zfsmgr::base::session::hostName();

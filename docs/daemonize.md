@@ -121,6 +121,8 @@ verbos que contesta el propio daemon (no pasan por la caché ni por la tabla de 
 | `--session-announce` | `<id> <gui\|cli> <máquina> <usuario> <pid> <desde>` | Está aquí, o sigue aquí. `desde` en segundos desde la época. Responde `OK` y `EXPIRES=90`. |
 | `--session-leave` | `<id>` | Se fue. Un id desconocido no es error: puede haber caducado ya. |
 | `--session-list` | — | Una línea `SESSION={"id","kind","host","user","pid","since","seen_ago"}` por sesión y `SESSIONS_COUNT=<n>`. |
+| `--session-ask-close` | `<id> <máquina> <usuario>` | Pide a esa sesión que se cierre; los dos últimos son quién lo pide. Se le dice en la respuesta a cada anuncio siguiente (`CLOSE_ASKED=1`, `CLOSE_BY_HOST`, `CLOSE_BY_USER`), así que se entera en menos de 30 s. |
+| `--session-kill` | `<id>` | Termina el proceso de una sesión colgada: SIGTERM y, a los 5 s, SIGKILL (en Windows, TerminateProcess). Solo el daemon de la máquina donde corre (`session_not_here` en los demás) y solo si ese PID sigue siendo la interfaz o el CLI (`session_not_zfsmgr`): un PID reutilizado no se toca. |
 
 - **Solo en memoria**, y se olvida a los 90 s del último anuncio: una sesión que murió, o cuya
   máquina se apagó, no deja nada atrás, y reiniciar el daemon empieza limpio.
@@ -132,3 +134,8 @@ verbos que contesta el propio daemon (no pasan por la caché ni por la tabla de 
   lo que llega se enseña a otras personas tal cual.
 - Una máquina solo tiene una sesión interactiva a la vez (src/base/sessionlock.h); varias a la
   vez en la lista son, por tanto, de máquinas distintas.
+- Quien recibe la petición de cierre: el intérprete del CLI termina como al final de la
+  entrada —en el acto si espera una línea, tras la orden en curso si no; en Windows, en el
+  siguiente indicador o tecla—, cerrando túneles y montajes como siempre. La interfaz lo dice
+  con una cuenta atrás de 20 s y deja elegir «Seguir abierto». `sessions close <máquina>
+  [--force]` en el CLI, y los botones del aviso en Estado, son la otra punta.

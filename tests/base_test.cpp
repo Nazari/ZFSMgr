@@ -5396,6 +5396,19 @@ void caso60() {
               "sesiones: la misma desde dos maquinas es una, con las dos y lo mas reciente");
     const auto otras = SS::othersThan(todas, "fc16");
     comprobar(otras.size() == 1 && otras[0].id == "a1", "sesiones: la de esta maquina es esta");
+
+    // What a daemon may end on request: an interactive ZFSMgr, never anything else.
+    comprobar(S::isSessionProgram("/usr/local/bin/zfsmgr-cli")
+                  && S::isSessionProgram("/usr/bin/zfsmgr-gui")
+                  && S::isSessionProgram("/Applications/ZFSMgr.app/Contents/MacOS/ZFSMgr")
+                  && S::isSessionProgram("C:\\Program Files\\ZFSMgr\\zfsmgr-cli.exe"),
+              "sesion: la interfaz y el CLI, en las cuatro plataformas");
+    comprobar(!S::isSessionProgram("/usr/local/libexec/zfsmgr-agent")
+                  && !S::isSessionProgram("/usr/bin/sleep") && !S::isSessionProgram(""),
+              "sesion: el agente y lo demas, no");
+    comprobar(S::processImage(::getpid()).find("zfsmgr_base_test") != std::string::npos,
+              "sesion: el ejecutable de un proceso");
+    comprobar(S::processImage(0).empty(), "sesion: sin proceso, nada");
 }
 
 const Caso kCasos[] = {

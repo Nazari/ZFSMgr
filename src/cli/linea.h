@@ -37,6 +37,13 @@ using Completador =
 // y repintando el indicador con lo tecleado. En Windows, al pintar el siguiente indicador.
 void encolaAviso(const std::string& texto);
 
+// Someone asked, from another thread, that this shell close (`sessions close` from another
+// machine): `aviso` says who. The editor shows it and ends as at end of input —at once if it is
+// waiting for a line, after the command that runs otherwise—, so the shell ends the normal
+// way, tunnels and mounts included. In Windows, at the next prompt or key.
+void pideCierre(const std::string& aviso);
+bool cierrePedido();
+
 class LectorDeLinea {
 public:
     // `indicador` se reescribe en cada repintado, así que no puede llevar nada que ocupe

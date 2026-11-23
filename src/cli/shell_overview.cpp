@@ -26,6 +26,7 @@ struct Warning {
     // For subject «session»: the session's id. Asked machine by machine, the same session
     // comes back from each one that knows it; a client shows it once.
     std::string session{};
+    std::string host{};  // and the machine it runs on: what `sessions close` takes
 };
 
 struct MachineView {
@@ -400,7 +401,7 @@ bool cmdOverview(Estado& e, const LineaAnalizada& linea) {
     sessions = zfsmgr::commands::sessions::othersThan(sessions, zfsmgr::base::session::hostName());
     for (const auto& s : sessions) {
         warnings.push_back({"warning", s.machines.empty() ? std::string() : s.machines.front(),
-                            "session", avisoDeSesion(s), s.id});
+                            "session", avisoDeSesion(s), s.id, s.host});
     }
     std::stable_sort(warnings.begin(), warnings.end(), [](const Warning& a, const Warning& b) {
         return a.level == "error" && b.level != "error";
@@ -422,6 +423,7 @@ bool cmdOverview(Estado& e, const LineaAnalizada& linea) {
             wv.set("text", J::Value(w.text));
             if (!w.session.empty()) {
                 wv.set("session", J::Value(w.session));
+                wv.set("host", J::Value(w.host));
             }
             ws.push(wv);
         }

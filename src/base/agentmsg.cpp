@@ -21,6 +21,15 @@ const Mensaje kMensajes[] = {
     {"unknown_command", "el daemon no conoce la orden %1: es anterior a esta versión",
      "unknown command: %1"},
     {"usage", "llamada mal formada al daemon: %1", "usage: %1"},
+    // Sesiones abiertas en otras máquinas (presencia)
+    {"session_unknown", "esa sesión ya no está: se cerró, o hace más de 90 s que no da señales",
+     "that session is gone: it closed, or has not been heard of for over 90 s"},
+    {"session_not_here", "esa sesión corre en %1: solo el daemon de esa máquina puede cerrarla",
+     "that session runs on %1: only the daemon of that machine can close it"},
+    {"session_not_zfsmgr",
+     "el proceso %1 ya no es ZFSMgr (%2): no se toca", "process %1 is no longer ZFSMgr (%2): left alone"},
+    {"session_kill_failed", "no se pudo terminar el proceso %1: %2",
+     "process %1 could not be ended: %2"},
     // Planificador
     {"gsa_no_schedule", "%1 no tiene ninguna programación activada",
      "%1 has no schedule enabled"},

@@ -7,6 +7,7 @@
 #include <cerrno>
 #include <cstdio>
 #include <iostream>
+#include <atomic>
 #include <mutex>
 #include <vector>
 
@@ -29,6 +30,20 @@ namespace {
 // partir por la mitad lo que el usuario está tecleando.
 std::mutex g_avisosMutex;
 std::vector<std::string> g_avisos;
+std::atomic<bool> g_cierrePedido{false};
+std::string g_avisoCierre;
+
+// Shows why the shell is closing, once.
+void cuentaCierre() {
+    std::string a;
+    {
+        std::lock_guard<std::mutex> lock(g_avisosMutex);
+        a.swap(g_avisoCierre);
+    }
+    if (!a.empty()) {
+        std::fprintf(stderr, "%s\n", a.c_str());
+    }
+}
 
 std::vector<std::string> sacaAvisos() {
     std::lock_guard<std::mutex> lock(g_avisosMutex);
@@ -382,6 +397,18 @@ void terminaLinea(const char* marca) {
     std::fprintf(stderr, "%s\n", marca);
 }
 
+void pideCierre(const std::string& aviso) {
+    {
+        std::lock_guard<std::mutex> lock(g_avisosMutex);
+        g_avisoCierre = aviso;
+    }
+    g_cierrePedido = true;
+}
+
+bool cierrePedido() {
+    return g_cierrePedido;
+}
+
 void encolaAviso(const std::string& texto) {
     // Con la pantalla, lo que se escribe desde cualquier hilo ya se pinta por encima de la
     // zona sin partir lo que se teclea —también en Windows—: no hace falta esperar al editor.
@@ -399,6 +426,10 @@ bool LectorDeLinea::editaEnTerminal() {
 
 bool LectorDeLinea::lee(const std::string& indicador, std::string& out) {
     out.clear();
+    if (g_cierrePedido) {
+        cuentaCierre();
+        return false;
+    }
     if (!hayTerminal()) {
         m_propuesta.clear();
         // Sin terminal no hay nada que editar: se lee la línea y ya.
@@ -447,6 +478,12 @@ bool LectorDeLinea::lee(const std::string& indicador, std::string& out) {
             pfd.events = POLLIN;
             if (::poll(&pfd, 1, 200) != 0) {
                 break;
+            }
+            if (g_cierrePedido) {
+                std::fputs("\r\x1b[K", stderr);
+                cuentaCierre();
+                terminaLinea("");
+                return false;
             }
             const std::vector<std::string> avisos = sacaAvisos();
             if (avisos.empty()) {

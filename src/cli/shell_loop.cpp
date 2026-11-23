@@ -926,6 +926,13 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
     } else if (interactivo && compruebaProgramaciones && !ses.sinSecretos) {
         comprobacion = std::make_unique<ComprobacionDeArranque>(ses, e.conns);
     }
+    // Asked from another machine to close (`sessions close`): the editor ends as at the end of
+    // input, so everything below closes the normal way.
+    setOnCloseAsked([](const std::string& host, const std::string& user) {
+        pideCierre(B::format(
+            T("t_ses_te_cierran", "%1, desde %2, ha pedido que se cierre esta sesión: se cierra."),
+            {user.empty() ? std::string("?") : user, host.empty() ? std::string("?") : host}));
+    });
     // This session's presence in the daemons it reaches (presence.h): only when main turned it
     // on, that is, for the shell on a terminal.
     std::unique_ptr<Presencia> presencia = anunciaPresencia(ses, e.conns);

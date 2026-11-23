@@ -1,5 +1,7 @@
 #include "statuspage.h"
 
+#include "cliservice.h"
+
 #include "statestore.h"
 #include "uikit.h"
 #include "text.h"
@@ -159,6 +161,20 @@ void StatusPage::render() {
             const QString id = a.connection;
             connect(see, &QPushButton::clicked, this, [this, id] { Q_EMIT machineRequested(id); });
             row->addWidget(see, 0, Qt::AlignTop);
+            // ZFSMgr open on another machine: ask it to close, or end it if it is hung.
+            if (a.subject == QLatin1String("session") && !a.sessionHost.isEmpty()) {
+                const QString host = a.sessionHost;
+                auto* ask = new QPushButton(L("Ask it to close", "Pedir que se cierre"), box);
+                ask->setFlat(true);
+                connect(ask, &QPushButton::clicked, this,
+                        [this, host] { closeSession(host, false); });
+                row->addWidget(ask, 0, Qt::AlignTop);
+                auto* force = new QPushButton(L("Force it closed…", "Cerrarla a la fuerza…"), box);
+                force->setFlat(true);
+                connect(force, &QPushButton::clicked, this,
+                        [this, host] { closeSession(host, true); });
+                row->addWidget(force, 0, Qt::AlignTop);
+            }
             lay->addLayout(row);
         }
         m_bodyLayout->addWidget(box);
@@ -266,6 +282,20 @@ void StatusPage::render() {
         }
         m_bodyLayout->addWidget(box);
     }
+}
+
+void StatusPage::closeSession(const QString& host, bool force) {
+    QString line = QStringLiteral("sessions close %1").arg(host);
+    if (force) {
+        line += QStringLiteral(" --force");
+    }
+    m_store->general()->request(line, this, [this, force](const CliResult& r) {
+        Q_EMIT message(r.ok() ? (force ? L("Closed.", "Cerrada.")
+                                       : L("Asked: it will close within 30 s.",
+                                           "Pedido: se cerrará en menos de 30 s."))
+                              : r.err.trimmed());
+        m_store->refresh();
+    });
 }
 
 }  // namespace zfsmgr::gui

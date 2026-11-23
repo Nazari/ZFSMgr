@@ -358,6 +358,15 @@ std::vector<std::string> sessionList() {
     return {"--session-list"};
 }
 
+std::vector<std::string> sessionAskClose(const std::string& id, const std::string& host,
+                                         const std::string& user) {
+    return {"--session-ask-close", id, host, user};
+}
+
+std::vector<std::string> sessionKill(const std::string& id) {
+    return withOne("--session-kill", id);
+}
+
 std::vector<std::string> jobStatus(const std::string& id) {
     return withOne("--job-status", id);
 }

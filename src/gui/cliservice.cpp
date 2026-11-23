@@ -232,6 +232,11 @@ void CliService::handleEvent(const QJsonObject& ev) {
         Q_EMIT keyPresence(type == QLatin1String("key_present"));
         return;
     }
+    if (type == QLatin1String("close_asked")) {
+        Q_EMIT closeAsked(ev.value(QStringLiteral("host")).toString(),
+                          ev.value(QStringLiteral("user")).toString());
+        return;
+    }
     if (type == QLatin1String("unlock_failed")) {
         Q_EMIT unlockFailed(ev.value(QStringLiteral("reason")).toString(),
                             ev.value(QStringLiteral("code")).toString());

@@ -3,6 +3,7 @@
 #include "requests.h"
 #include "session.h"
 #include "sessionlock.h"
+#include "strutil.h"
 
 #include <chrono>
 #include <condition_variable>
@@ -28,7 +29,42 @@ constexpr int kAnnounceTimeoutMs = 8000;
 constexpr int kLeaveTimeoutMs = 3000;
 constexpr auto kEvery = std::chrono::seconds(30);
 
+std::function<void(const std::string&, const std::string&)> g_onCloseAsked;
+bool g_closeAskedSeen = false;
+
+// The answer to an announcement says whether someone asked to close: once per process.
+void miraSiPidenCierre(const std::string& out) {
+    if (out.find("CLOSE_ASKED=1") == std::string::npos) {
+        return;
+    }
+    std::string host;
+    std::string user;
+    for (const std::string& raw : zfsmgr::base::split(out, "\n", true)) {
+        const std::string l = zfsmgr::base::trim(raw);
+        if (l.rfind("CLOSE_BY_HOST=", 0) == 0) {
+            host = l.substr(14);
+        } else if (l.rfind("CLOSE_BY_USER=", 0) == 0) {
+            user = l.substr(14);
+        }
+    }
+    std::function<void(const std::string&, const std::string&)> f;
+    {
+        std::lock_guard<std::mutex> lock(g_config);
+        if (g_closeAskedSeen || !g_onCloseAsked) {
+            return;
+        }
+        g_closeAskedSeen = true;
+        f = g_onCloseAsked;
+    }
+    f(host, user);
+}
+
 }  // namespace
+
+void setOnCloseAsked(std::function<void(const std::string& host, const std::string& user)> f) {
+    std::lock_guard<std::mutex> lock(g_config);
+    g_onCloseAsked = std::move(f);
+}
 
 void setPresence(const std::string& kind, long long pid) {
     std::lock_guard<std::mutex> lock(g_config);
@@ -98,7 +134,11 @@ Presencia::Presencia(const Sesion& ses, const Conexiones& conns)
             std::string err;
             int rc = 0;
             for (;;) {
-                ejecutarAgente(*propia, perfil, pedido, out, err, rc, nullptr, kAnnounceTimeoutMs);
+                if (ejecutarAgente(*propia, perfil, pedido, out, err, rc, nullptr,
+                                   kAnnounceTimeoutMs)
+                    && rc == 0) {
+                    miraSiPidenCierre(out);
+                }
                 std::unique_lock<std::mutex> lock(estado->m);
                 if (estado->cv.wait_for(lock, kEvery, [&] { return estado->parar; })) {
                     break;
