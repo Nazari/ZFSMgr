@@ -219,6 +219,12 @@ int servirOrdenes(Sesion& ses) {
     if (!e.conns.aviso.empty()) {
         listo.set("warning", J::Value(e.conns.aviso));
     }
+    // No master password yet —a first run, or a configuration that never had one—: the
+    // interface offers to create it. Without one no password can be stored, not even the
+    // sudo one of this computer.
+    if (e.ses->maestra.empty() && !B::store::hasSomethingEncrypted(e.ses->dirConfig)) {
+        listo.set("no_master", J::Value(true));
+    }
     emite(listo);
 
     std::string peticion;

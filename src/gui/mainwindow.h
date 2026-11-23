@@ -10,6 +10,8 @@
 #include <QHash>
 #include <QMainWindow>
 
+#include <functional>
+
 class QCheckBox;
 class QListWidget;
 class QStackedWidget;
@@ -38,6 +40,9 @@ public:
     // `remember`: kept for the next start. Tests switch it on without touching the setting.
     void setAdvanced(bool on, bool remember = true);
     bool advanced() const;
+    // After the welcome created the master password: this computer, step by step —its sudo
+    // password if it has OpenZFS, its daemon if it has none— and then the Machines page.
+    void startFirstRun();
 
 Q_SIGNALS:
     void advancedChanged(bool on);
@@ -46,6 +51,10 @@ private:
     void wire(CliService* s);
     void askQuestion(CliService* s, const CliQuestion& q);
     void askSecret(CliService* s, int id, const QString& text);
+    void firstRunStep();
+    void firstRunDone(const QString& note);
+    void choose(const QString& text, const QString& yes, const QString& no,
+                std::function<void(bool)> done);
 
     QString m_cliPath;
     QByteArray m_master;
@@ -57,6 +66,8 @@ private:
     StateStore* m_store{nullptr};
     StatusPage* m_status{nullptr};
     class MachinesPage* m_machines{nullptr};
+    bool m_sudoOffered{false};
+    bool m_daemonOffered{false};
 };
 
 }  // namespace zfsmgr::gui

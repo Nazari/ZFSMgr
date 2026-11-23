@@ -194,6 +194,7 @@ void CliService::handleEvent(const QJsonObject& ev) {
     if (type == QLatin1String("ready")) {
         m_ready = true;
         m_version = ev.value(QStringLiteral("version")).toString();
+        m_noMaster = ev.value(QStringLiteral("no_master")).toBool();
         Q_EMIT ready(ev.value(QStringLiteral("warning")).toString());
         sendNext();
         return;

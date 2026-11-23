@@ -15,6 +15,12 @@
 #include <QCursor>
 #include <QEvent>
 #include <QFile>
+#include <QVBoxLayout>
+#include <QPushButton>
+#include <QLabel>
+#include <QFormLayout>
+#include <QDialogButtonBox>
+#include <QDialog>
 #include <QIcon>
 #include <QInputDialog>
 #include <QTimer>
@@ -149,11 +155,21 @@ public:
         auto* s = new CliService(m_cli, uiLang());
         m_master = master;
         connect(s, &CliService::ready, this, [this, s](const QString&) {
-            // From here the window owns the service and listens to it; the starter does not.
             s->disconnect(this);
+            // No master password yet: the welcome, which creates it, and a service started
+            // again with it —the CLI records the first master it is given—.
+            if (s->noMaster() && m_master.isEmpty()) {
+                s->deleteLater();
+                welcome();
+                return;
+            }
+            // From here the window owns the service and listens to it; the starter does not.
             auto* w = new MainWindow(m_cli, m_master, s);
             w->setAttribute(Qt::WA_DeleteOnClose);
             w->show();
+            if (m_firstRun) {
+                w->startFirstRun();
+            }
             m_master.fill('\0');
             // From now on, closing the window ends the program.
             QApplication::setQuitOnLastWindowClosed(true);
@@ -207,6 +223,81 @@ public:
     }
 
 private:
+    // The first run on this computer (or a configuration that never had a master password):
+    // the master is created here, typed twice. Without it no password can be stored —not
+    // even this computer's sudo one— so there is no going on without it.
+    void welcome() {
+        auto* d = new QDialog();
+        d->setAttribute(Qt::WA_DeleteOnClose);
+        d->setWindowTitle(appTitle());
+        auto* lay = new QVBoxLayout(d);
+        auto* head = new QLabel(L("<b>Welcome to ZFSMgr</b>", "<b>Bienvenido a ZFSMgr</b>"), d);
+        lay->addWidget(head);
+        auto* text = new QLabel(
+            L("This is the first time on this computer. Choose a master password: it encrypts "
+              "the passwords of your machines, which ZFSMgr keeps here, and it will be asked "
+              "for every time it starts. It is not stored anywhere: if it is forgotten, those "
+              "passwords have to be entered again.",
+              "Es la primera vez en este ordenador. Elige una contraseña maestra: cifra las "
+              "contraseñas de tus máquinas, que ZFSMgr guarda aquí, y se pedirá cada vez que "
+              "arranque. No se guarda en ningún sitio: si se olvida, hay que volver a dar esas "
+              "contraseñas."),
+            d);
+        text->setWordWrap(true);
+        lay->addWidget(text);
+        auto* form = new QFormLayout();
+        auto* one = new QLineEdit(d);
+        auto* two = new QLineEdit(d);
+        one->setEchoMode(QLineEdit::Password);
+        two->setEchoMode(QLineEdit::Password);
+        form->addRow(L("Master password", "Contraseña maestra"), one);
+        form->addRow(L("Again", "Repítela"), two);
+        lay->addLayout(form);
+        auto* why = new QLabel(d);
+        lay->addWidget(why);
+        auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, d);
+        bb->button(QDialogButtonBox::Ok)->setText(L("Create and go on", "Crearla y seguir"));
+        lay->addWidget(bb);
+        const auto check = [one, two, why, bb] {
+            QString problem;
+            if (one->text().isEmpty()) {
+                problem = L("Type it twice.", "Escríbela dos veces.");
+            } else if (two->text().isEmpty()) {
+                problem = L("Type it again below.", "Repítela debajo.");
+            } else if (one->text() != two->text()) {
+                problem = L("The two are not the same.", "Las dos no coinciden.");
+            }
+            why->setText(problem);
+            bb->button(QDialogButtonBox::Ok)->setEnabled(problem.isEmpty());
+        };
+        connect(one, &QLineEdit::textChanged, d, check);
+        connect(two, &QLineEdit::textChanged, d, check);
+        check();
+        connect(bb, &QDialogButtonBox::accepted, d, &QDialog::accept);
+        connect(bb, &QDialogButtonBox::rejected, d, &QDialog::reject);
+        connect(d, &QDialog::finished, this, [this, one](int result) {
+            if (result != QDialog::Accepted) {
+                QApplication::exit(0);
+                return;
+            }
+            m_firstRun = true;
+            attempt(one->text().toUtf8());
+        });
+        d->resize(460, d->sizeHint().height());
+        d->open();
+        // For tests without a screen: ZFSMGR_GUI_WELCOME_CAPTURE=<file.png> saves the welcome
+        // and goes on with a test master password, so the rest of the first run can be seen.
+        if (const QString shot = qEnvironmentVariable("ZFSMGR_GUI_WELCOME_CAPTURE");
+            !shot.isEmpty()) {
+            QTimer::singleShot(1500, d, [d, one, two, bb, shot] {
+                d->grab().save(shot);
+                one->setText(QStringLiteral("prueba123"));
+                two->setText(QStringLiteral("prueba123"));
+                bb->button(QDialogButtonBox::Ok)->click();
+            });
+        }
+    }
+
     void askPassword(bool again) {
         m_asked = true;
         auto* d = new QInputDialog();
@@ -230,6 +321,7 @@ private:
     QString m_cli;
     QByteArray m_master;
     bool m_asked{false};
+    bool m_firstRun{false};
 };
 
 }  // namespace

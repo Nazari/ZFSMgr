@@ -156,4 +156,10 @@ void openAllSecrets(const std::string& dirConfig, const std::string& maestra);
 bool masterOpensEverything(const std::string& configDir, const std::string& master,
                            Warning& warning);
 
+// Records the FIRST master password: with nothing encrypted yet, a known text encrypted with
+// it is written into config.json, and from then on it is asked for and checked like any
+// other. With something encrypted already it does nothing —that master was checked on entry—.
+// It is how a first run that stores no password still leaves the master it chose.
+bool recordFirstMaster(const std::string& configDir, const std::string& master, Warning& warning);
+
 }  // namespace zfsmgr::base::store

@@ -649,6 +649,17 @@ int main(int argc, char** argv) {
         }
     }
 
+    // The first master password given, with nothing encrypted yet, is recorded: otherwise
+    // a configuration that has stored no password keeps no trace of it, the next start asks
+    // for none, and no password can ever be stored (see store::recordFirstMaster).
+    if (!maestra.empty() && !op.sinSecretos && !hasSomethingEncrypted(op.dirConfig)) {
+        ST::Warning aviso;
+        if (!ST::recordFirstMaster(op.dirConfig, maestra, aviso)) {
+            std::fprintf(stderr, "%s: %s\n", kNombre, ST::labelOf(aviso).c_str());
+            return 1;
+        }
+    }
+
     int rc = 0;
     if (op.servir) {
         auto ses = zfsmgr::cli::crearSesionDeFondo(op.dirConfig, maestra);

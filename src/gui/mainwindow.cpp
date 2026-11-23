@@ -16,6 +16,10 @@
 
 #include <QCheckBox>
 #include <QHBoxLayout>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QMessageBox>
+#include <QPushButton>
 #include <QSettings>
 #include <QInputDialog>
 #include <QLabel>
@@ -120,6 +124,110 @@ void MainWindow::openAddMachine() {
     d->setAttribute(Qt::WA_DeleteOnClose);
     connect(d, &AddMachineDialog::added, m_store, &StateStore::refresh);
     d->open();
+}
+
+void MainWindow::startFirstRun() {
+    showPage(2);
+    firstRunStep();
+}
+
+// One step each time: ask `probe` how this computer is, offer the first thing missing, and
+// come back. What the person declines is not offered again.
+void MainWindow::firstRunStep() {
+    m_general->request(QStringLiteral("probe zfsm://local"), this, [this](const CliResult& r) {
+        const qsizetype at = r.out.indexOf(QLatin1Char('{'));
+        const QJsonObject p =
+            at < 0 ? QJsonObject() : QJsonDocument::fromJson(r.out.mid(at).toUtf8()).object();
+        if (p.isEmpty()) {
+            firstRunDone(r.err.trimmed());
+            return;
+        }
+        const QString zfs = p.value(QStringLiteral("openzfs")).toString();
+        const QString sudo = p.value(QStringLiteral("sudo")).toString();
+        const QString daemon = p.value(QStringLiteral("daemon")).toString();
+        if (zfs != QLatin1String("ok")) {
+            firstRunDone(
+                L("This computer has no OpenZFS ZFSMgr can manage: it will be the "
+                  "control for your other machines. Add the first one with «+ Add».",
+                  "Este ordenador no tiene un OpenZFS que ZFSMgr pueda manejar: será "
+                  "el mando de tus otras máquinas. Añade la primera con «+ Añadir»."));
+            return;
+        }
+        if (sudo != QLatin1String("ok") && !m_sudoOffered) {
+            m_sudoOffered = true;
+            choose(L("This computer has OpenZFS %1. To manage its pools ZFSMgr needs your "
+                     "sudo password here. It is kept encrypted with the master password.",
+                     "Este ordenador tiene OpenZFS %1. Para manejar sus pools ZFSMgr necesita "
+                     "tu contraseña de sudo de aquí. Se guarda cifrada con la contraseña "
+                     "maestra.")
+                       .arg(p.value(QStringLiteral("openzfs_version")).toString()),
+                   L("Give the sudo password…", "Dar la contraseña de sudo…"),
+                   L("Not now", "Ahora no"), [this](bool yes) {
+                       if (!yes) {
+                           firstRunStep();
+                           return;
+                       }
+                       // The CLI asks for it (a secret event): the password never goes on a
+                       // command line.
+                       m_general->request(QStringLiteral("edit zfsm://local --sudo"), this,
+                                          [this](const CliResult& e) {
+                                              if (!e.ok()) {
+                                                  statusBar()->showMessage(e.err.trimmed(), 15000);
+                                              }
+                                              firstRunStep();
+                                          });
+                   });
+            return;
+        }
+        if (sudo == QLatin1String("ok") && daemon == QLatin1String("unreachable")
+            && !m_daemonOffered) {
+            m_daemonOffered = true;
+            choose(L("This computer has no ZFSMgr daemon, or it does not answer. It is the "
+                     "service that does the ZFS work here, and what lets other machines copy "
+                     "to and from it. Install it now?",
+                     "Este ordenador no tiene el daemon de ZFSMgr, o no responde. Es el "
+                     "servicio que hace aquí el trabajo con ZFS, y el que deja a otras "
+                     "máquinas copiar hacia y desde él. ¿Instalarlo ahora?"),
+                   L("Install it", "Instalarlo"), L("Not now", "Ahora no"), [this](bool yes) {
+                       if (!yes) {
+                           firstRunStep();
+                           return;
+                       }
+                       m_general->request(QStringLiteral("install-daemon --on zfsm://local"), this,
+                                          [this](const CliResult& e) {
+                                              if (!e.ok()) {
+                                                  statusBar()->showMessage(e.err.trimmed(), 15000);
+                                              }
+                                              firstRunStep();
+                                          });
+                   });
+            return;
+        }
+        firstRunDone(L("Ready. Add your other machines with «+ Add».",
+                       "Listo. Añade tus otras máquinas con «+ Añadir»."));
+    });
+}
+
+void MainWindow::firstRunDone(const QString& note) {
+    m_store->refresh();
+    if (!note.isEmpty()) {
+        statusBar()->showMessage(note, 30000);
+    }
+}
+
+void MainWindow::choose(const QString& text, const QString& yes, const QString& no,
+                        std::function<void(bool)> done) {
+    auto* b = new QMessageBox(this);
+    b->setAttribute(Qt::WA_DeleteOnClose);
+    b->setWindowTitle(appTitle());
+    b->setIcon(QMessageBox::Question);
+    b->setText(text);
+    QPushButton* ok = b->addButton(yes, QMessageBox::AcceptRole);
+    b->addButton(no, QMessageBox::RejectRole);
+    b->setDefaultButton(ok);
+    connect(b, &QMessageBox::finished, this,
+            [b, ok, done = std::move(done)](int) { done(b->clickedButton() == ok); });
+    b->open();
 }
 
 bool MainWindow::advanced() const {

@@ -1829,6 +1829,53 @@ def casos_servicio(ctx):
               and "ready" not in q.stdout else [f"rc={q.returncode} {q.stdout!r}"])
 
 
+def casos_primera_maestra(ctx):
+    """A first run: no configuration at all. `--serve` says `no_master`; the first master it is
+    given is recorded (config.json gets `master_check`), and from then on it is checked like
+    any other —empty or different, refused—. Without that, a first run that stored no
+    password left no trace of the master, and no password could ever be stored.
+    """
+    cfg = os.path.join(ctx.dir_tmp, "cfg-primera")
+    if os.path.isdir(cfg):
+        shutil.rmtree(cfg)
+
+    def sirve(entrada):
+        return subprocess.run([CLI, "--serve", "--lang", "es", "--config-dir", cfg],
+                              input=entrada, capture_output=True, text=True, timeout=60)
+
+    def comprueba(nombre, problemas):
+        if problemas:
+            ctx.fallos.append((nombre, problemas, ""))
+            print(f"  FALLO  {nombre}")
+            for x in problemas:
+                print(f"         {x}")
+        else:
+            ctx.pasados.append(nombre)
+            print(f"  ok     {nombre}")
+
+    q = sirve("\n")
+    comprueba("primera vez: el servicio dice no_master",
+              [] if '"no_master":true' in q.stdout.replace(" ", "") else [repr(q.stdout)])
+    q = sirve("primera-maestra\n")
+    try:
+        with open(os.path.join(cfg, "config.json")) as f:
+            prueba = json.load(f).get("master_check", "")
+    except OSError:
+        prueba = ""
+    comprueba("primera vez: la primera maestra queda registrada",
+              [] if q.returncode == 0 and "no_master" not in q.stdout
+              and prueba.startswith("encv1$") else [f"rc={q.returncode} {q.stdout!r} {prueba!r}"])
+    for entrada, que in (("\n", "vacía"), ("otra\n", "otra")):
+        q = sirve(entrada)
+        comprueba(f"primera vez: después, una maestra {que} se rechaza",
+                  [] if q.returncode == 1 and "wrong master password" in q.stdout
+                  else [f"rc={q.returncode} {q.stdout!r}"])
+    q = sirve("primera-maestra\n")
+    comprueba("primera vez: y la registrada abre",
+              [] if q.returncode == 0 and '"ready"' in q.stdout.replace(" ", "")
+              else [f"rc={q.returncode} {q.stdout!r}"])
+
+
 def casos_servicio_conexiones(ctx):
     """`create`/`edit` of a connection through `--serve`, as the graphical interface runs them.
 
@@ -3606,7 +3653,7 @@ def casos_arranque(ctx):
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
 LOCALES = [casos_arranque, casos_identidad, casos_devices, casos_ayuda, casos_version_openzfs, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
-           casos_volumenes, casos_dedup, casos_overview, casos_json_gui, casos_sudo_sin_argv, casos_probe, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_send_level, casos_recepcion_a_medias, casos_send_fichero, casos_send_comprimido, casos_gsa, casos_sin_montar, casos_cp_destino, casos_load_key, casos_editor_ancho, casos_tab_continua, casos_pantalla, casos_ctrl_c, casos_monitor_conexiones, casos_path, casos_info_labelclear, casos_servicio, casos_servicio_conexiones, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
+           casos_volumenes, casos_dedup, casos_overview, casos_json_gui, casos_sudo_sin_argv, casos_probe, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_send_level, casos_recepcion_a_medias, casos_send_fichero, casos_send_comprimido, casos_gsa, casos_sin_montar, casos_cp_destino, casos_load_key, casos_editor_ancho, casos_tab_continua, casos_pantalla, casos_ctrl_c, casos_monitor_conexiones, casos_path, casos_info_labelclear, casos_servicio, casos_primera_maestra, casos_servicio_conexiones, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
 def rpc_directo(ctx, entrada, cmd, args):

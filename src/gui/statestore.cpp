@@ -27,7 +27,10 @@ void StateStore::refresh() {
         if (gen != m_generation) {
             return;
         }
-        if (!r.ok()) {
+        // `ls` answers rc 1 when one machine fails —Local without its sudo password, on a
+        // first run— but the list comes all the same. Thrown away, the Machines page was
+        // empty, not even this computer in it; each machine's overview says what fails.
+        if (!r.ok() && !r.out.contains(QLatin1Char('{'))) {
             m_listFailed = true;
             m_listError = r.err.trimmed();
             Q_EMIT changed();

@@ -73,6 +73,9 @@ public:
     bool isReady() const { return m_ready; }
     // The zfsmgr-cli version this service runs, as its `ready` said.
     const QString& cliVersion() const { return m_version; }
+    // Its `ready` said there is no master password yet: a first run, or a configuration that
+    // never had one. Without one no password can be stored.
+    bool noMaster() const { return m_noMaster; }
 
     using Done = std::function<void(const CliResult&)>;
     // Queues one command line, exactly as it would be typed in the terminal.
@@ -125,6 +128,7 @@ private:
     QByteArray m_buffer;
     bool m_ready{false};
     QString m_version;
+    bool m_noMaster{false};
     bool m_failed{false};
     int m_nextId{1};
     std::deque<Pending> m_queue;

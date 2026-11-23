@@ -294,6 +294,14 @@ namespace {
 // y no repartidos porque la rotación tiene que tocarlos TODOS: olvidar uno deja la
 // configuración medio cifrada con la clave vieja, que es la forma de romperlo sin que se
 // note hasta el arranque siguiente.
+// The proof that a master password exists, even with nothing else encrypted yet: a known
+// text, encrypted with it, at the top of config.json. Without it a first run that stored no
+// password —a machine without OpenZFS, or «not now» to the sudo password— left no trace of
+// the master just chosen: the next start did not ask for it, ran with none, and could store
+// no password at all.
+const char* const kMasterCheck = "master_check";
+const char* const kMasterCheckText = "zfsmgr";
+
 const char* const kCamposSecretos[] = {
     "password",
     "daemon_tls_server_cert_pem",
@@ -386,6 +394,14 @@ bool recorreSecretos(const std::string& dirConfig,
                 if (!porCada(conexion, campo, valor)) {
                     return false;
                 }
+            }
+        }
+        // The proof of the master, after the connections: a warning that names a connection
+        // says more than one about this nameless field.
+        if (cual == 0 && raiz[kMasterCheck].isString()) {
+            const std::string valor = raiz[kMasterCheck].toString();
+            if (SecretCipher::isEncrypted(valor) && !porCada(raiz, kMasterCheck, valor)) {
+                return false;
             }
         }
     }
@@ -846,6 +862,15 @@ bool rotateMasterKey(const std::string& dirConfig, const std::string& vieja,
     if (!rotaConexiones(config, vieja, nueva, aviso)) {
         return false;
     }
+    // The proof of the master goes along, and is added if there was none. After the
+    // connections: with a wrong old master, the warning names the connection that did not
+    // open, not this nameless field.
+    if (!config[kMasterCheck].isString()) {
+        config.set(kMasterCheck, json::Value(std::string(kMasterCheckText)));
+    }
+    if (!rotaCampo(config, kMasterCheck, vieja, nueva, aviso)) {
+        return false;
+    }
     if (!rotaConexiones(trust, vieja, nueva, aviso)) {
         return false;
     }
@@ -860,6 +885,29 @@ bool rotateMasterKey(const std::string& dirConfig, const std::string& vieja,
         }
     }
     return true;
+}
+
+bool recordFirstMaster(const std::string& dirConfig, const std::string& maestra, Warning& aviso) {
+    aviso = Warning{};
+    if (maestra.empty()) {
+        return true;
+    }
+    const ConfigLock cerrojo(dirConfig);
+    if (hasSomethingEncrypted(dirConfig)) {
+        return true;  // there is a master already: this one was checked against it
+    }
+    json::Value config = readConfig(dirConfig, aviso);
+    if (!aviso.empty()) {
+        return false;
+    }
+    std::string cifrado;
+    std::string err;
+    if (!SecretCipher::encryptEncv1(kMasterCheckText, maestra, cifrado, err)) {
+        aviso = Warning{Reason::CannotEncrypt, {}, kMasterCheck, err};
+        return false;
+    }
+    config.set(kMasterCheck, json::Value(cifrado));
+    return writeConfig(dirConfig, config, aviso);
 }
 
 }  // namespace zfsmgr::base::store
