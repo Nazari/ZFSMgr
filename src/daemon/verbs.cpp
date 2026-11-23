@@ -911,16 +911,26 @@ const TablaDeVerbos& tablaDeVerbos() {
                 ponCodigo(r, "bind_not_allowed", {});
                 return r;
             }
-            std::ifstream in(kDefaultAgentConfigPath);
-            if (!in.is_open()) {
-                r.rc = 1;
-                ponCodigo(r, "cannot_read", {kDefaultAgentConfigPath});
-                return r;
+            // No file is not an error: the Windows installer writes none, and the daemon
+            // runs on its defaults. It is then created with just this line.
+            std::error_code ec;
+            const bool existe = std::filesystem::exists(kDefaultAgentConfigPath, ec);
+            std::ifstream in;
+            if (existe) {
+                in.open(kDefaultAgentConfigPath);
+                if (!in.is_open()) {
+                    r.rc = 1;
+                    ponCodigo(r, "cannot_read", {kDefaultAgentConfigPath});
+                    return r;
+                }
+            } else {
+                std::filesystem::create_directories(
+                    std::filesystem::path(kDefaultAgentConfigPath).parent_path(), ec);
             }
             std::vector<std::string> lineas;
             std::string l;
             bool puesta = false;
-            while (std::getline(in, l)) {
+            while (existe && std::getline(in, l)) {
                 if (l.rfind("AGENT_BIND=", 0) == 0) {
                     lineas.push_back("AGENT_BIND='" + dir + "'");
                     puesta = true;
@@ -946,7 +956,6 @@ const TablaDeVerbos& tablaDeVerbos() {
 #ifndef _WIN32
             ::chmod(tmp.c_str(), 0600);
 #endif
-            std::error_code ec;
             std::filesystem::rename(tmp, kDefaultAgentConfigPath, ec);
             if (ec) {
                 std::filesystem::remove(tmp, ec);
@@ -960,6 +969,33 @@ const TablaDeVerbos& tablaDeVerbos() {
             // Se responde ANTES de salir, y se sale en otro hilo: el gestor de servicios lo
             // levanta —`Restart=always`— con la dirección nueva. Salir aquí mismo dejaría al
             // cliente sin respuesta y con cara de que ha fallado.
+#ifdef _WIN32
+            // On Windows the daemon is a scheduled task, and a task that ENDS with 0 is not
+            // restarted: its restart settings are for failures. A detached helper runs the task
+            // again once this process is gone (while it runs, a second start is ignored).
+            {
+                std::string cmd =
+                    "cmd.exe /c \"ping -n 4 127.0.0.1 >nul & schtasks /Run /TN "
+                    "ZFSMgr-Agent >nul\"";
+                STARTUPINFOA si{};
+                si.cb = sizeof(si);
+                PROCESS_INFORMATION pi{};
+                const DWORD base = DETACHED_PROCESS | CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP;
+                BOOL ok =
+                    CreateProcessA(nullptr, cmd.data(), nullptr, nullptr, FALSE,
+                                   base | CREATE_BREAKAWAY_FROM_JOB, nullptr, nullptr, &si, &pi);
+                if (!ok) {
+                    ok = CreateProcessA(nullptr, cmd.data(), nullptr, nullptr, FALSE, base, nullptr,
+                                        nullptr, &si, &pi);
+                }
+                if (ok) {
+                    CloseHandle(pi.hThread);
+                    CloseHandle(pi.hProcess);
+                } else {
+                    daemonLog("WARN", "could not launch the helper that restarts the task");
+                }
+            }
+#endif
             std::thread([]() {
                 std::this_thread::sleep_for(std::chrono::milliseconds(700));
                 g_stop.store(true);
