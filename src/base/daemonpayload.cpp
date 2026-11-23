@@ -240,7 +240,10 @@ std::string tlsBootstrapShellCommand() {
     // IP de loopback, que es a donde apunta el túnel SSH.
     //
     // La condición de regeneración comprueba además que el certificado existente
-    // TENGA SAN: si no, se rehace. Sin eso, los hosts ya aprovisionados se
+    // TENGA SAN: si no, se rehace. Mirado con `-text` y no con `-ext subjectAltName`: el
+    // openssl de macOS es LibreSSL y no tiene `-ext`, así que allí la comprobación decía
+    // siempre «sin SAN» y CADA instalación regeneraba los certificados, dejando sin
+    // conexión a las máquinas que tenían los de antes (MMEla, 2026-11-23). Sin eso, los hosts ya aprovisionados se
     // quedarían con el certificado viejo para siempre, porque el fichero existe y
     // no está vacío.
     // Con SAN el handshake dejó de fallar por nombre de host y pasó a fallar por
@@ -258,7 +261,7 @@ std::string tlsBootstrapShellCommand() {
             "mkdir -p %1; "
             "_zfsmgr_needs_san() { "
             "  [ -s \"$1\" ] || return 0; "
-            "  openssl x509 -in \"$1\" -noout -ext subjectAltName 2>/dev/null | grep -q 'DNS:' || "
+            "  openssl x509 -in \"$1\" -noout -text 2>/dev/null | grep -q 'DNS:' || "
             "return 0; "
             "  return 1; "
             "}; "
