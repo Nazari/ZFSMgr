@@ -28,6 +28,8 @@ PlanCli planDelCli(Estado& e, const B::ConnectionProfile& perfil) {
             return plan;
         }
     }
+    plan.binario = rutaDelCli(DI::platformOf(perfil),
+                              DI::remoteArchitecture(e.ses->transporte, perfil, e.ses->verboso));
     if (!plan.sonda.fullVersion.empty()) {
         switch (B::agentversion::verdictFor(plan.sonda.fullVersion, B::agentversion::expected())) {
             case B::agentversion::Verdict::UpToDate:
@@ -37,11 +39,18 @@ PlanCli planDelCli(Estado& e, const B::ConnectionProfile& perfil) {
                 plan.accion = PlanCli::Accion::PorDelante;
                 return plan;
             case B::agentversion::Verdict::Update:
+                // As for the daemon: already the build there is to send is up to date. Each
+                // build has its own fingerprint, and the other platforms' CLI is not rebuilt
+                // with this one: «update» sent the same file again and never went away.
+                if (!plan.binario.empty()
+                    && B::trim(plan.sonda.fullVersion)
+                           == B::trim(B::agentversion::versionInBinary(plan.binario))) {
+                    plan.accion = PlanCli::Accion::AlDia;
+                    return plan;
+                }
                 break;
         }
     }
-    plan.binario = rutaDelCli(DI::platformOf(perfil),
-                              DI::remoteArchitecture(e.ses->transporte, perfil, e.ses->verboso));
     plan.accion = plan.binario.empty() || dirDeAgentes().empty() || dirDeCatalogos().empty()
                       ? PlanCli::Accion::SinBinario
                       : PlanCli::Accion::Actualizar;
