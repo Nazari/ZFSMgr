@@ -23,7 +23,9 @@
 #include <QLabel>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QScrollArea>
+#include <QSpinBox>
 #include <QSplitter>
 #include <QTableWidget>
 #include <QTreeWidget>
@@ -586,6 +588,19 @@ void MachinesPage::showMachine(const QString& id) {
             });
             place(key);
         }
+    }
+
+    // Its address can change —a machine moved to another network, or reached through Tailscale
+    // now—. Removing it and adding it again was the only way, and lost its stored password.
+    if (id.compare(QStringLiteral("local"), Qt::CaseInsensitive) != 0) {
+        auto* where = button(L("Change its address…", "Cambiar su dirección…"), w);
+        where->setToolTip(
+            L("Where ZFSMgr finds it: host, SSH port and user. Nothing on the "
+              "machine is touched.",
+              "Dónde la encuentra ZFSMgr: máquina (host), puerto SSH y usuario. En "
+              "la máquina no se toca nada."));
+        connect(where, &QPushButton::clicked, this, [this, id] { changeAddress(id); });
+        place(where);
     }
 
     auto* remove =
@@ -1464,6 +1479,81 @@ QWidget* MachinesPage::datasetSummary(const QString& machine, const QString& dat
     }
     l->addStretch(1);
     return w;
+}
+
+void MachinesPage::changeAddress(const QString& id) {
+    // What it has now, from the configuration: the page knows the machines by their overview,
+    // which does not say how they are reached.
+    m_store->general()->request(QStringLiteral("ls zfsm://"), this, [this, id](const CliResult& r) {
+        QJsonObject conn;
+        for (const QJsonValue& v :
+             firstObject(r.out).value(QStringLiteral("connections")).toArray()) {
+            if (v.toObject().value(QStringLiteral("id")).toString() == id) {
+                conn = v.toObject();
+            }
+        }
+        if (conn.isEmpty()) {
+            Q_EMIT message(r.ok() ? L("That machine is no longer configured.",
+                                      "Esa máquina ya no está en la configuración.")
+                                  : r.err.trimmed());
+            return;
+        }
+        auto* d = new QDialog(this);
+        d->setAttribute(Qt::WA_DeleteOnClose);
+        d->setWindowTitle(L("Address of %1", "Dirección de %1")
+                              .arg(conn.value(QStringLiteral("name")).toString(id)));
+        d->setMinimumWidth(460);
+        auto* lay = new QVBoxLayout(d);
+        auto* form = new QFormLayout();
+        auto* host = new QLineEdit(conn.value(QStringLiteral("host")).toString(), d);
+        auto* port = new QSpinBox(d);
+        port->setRange(1, 65535);
+        port->setValue(conn.value(QStringLiteral("port")).toInt(22));
+        auto* user = new QLineEdit(conn.value(QStringLiteral("user")).toString(), d);
+        form->addRow(L("Host", "Máquina (host)"), host);
+        form->addRow(L("SSH port", "Puerto SSH"), port);
+        form->addRow(L("User", "Usuario"), user);
+        lay->addLayout(form);
+        lay->addWidget(muted(
+            L("The other machines keep the address they had when you gave them keys: after "
+              "this, give them keys again in Administration so they reach it at the new one.",
+              "Las demás máquinas guardan la dirección que tenían cuando les diste llaves: "
+              "después de esto, dales llaves de nuevo en Administración para que la busquen en "
+              "la nueva."),
+            d));
+        auto* problem = label(QString(), d, false);
+        problem->setStyleSheet(QStringLiteral("color:%1").arg(colourOf(QStringLiteral("error"))));
+        lay->addWidget(problem);
+        auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, d);
+        lay->addWidget(bb);
+        connect(bb, &QDialogButtonBox::rejected, d, &QDialog::reject);
+        connect(bb, &QDialogButtonBox::accepted, d, [this, d, id, host, port, user, problem] {
+            // As «Add a machine»: no spaces nor quotes, so the line needs no quoting.
+            static const QRegularExpression bad(QStringLiteral("[\\s\"']"));
+            const QString h = host->text().trimmed();
+            const QString u = user->text().trimmed();
+            if (h.isEmpty() || h.contains(bad)) {
+                problem->setText(
+                    L("The host, without spaces.", "La máquina (host), sin espacios."));
+                return;
+            }
+            if (u.isEmpty() || u.contains(bad)) {
+                problem->setText(L("The user, without spaces.", "El usuario, sin espacios."));
+                return;
+            }
+            act(QStringLiteral("edit %1 --host %2 --port %3 --user %4 --keep-password")
+                    .arg(url(id), h, QString::number(port->value()), u),
+                L("Address changed. Give the other machines keys again in Administration.",
+                  "Dirección cambiada. Dales llaves de nuevo a las demás máquinas en "
+                  "Administración."),
+                false, [this, id] {
+                    m_probe.remove(id);
+                    showDetail();
+                });
+            d->accept();
+        });
+        d->open();
+    });
 }
 
 void MachinesPage::act(const QString& line, const QString& done, bool reloadTree,

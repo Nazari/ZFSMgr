@@ -366,6 +366,8 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
        {"t_ej_edit_family", "ssh solo por IPv4"}},
       {"edit --no-key",
        {"t_ej_edit_no_key", "sin clave SSH: entra con contraseña"}},
+      {"edit --host 100.69.204.24 --keep-password",
+       {"t_ej_edit_keep_pw", "otra dirección, sin tocar la contraseña"}},
       {"edit casa --user admin --password",
        {"t_ej_edit_7", "las credenciales de sudo de esta máquina"}},
       {"edit laptop --password-fd 3",
@@ -1105,7 +1107,9 @@ const std::vector<Orden> kOrdenes = {
       {{"t_family_forma", "--family <auto|ipv4|ipv6>"}, {"t_family_edit_q", "Qué direcciones prueba ssh."}},
       {{"t_edit_no_key", "--no-key"}, {"t_edit_no_key_q", "Quita la clave SSH: se entra con contraseña."}},
       {{"t_password_76e3cd", "--password"}, {"t_pide_una_c_dbc5c6", "Ya no hace falta: la contraseña se pregunta siempre, e Intro conserva la guardada."}},
-      {{"t_edit_pfd", "--password-fd <n>"}, {"t_edit_pfd_q", "La contraseña, por descriptor."}}},
+      {{"t_edit_pfd", "--password-fd <n>"}, {"t_edit_pfd_q", "La contraseña, por descriptor."}},
+      {{"t_edit_keep_pw", "--keep-password"},
+       {"t_edit_keep_pw_q", "No pregunta la contraseña: conserva la guardada."}}},
      {{"t_edit_det_local", "Sobre la conexión LOCAL, esto es lo que cambia las credenciales de sudo de "
        "esta máquina: «edit local --user <u> --password». Se comprueban al vuelo —si no "
        "elevan, se dice— y se refresca lo que la sesión tenía recordado, incluido el "

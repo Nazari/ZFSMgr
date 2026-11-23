@@ -193,6 +193,13 @@ public:
                 if (qEnvironmentVariableIntValue("ZFSMGR_GUI_ADVANCED") > 0) {
                     w->setAdvanced(true, /*remember=*/false);
                 }
+                // ZFSMGR_GUI_CAPTURE_SIZE=<w>x<h>: a taller window, for what lies below the
+                // fold of a page (the matrix of Administration).
+                if (const QStringList wh =
+                        qEnvironmentVariable("ZFSMGR_GUI_CAPTURE_SIZE").split(QLatin1Char('x'));
+                    wh.size() == 2 && wh[0].toInt() > 0 && wh[1].toInt() > 0) {
+                    w->resize(wh[0].toInt(), wh[1].toInt());
+                }
                 w->showPage(qEnvironmentVariableIntValue("ZFSMGR_GUI_PAGE"));
                 if (const QString r = qEnvironmentVariable("ZFSMGR_GUI_REVEAL"); !r.isEmpty()) {
                     // «machine» or «machine/pool/dataset»: the Machines page, opened there.

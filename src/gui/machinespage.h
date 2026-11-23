@@ -87,6 +87,8 @@ private:
     QSet<QString> m_propsAsked;              // machine/dataset whose properties are on the way
     QHash<QString, QJsonArray> m_breakdown;  // machine/dataset → `breakdown --list`
     void importPool(const QString& machine);
+    // Where ZFSMgr finds the machine —host, SSH port, user—, asked in a small window.
+    void changeAddress(const QString& machine);
     void strandedMounts(const QString& machine);
     void forgetPools(const QString& machine);
     QString m_revealMachine;  // what reveal() still has to reach

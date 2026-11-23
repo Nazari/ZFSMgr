@@ -643,7 +643,9 @@ bool cmdEditarConexion(Estado& e, const Peticion& pet, const ZfsmUrl& destino) {
             std::fprintf(stderr, "%s\n", err.c_str());
             return false;
         }
-    } else if (interactivo || e.pideSecretoServicio) {
+    } else if ((interactivo || e.pideSecretoServicio) && !pet.tiene("--keep-password")) {
+        // --keep-password: for whoever changes only where the machine is —the interface's
+        // «Change address…»—, which has nothing to say about the password.
         std::string err;
         std::string clave;
         const std::string aviso =

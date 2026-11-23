@@ -1,6 +1,9 @@
 {
   "language": "es",
   "translations": {
+    "t_ej_edit_keep_pw": "otra dirección, sin tocar la contraseña",
+    "t_edit_keep_pw": "--keep-password",
+    "t_edit_keep_pw_q": "No pregunta la contraseña: conserva la guardada.",
     "t_cmd_daemoninstall_antivirus": "el antivirus ha bloqueado el agente (en Windows, Defender lo da por amenaza: excluya C:\\ProgramData\\ZFSMgr\\agent, la carpeta agents del paquete y C:\\Users\\Public\\zfsmgr-agent.upload, o notifique el falso positivo)",
     "t_win_ag_no_llego": "el binario no llegó a la máquina",
     "t_win_ag_mover": "no se pudo poner el binario en su sitio",

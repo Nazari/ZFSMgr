@@ -451,8 +451,64 @@ void AdminPage::render() {
                 t->setStyleSheet(QStringLiteral("color:%1").arg(colourOf(look)));
                 t->setToolTip(detail);
                 cl->addWidget(t);
-                if (state == QLatin1String("unreachable")) {
-                    // Almost always: the one on top answers only on itself.
+                // Why it does not get there. The daemon on the left looks for the one on top
+                // at the address it was given with the keys (`host` of its check): if this
+                // computer now has another one, that one is stale. If not, and some other
+                // machine does reach the one on top, it does listen on the network: the left
+                // one is on a network that does not see that address. Only when nobody
+                // reaches it is «it answers only on itself» the likely cause.
+                QString nowAt;
+                bool isLocal = false;
+                for (const QJsonValue& v : m_connections) {
+                    const QJsonObject c = v.toObject();
+                    if (c.value(QStringLiteral("id")).toString() == to) {
+                        nowAt = c.value(QStringLiteral("host")).toString();
+                        isLocal = c.value(QStringLiteral("type"))
+                                      .toString()
+                                      .compare(QStringLiteral("LOCAL"), Qt::CaseInsensitive)
+                                  == 0;
+                    }
+                }
+                const QString lookedAt = chk.value(QStringLiteral("host")).toString();
+                const bool stale = !isLocal && !nowAt.isEmpty() && !lookedAt.isEmpty()
+                                   && lookedAt.compare(nowAt, Qt::CaseInsensitive) != 0;
+                bool othersReach = false;
+                for (auto it = m_checks.constBegin(); it != m_checks.constEnd(); ++it) {
+                    if (it.key() == from || it.key() == to) {
+                        continue;
+                    }
+                    for (const QJsonValue& v : it.value()) {
+                        const QJsonObject o = v.toObject();
+                        if (o.value(QStringLiteral("connection")).toString() == to
+                            && o.value(QStringLiteral("state")).toString() == QLatin1String("ok")) {
+                            othersReach = true;
+                        }
+                    }
+                }
+                if (state == QLatin1String("unreachable") && stale) {
+                    t->setText(L("✕ looks for it at %1", "✕ la busca en %1").arg(lookedAt));
+                    t->setToolTip(
+                        L("%1 still has the address it was given with the keys (%2); it is %3 "
+                          "now. Giving it keys again gives it the new one.\n\n%4",
+                          "%1 sigue con la dirección que recibió con las llaves (%2); ahora es "
+                          "%3. Darle llaves de nuevo le da la nueva.\n\n%4")
+                            .arg(names.value(from), lookedAt, nowAt, detail));
+                    keyButtons(cell, cl, from,
+                               L("Give it the new address", "Darle la dirección nueva"));
+                } else if (state == QLatin1String("unreachable") && othersReach) {
+                    t->setText(L("✕ does not get there from here", "✕ no llega desde aquí"));
+                    t->setToolTip(
+                        L("%1 listens on the network —other machines reach it—, but %2 does not "
+                          "get to %3: they are probably on different networks, or a firewall "
+                          "stands between. Give %1 an address %2 can reach (Tailscale, a VPN) "
+                          "and then keys again.\n\n%4",
+                          "%1 escucha en la red —otras máquinas llegan a ella—, pero %2 no llega "
+                          "a %3: lo normal es que estén en redes distintas o que haya un "
+                          "cortafuegos en medio. Dale a %1 una dirección a la que %2 llegue "
+                          "(Tailscale, una VPN) y después llaves de nuevo.\n\n%4")
+                            .arg(names.value(to), names.value(from), lookedAt, detail));
+                } else if (state == QLatin1String("unreachable")) {
+                    // Nobody gets there: most likely the one on top answers only on itself.
                     auto* b =
                         small(L("Open %1 to the network", "Abrir %1 a la red").arg(names.value(to)),
                               cell);

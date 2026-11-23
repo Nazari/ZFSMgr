@@ -1,6 +1,9 @@
 {
   "language": "en",
   "translations": {
+    "t_ej_edit_keep_pw": "another address, leaving the password alone",
+    "t_edit_keep_pw": "--keep-password",
+    "t_edit_keep_pw_q": "Does not ask for the password: keeps the stored one.",
     "t_cmd_daemoninstall_antivirus": "the antivirus blocked the agent (on Windows, Defender flags it as a threat: exclude C:\\ProgramData\\ZFSMgr\\agent, the package's agents folder and C:\\Users\\Public\\zfsmgr-agent.upload, or report the false positive)",
     "t_win_ag_no_llego": "the binary did not reach the machine",
     "t_win_ag_mover": "the binary could not be put in place",
