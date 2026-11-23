@@ -30,4 +30,8 @@ QString buildStamp() {
     return QString::fromLatin1(p + sizeof("ZFSMGR_HUELLA=") - 1);
 }
 
+QString appTitle() {
+    return QStringLiteral("ZFSMgr ") + buildStamp();
+}
+
 }  // namespace zfsmgr::gui

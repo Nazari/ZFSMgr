@@ -194,7 +194,7 @@ public:
         connect(s, &CliService::failed, this, [this, s](const QString& why, bool wrongPassword) {
             s->deleteLater();
             if (!wrongPassword) {
-                QMessageBox::critical(nullptr, QStringLiteral("ZFSMgr"),
+                QMessageBox::critical(nullptr, appTitle(),
                                       L("The command line client could not start:\n%1",
                                         "No se pudo arrancar el cliente de línea de órdenes:\n%1")
                                           .arg(why));
@@ -211,7 +211,7 @@ private:
         m_asked = true;
         auto* d = new QInputDialog();
         d->setAttribute(Qt::WA_DeleteOnClose);
-        d->setWindowTitle(QStringLiteral("ZFSMgr"));
+        d->setWindowTitle(appTitle());
         d->setLabelText(again ? L("That is not the master password. Try again:",
                                   "Esa no es la contraseña maestra. Prueba otra vez:")
                               : L("Master password (the one that encrypts the stored passwords):",
@@ -264,7 +264,7 @@ int main(int argc, char** argv) {
 
     const QString cli = findCli();
     if (cli.isEmpty()) {
-        QMessageBox::critical(nullptr, QStringLiteral("ZFSMgr"),
+        QMessageBox::critical(nullptr, appTitle(),
                               L("zfsmgr-cli was not found next to this program nor on PATH.",
                                 "No se encontró zfsmgr-cli junto a este programa ni en el PATH."));
         return 1;

@@ -1,5 +1,7 @@
 #include "mainwindow.h"
 
+#include "buildstamp.h"
+
 #include "copiespage.h"
 #include "addmachinedialog.h"
 #include "adminpage.h"
@@ -30,7 +32,7 @@ MainWindow::MainWindow(QString cliPath, QByteArray masterPassword, CliService* g
       m_cliPath(std::move(cliPath)),
       m_master(std::move(masterPassword)),
       m_general(general) {
-    setWindowTitle(QStringLiteral("ZFSMgr"));
+    setWindowTitle(appTitle());
     resize(1100, 760);
     m_general->setParent(this);
     wire(m_general);
@@ -189,7 +191,7 @@ void MainWindow::askQuestion(CliService* s, const CliQuestion& q) {
 void MainWindow::askSecret(CliService* s, int id, const QString& text) {
     auto* d = new QInputDialog(this);
     d->setAttribute(Qt::WA_DeleteOnClose);
-    d->setWindowTitle(QStringLiteral("ZFSMgr"));
+    d->setWindowTitle(appTitle());
     d->setLabelText(text);
     d->setTextEchoMode(QLineEdit::Password);
     connect(d, &QDialog::finished, this, [s, d, id](int result) {

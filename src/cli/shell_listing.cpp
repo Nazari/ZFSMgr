@@ -89,8 +89,12 @@ bool listaConexiones(Estado& e, const Peticion& pet) {
     }
     t.imprime(e.formato);
     // Y qué hacer, una vez, debajo de la tabla: la columna dice QUÉ pasa, esto CÓMO se arregla.
+    // The warning's column: the last one, except in json, where the machine uid comes after
+    // it. Reading `back()` there made every machine with a uid look like a Mac without disk
+    // access, and the GUI —which asks in json— showed the macOS remedy on Linux.
+    const std::size_t extra = json ? 1 : 0;
     for (const auto& fila : t.filas) {
-        if (fila.size() >= 2 && fila.back() != "-") {
+        if (fila.size() >= 2 + extra && fila[fila.size() - 1 - extra] != "-") {
             std::fputs(
                 TC("t_aviso_disco_remedio",
                    "aviso: un agente de macOS sin «Acceso total al disco» no ve los pools por "
