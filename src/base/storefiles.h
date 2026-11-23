@@ -156,10 +156,28 @@ void openAllSecrets(const std::string& dirConfig, const std::string& maestra);
 bool masterOpensEverything(const std::string& configDir, const std::string& master,
                            Warning& warning);
 
-// Records the FIRST master password: with nothing encrypted yet, a known text encrypted with
-// it is written into config.json, and from then on it is asked for and checked like any
-// other. With something encrypted already it does nothing —that master was checked on entry—.
-// It is how a first run that stores no password still leaves the master it chose.
-bool recordFirstMaster(const std::string& configDir, const std::string& master, Warning& warning);
+// THE DATA KEY. Since phase 1 of opening with a YubiKey (2026-11-23) the secrets are not
+// encrypted with the master password but with a random data key; config.json keeps that key
+// WRAPPED once per way of opening it —its «slots»: the master password, and later each
+// registered key—, as LUKS does with a disk. The rest of the code receives the data key where
+// it used to receive the master password, and does not notice.
+
+// Is config.json in that format (a master block with at least one slot)?
+bool hasMasterSlots(const std::string& configDir);
+
+// Opens with the master password and returns the data key in `dataKey`:
+//  - with slots: the password slot unwrapped, and checked that it opens everything;
+//  - in the format before (the password itself encrypts everything): checked, and MIGRATED to
+//    a data key in one write, after a backup of both files with the suffix ".antes-de-clave";
+//  - with nothing encrypted: an empty password leaves `dataKey` empty (no master); a password
+//    creates the first data key, its slot and master_check.
+// False with the warning when the password does not open.
+bool unlockWithPassword(const std::string& configDir, const std::string& password,
+                        std::string& dataKey, Warning& warning);
+
+// Changes the master password: only its slot is wrapped again with the new one —nothing else
+// is re-encrypted—; other slots stay. With no data key yet, it creates the first one.
+bool setMasterPassword(const std::string& configDir, const std::string& dataKey,
+                       const std::string& newPassword, Warning& warning);
 
 }  // namespace zfsmgr::base::store

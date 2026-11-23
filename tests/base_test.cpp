@@ -5179,6 +5179,89 @@ void caso58() {
               "stillToPrune: nothing planned, nothing pruned");
 }
 
+// The data key (phase 1 of opening with a YubiKey): secrets under a random key, kept wrapped
+// with the master password in a slot. Creating it, opening, a wrong or empty password,
+// changing the password without re-encrypting anything, and migrating the format before.
+void caso59() {
+    namespace ST = zfsmgr::base::store;
+    namespace J = zfsmgr::base::json;
+    using zfsmgr::base::SecretCipher;
+    const std::string dir = "/tmp/zfsmgr-base-test-clave";
+    std::filesystem::remove_all(dir);
+    ST::Warning av;
+    std::string dek;
+
+    comprobar(ST::unlockWithPassword(dir, "", dek, av) && dek.empty(),
+              "clave: sin nada cifrado y sin contrasena, no hay maestra");
+    comprobar(!ST::hasMasterSlots(dir), "clave: y no se escribe nada");
+    comprobar(ST::unlockWithPassword(dir, "uno", dek, av) && dek.size() == 43,
+              "clave: la primera contrasena crea una clave de 32 bytes");
+    comprobar(ST::hasMasterSlots(dir) && ST::hasSomethingEncrypted(dir),
+              "clave: con su ranura, que cuenta como algo cifrado");
+    std::string otra;
+    comprobar(ST::unlockWithPassword(dir, "uno", otra, av) && otra == dek,
+              "clave: la misma contrasena abre la misma clave");
+    comprobar(
+        !ST::unlockWithPassword(dir, "dos", otra, av) && av.reason == ST::Reason::CannotDecrypt,
+        "clave: otra contrasena no abre, y dice que no descifra");
+    comprobar(!ST::unlockWithPassword(dir, "", otra, av), "clave: vacia tampoco");
+
+    // A secret stored with the key, not the password.
+    std::string cifrado;
+    std::string err;
+    comprobar(SecretCipher::encryptEncv1("secreto", dek, cifrado, err), "clave: se cifra con ella");
+    J::Value cfg = ST::readConfig(dir, av);
+    J::Value conexion;
+    conexion.set("id", J::Value(std::string("nas")));
+    conexion.set("password", J::Value(cifrado));
+    cfg.set("connections", J::Value(J::Array{conexion}));
+    comprobar(ST::writeConfig(dir, cfg, av), "clave: una conexion con su contrasena");
+    comprobar(ST::unlockWithPassword(dir, "uno", otra, av) && otra == dek,
+              "clave: y se sigue abriendo, comprobando que abre todo");
+
+    comprobar(ST::setMasterPassword(dir, dek, "dos", av), "clave: cambiar la contrasena");
+    comprobar(ST::unlockWithPassword(dir, "dos", otra, av) && otra == dek,
+              "clave: la nueva abre la MISMA clave");
+    comprobar(!ST::unlockWithPassword(dir, "uno", otra, av), "clave: la vieja ya no");
+    comprobar(ST::readConfig(dir, av)["connections"].toArray()[0]["password"].toString() == cifrado,
+              "clave: y el secreto no se ha recifrado");
+    comprobar(
+        !ST::setMasterPassword(dir, dek, "", av) && av.reason == ST::Reason::NewMasterPasswordEmpty,
+        "clave: una contrasena nueva vacia se rechaza");
+
+    // The format before: the password itself encrypts the secrets.
+    const std::string vieja = "/tmp/zfsmgr-base-test-clave-vieja";
+    std::filesystem::remove_all(vieja);
+    std::string pw;
+    comprobar(SecretCipher::encryptEncv1("de-antes", "maestra", pw, err),
+              "migrar: secreto de antes");
+    J::Value c2;
+    c2.set("id", J::Value(std::string("nas")));
+    c2.set("password", J::Value(pw));
+    J::Value cfg2;
+    cfg2.set("connections", J::Value(J::Array{c2}));
+    comprobar(ST::writeConfig(vieja, cfg2, av), "migrar: config de antes");
+    comprobar(!ST::unlockWithPassword(vieja, "otra", dek, av) && !ST::hasMasterSlots(vieja),
+              "migrar: una contrasena que no abre no migra nada");
+    comprobar(ST::unlockWithPassword(vieja, "maestra", dek, av) && dek.size() == 43,
+              "migrar: la buena abre y da una clave nueva");
+    comprobar(ST::hasMasterSlots(vieja), "migrar: con su ranura");
+    std::string claro;
+    const std::string ahora =
+        ST::readConfig(vieja, av)["connections"].toArray()[0]["password"].toString();
+    comprobar(SecretCipher::decryptEncv1(ahora, dek, claro, err) && claro == "de-antes",
+              "migrar: el secreto ahora va bajo la clave");
+    comprobar(!SecretCipher::decryptEncv1(ahora, "maestra", claro, err),
+              "migrar: y ya no bajo la contrasena");
+    comprobar(std::filesystem::exists(ST::configPath(vieja) + ".antes-de-clave"),
+              "migrar: dejando copia de antes");
+    std::string otraVez;
+    comprobar(ST::unlockWithPassword(vieja, "maestra", otraVez, av) && otraVez == dek,
+              "migrar: abrir otra vez no vuelve a migrar");
+    std::filesystem::remove_all(dir);
+    std::filesystem::remove_all(vieja);
+}
+
 const Caso kCasos[] = {
     {"trim", caso01},
     {"replaceAll", caso02},
@@ -5238,6 +5321,7 @@ const Caso kCasos[] = {
     {"compresión de los ficheros de `send`", caso56},
     {"create --opts-as", caso57},
     {"GSA stillToPrune", caso58},
+    {"la clave de datos y sus ranuras", caso59},
 };
 
 }  // namespace

@@ -281,6 +281,7 @@
     "t_ej_create_opts_as": "with another pool's options: before creating it, leaves the command written out with them",
     "t_create_opts_as_det": "«--opts-as» copies what was CHOSEN for that pool —its properties with local source: ashift, autotrim, compatibility…, and those of its root dataset: compression, atime…—. It does not copy the import ones (altroot, cachefile, readonly), encryption, the mount point —it would mount the new pool over the old one—, user properties —among them the snapshot schedule—, those the target machine does not have, nor those whose value is the one they would have by default. In the shell it creates nothing yet: it writes at the prompt the command with those options in place, to read it, change it if needed and press Enter. What the line already carries («-o ashift=9») wins over what is copied.",
     "t_ej_peers_check": "which ones the backup machine really reaches",
+    "t_mp_ok_clave": "master password changed\n",
     "t_opts_as_no_pool": "--opts-as wants a pool, like zfsm://connection/pool (now: %s)\n",
     "t_opts_as_fuera": "left out from %s (import-time, encryption, mounting or belonging to its data): %s\n",
     "t_opts_as_propuesta": "with the options of %s, the command reads like this: review it and press Enter to create the pool\n",

@@ -4,6 +4,9 @@
 #include "secretcipher.h"
 #include "strutil.h"
 
+#include <openssl/crypto.h>
+#include <openssl/rand.h>
+
 #include <chrono>
 #include <cstring>
 #include <filesystem>
@@ -301,6 +304,8 @@ namespace {
 // no password at all.
 const char* const kMasterCheck = "master_check";
 const char* const kMasterCheckText = "zfsmgr";
+// The data key and the ways to open it (its slots): see unlockWithPassword.
+const char* const kMaster = "master";
 
 const char* const kCamposSecretos[] = {
     "password",
@@ -766,6 +771,9 @@ bool deleteProfile(const std::string& dirConfig, const std::string& id, Warning&
 }
 
 bool hasSomethingEncrypted(const std::string& dirConfig) {
+    if (hasMasterSlots(dirConfig)) {
+        return true;
+    }
     bool alguno = false;
     Warning aviso;
     recorreSecretos(dirConfig,
@@ -823,11 +831,17 @@ bool masterOpensEverything(const std::string& dirConfig, const std::string& maes
     return ok;
 }
 
-bool rotateMasterKey(const std::string& dirConfig, const std::string& vieja,
-                      const std::string& nueva, std::string& copiaSufijo, Warning& aviso) {
+namespace {
+
+// Re-encrypts everything that hangs off `vieja` with `nueva`, in both files, after a backup
+// of both with `sufijo`. With `maestra` (the master block, its slots) it goes into config.json
+// in the SAME write as the re-encrypted fields: a key the fields are under and the only way to
+// open it can never be on disk one without the other.
+bool rotaYEscribe(const std::string& dirConfig, const std::string& vieja, const std::string& nueva,
+                  const char* sufijo, const json::Value* maestra, std::string& copiaSufijo,
+                  Warning& aviso) {
     aviso = Warning{};
     copiaSufijo.clear();
-    const ConfigLock cerrojo(dirConfig);
     if (nueva.empty()) {
         aviso = Warning{Reason::NewMasterPasswordEmpty, {}, {}, {}};
         return false;
@@ -845,7 +859,7 @@ bool rotateMasterKey(const std::string& dirConfig, const std::string& vieja,
 
     // La copia va ANTES de tocar nada, y de los dos ficheros: si la rotación se parte por
     // la mitad, lo que queda en disco no sirve ni con la clave vieja ni con la nueva.
-    copiaSufijo = ".antes-de-rotar";
+    copiaSufijo = sufijo;
     std::error_code ec;
     for (const std::string& ruta : {configPath(dirConfig), trustStorePath(dirConfig)}) {
         if (!fs::exists(ruta, ec)) {
@@ -874,6 +888,9 @@ bool rotateMasterKey(const std::string& dirConfig, const std::string& vieja,
     if (!rotaConexiones(trust, vieja, nueva, aviso)) {
         return false;
     }
+    if (maestra) {
+        config.set(kMaster, *maestra);
+    }
     if (!writeConfig(dirConfig, config, aviso)) {
         return false;
     }
@@ -887,26 +904,188 @@ bool rotateMasterKey(const std::string& dirConfig, const std::string& vieja,
     return true;
 }
 
-bool recordFirstMaster(const std::string& dirConfig, const std::string& maestra, Warning& aviso) {
-    aviso = Warning{};
-    if (maestra.empty()) {
-        return true;
-    }
+}  // namespace
+
+bool rotateMasterKey(const std::string& dirConfig, const std::string& vieja,
+                     const std::string& nueva, std::string& copiaSufijo, Warning& aviso) {
     const ConfigLock cerrojo(dirConfig);
-    if (hasSomethingEncrypted(dirConfig)) {
-        return true;  // there is a master already: this one was checked against it
+    return rotaYEscribe(dirConfig, vieja, nueva, ".antes-de-rotar", nullptr, copiaSufijo, aviso);
+}
+
+namespace {
+
+// A new data key: 32 random bytes, in base64url so it goes wherever a master password went.
+bool nuevaClaveDeDatos(std::string& dek, Warning& aviso) {
+    std::string crudo(32, '\0');
+    if (RAND_bytes(reinterpret_cast<unsigned char*>(crudo.data()), static_cast<int>(crudo.size()))
+        != 1) {
+        aviso = Warning{Reason::CannotEncrypt, {}, kMaster, "RAND_bytes"};
+        return false;
     }
+    dek = base64Encode(crudo);
+    OPENSSL_cleanse(crudo.data(), crudo.size());
+    for (char& c : dek) {
+        c = c == '+' ? '-' : c == '/' ? '_' : c;
+    }
+    while (!dek.empty() && dek.back() == '=') {
+        dek.pop_back();
+    }
+    return true;
+}
+
+// The master block with one slot: the data key wrapped with the password.
+bool bloqueConContrasena(const std::string& dek, const std::string& contrasena, json::Value& bloque,
+                         Warning& aviso) {
+    std::string envuelta;
+    std::string err;
+    if (!SecretCipher::encryptEncv1(dek, contrasena, envuelta, err)) {
+        aviso = Warning{Reason::CannotEncrypt, {}, kMaster, err};
+        return false;
+    }
+    json::Value ranura;
+    ranura.set("type", json::Value(std::string("password")));
+    ranura.set("value", json::Value(envuelta));
+    json::Array ranuras;
+    ranuras.push_back(ranura);
+    bloque = json::Value();
+    bloque.set("version", json::Value(1));
+    bloque.set("slots", json::Value(ranuras));
+    return true;
+}
+
+bool tieneRanuras(const json::Value& config) {
+    return config[kMaster]["slots"].isArray() && !config[kMaster]["slots"].toArray().empty();
+}
+
+}  // namespace
+
+bool hasMasterSlots(const std::string& dirConfig) {
+    Warning aviso;
+    return tieneRanuras(readConfig(dirConfig, aviso));
+}
+
+bool unlockWithPassword(const std::string& dirConfig, const std::string& contrasena,
+                        std::string& dek, Warning& aviso) {
+    aviso = Warning{};
+    dek.clear();
+    const ConfigLock cerrojo(dirConfig);
     json::Value config = readConfig(dirConfig, aviso);
     if (!aviso.empty()) {
         return false;
     }
-    std::string cifrado;
+    if (tieneRanuras(config)) {
+        if (contrasena.empty()) {
+            aviso = Warning{Reason::MasterPasswordRequired, {}, kMaster, {}};
+            return false;
+        }
+        for (const json::Value& r : config[kMaster]["slots"].toArray()) {
+            if (r["type"].toString() != "password" || !r["value"].isString()) {
+                continue;
+            }
+            std::string err;
+            if (SecretCipher::decryptEncv1(r["value"].toString(), contrasena, dek, err)) {
+                // The key opens its slot; that it also opens what hangs off it is checked
+                // too, as a master always was: a half-written file says so here.
+                return masterOpensEverything(dirConfig, dek, aviso);
+            }
+        }
+        aviso = Warning{Reason::CannotDecrypt, {}, kMaster, {}};
+        return false;
+    }
+    if (hasSomethingEncrypted(dirConfig)) {
+        // The format before the data key: the password IS the key. Checked, and moved to a
+        // data key in one write, with a backup of both files first.
+        if (!masterOpensEverything(dirConfig, contrasena, aviso)) {
+            return false;
+        }
+        std::string nueva;
+        json::Value bloque;
+        std::string copia;
+        if (!nuevaClaveDeDatos(nueva, aviso)
+            || !bloqueConContrasena(nueva, contrasena, bloque, aviso)
+            || !rotaYEscribe(dirConfig, contrasena, nueva, ".antes-de-clave", &bloque, copia,
+                             aviso)) {
+            return false;
+        }
+        dek = nueva;
+        return true;
+    }
+    // Nothing encrypted yet: no password, no master; a password, the first master.
+    if (contrasena.empty()) {
+        return true;
+    }
+    std::string nueva;
+    json::Value bloque;
+    if (!nuevaClaveDeDatos(nueva, aviso)
+        || !bloqueConContrasena(nueva, contrasena, bloque, aviso)) {
+        return false;
+    }
+    std::string prueba;
     std::string err;
-    if (!SecretCipher::encryptEncv1(kMasterCheckText, maestra, cifrado, err)) {
+    if (!SecretCipher::encryptEncv1(kMasterCheckText, nueva, prueba, err)) {
         aviso = Warning{Reason::CannotEncrypt, {}, kMasterCheck, err};
         return false;
     }
-    config.set(kMasterCheck, json::Value(cifrado));
+    config.set(kMasterCheck, json::Value(prueba));
+    config.set(kMaster, bloque);
+    if (!writeConfig(dirConfig, config, aviso)) {
+        return false;
+    }
+    dek = nueva;
+    return true;
+}
+
+bool setMasterPassword(const std::string& dirConfig, const std::string& dek,
+                       const std::string& nueva, Warning& aviso) {
+    aviso = Warning{};
+    if (nueva.empty()) {
+        aviso = Warning{Reason::NewMasterPasswordEmpty, {}, {}, {}};
+        return false;
+    }
+    if (dek.empty()) {
+        // No master yet: this one is the first.
+        std::string clave;
+        return unlockWithPassword(dirConfig, nueva, clave, aviso);
+    }
+    const ConfigLock cerrojo(dirConfig);
+    json::Value config = readConfig(dirConfig, aviso);
+    if (!aviso.empty()) {
+        return false;
+    }
+    if (!tieneRanuras(config)) {
+        aviso = Warning{Reason::MasterPasswordRequired, {}, kMaster, {}};
+        return false;
+    }
+    std::string envuelta;
+    std::string err;
+    if (!SecretCipher::encryptEncv1(dek, nueva, envuelta, err)) {
+        aviso = Warning{Reason::CannotEncrypt, {}, kMaster, err};
+        return false;
+    }
+    // The password slot is replaced; any other kind of slot (a key) stays as it is.
+    json::Array ranuras;
+    bool puesta = false;
+    for (const json::Value& r : config[kMaster]["slots"].toArray()) {
+        if (r["type"].toString() == "password") {
+            if (!puesta) {
+                json::Value nuevaRanura = r;
+                nuevaRanura.set("value", json::Value(envuelta));
+                ranuras.push_back(nuevaRanura);
+                puesta = true;
+            }
+            continue;
+        }
+        ranuras.push_back(r);
+    }
+    if (!puesta) {
+        json::Value r;
+        r.set("type", json::Value(std::string("password")));
+        r.set("value", json::Value(envuelta));
+        ranuras.push_back(r);
+    }
+    json::Value bloque = config[kMaster];
+    bloque.set("slots", json::Value(ranuras));
+    config.set(kMaster, bloque);
     return writeConfig(dirConfig, config, aviso);
 }
 

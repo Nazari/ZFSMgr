@@ -838,6 +838,7 @@
     "t_mp_new_q": "La nueva, por descriptor. Sin ellas se teclean, y la nueva se pide dos veces.",
     "t_mp_no_coincide": "las dos no coinciden: no se ha cambiado nada\n",
     "t_mp_ok": "contraseña maestra cambiada; copia de seguridad en «*%s»\n",
+    "t_mp_ok_clave": "contraseña maestra cambiada\n",
     "t_mp_old": "--old-fd <n>",
     "t_mp_old_q": "La actual, por descriptor.",
     "t_mp_p1": "Contraseña maestra nueva: ",

@@ -223,11 +223,6 @@ bool leeLineaDeEntrada(std::string& linea) {
     return true;
 }
 
-bool maestraAbre(const std::string& dirConfig, const std::string& maestra) {
-    ST::Warning aviso;
-    return ST::masterOpensEverything(dirConfig, maestra, aviso);
-}
-
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -595,7 +590,23 @@ int main(int argc, char** argv) {
         return 2;
     }
 
+    // `maestra` ends up holding the DATA KEY, not the password: what is read here —the
+    // service's first line, a descriptor, the terminal— is the master password, and
+    // store::unlockWithPassword turns it into the key the secrets are under (migrating a
+    // configuration from before, or creating the first master). The rest of the program
+    // receives the key where it used to receive the password, and does not notice.
     std::string maestra;
+    std::string contrasena;
+    const auto abre = [&op, &contrasena, &maestra]() {
+        ST::Warning aviso;
+        const bool ok = ST::unlockWithPassword(op.dirConfig, contrasena, maestra, aviso);
+        if (!ok && aviso.reason != ST::Reason::CannotDecrypt
+            && aviso.reason != ST::Reason::MasterPasswordRequired) {
+            // Not «wrong password»: the file could not be read or written. Said as it is.
+            std::fprintf(stderr, "%s: %s\n", kNombre, ST::labelOf(aviso).c_str());
+        }
+        return ok;
+    };
     // Si se da un descriptor, se lee SIEMPRE, aunque todavía no haya nada cifrado. Antes
     // solo se leía cuando ya lo había, y eso es un pez que se muerde la cola: para dar de
     // alta la PRIMERA conexión con contraseña hace falta una maestra, y no se pedía porque
@@ -607,21 +618,20 @@ int main(int argc, char** argv) {
             // The service's first line of input. Read byte by byte: a buffered read would
             // swallow the requests the client may already have written behind it.
             // The first line is always the master password, empty when nothing is encrypted.
-            const bool leida = leeLineaDeEntrada(maestra) || maestra.empty();
-            if (!leida
-                || (hasSomethingEncrypted(op.dirConfig) && !maestraAbre(op.dirConfig, maestra))) {
+            const bool leida = leeLineaDeEntrada(contrasena) || contrasena.empty();
+            if (!leida || !abre()) {
                 std::fputs("{\"type\":\"error\",\"text\":\"wrong master password\"}\n", stdout);
                 return 1;
             }
         } else if (op.passwordFd >= 0) {
-            if (!zfsmgr::cli::leerSecretoDeDescriptor(op.passwordFd, maestra, err)) {
+            if (!zfsmgr::cli::leerSecretoDeDescriptor(op.passwordFd, contrasena, err)) {
                 std::fprintf(stderr, "%s: %s\n", kNombre, err.c_str());
                 return 1;
             }
             // Por descriptor no se puede volver a preguntar —ya se leyó—, así que se
             // termina con error en vez de seguir con secretos que no abren. Un guion se
             // entera por el código de salida, que es como se entera un guion de todo.
-            if (!maestraAbre(op.dirConfig, maestra)) {
+            if (!abre()) {
                 std::fputs(TC("t_maestra_no_abre", "contraseña maestra incorrecta: no abre los "
                              "secretos guardados\n"), stderr);
                 return 1;
@@ -632,12 +642,12 @@ int main(int argc, char** argv) {
             // de banco de pruebas a nadie.
             bool abierta = false;
             for (int intento = 0; intento < 3 && !abierta; ++intento) {
-                if (!zfsmgr::cli::preguntarSecretoPorTerminal(T("t_p_maestra", "Contraseña maestra: "),
-                                                              maestra, err)) {
+                if (!zfsmgr::cli::preguntarSecretoPorTerminal(
+                        T("t_p_maestra", "Contraseña maestra: "), contrasena, err)) {
                     std::fprintf(stderr, "%s: %s\n", kNombre, err.c_str());
                     return 1;
                 }
-                abierta = maestraAbre(op.dirConfig, maestra);
+                abierta = abre();
                 if (!abierta) {
                     std::fputs(TC("t_maestra_no_abre", "contraseña maestra incorrecta: no abre los "
                                  "secretos guardados\n"), stderr);
@@ -648,15 +658,10 @@ int main(int argc, char** argv) {
             }
         }
     }
-
-    // The first master password given, with nothing encrypted yet, is recorded: otherwise
-    // a configuration that has stored no password keeps no trace of it, the next start asks
-    // for none, and no password can ever be stored (see store::recordFirstMaster).
-    if (!maestra.empty() && !op.sinSecretos && !hasSomethingEncrypted(op.dirConfig)) {
-        ST::Warning aviso;
-        if (!ST::recordFirstMaster(op.dirConfig, maestra, aviso)) {
-            std::fprintf(stderr, "%s: %s\n", kNombre, ST::labelOf(aviso).c_str());
-            return 1;
+    if (!contrasena.empty()) {
+        volatile char* q = &contrasena[0];
+        for (std::size_t i = 0; i < contrasena.size(); ++i) {
+            q[i] = '\0';
         }
     }
 

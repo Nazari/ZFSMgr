@@ -688,14 +688,26 @@ bool ejecutaLinea(Estado& e, const std::string& linea, LectorDeLinea* lector) {
         };
         const std::string fdVieja = opcionDe("old-fd");
         const std::string fdNueva = opcionDe("new-fd");
+        // The session already holds the data key (it was opened on entry), and changing the
+        // password only wraps that key again: the old one is not needed. Given with
+        // --old-fd, it is checked all the same, for scripts that pass it.
         if (!fdVieja.empty()) {
             if (!leerSecretoDeDescriptor(std::atoi(fdVieja.c_str()), vieja, err)) {
                 std::fprintf(stderr, "%s\n", err.c_str());
                 e.ultimoRc = 2;
                 return false;
             }
-        } else {
-            vieja = e.ses->maestra;  // la de esta sesión: ya se comprobó al entrar
+            std::string clave;
+            B::store::Warning avisoVieja;
+            if (!B::store::unlockWithPassword(e.ses->dirConfig, vieja, clave, avisoVieja)
+                || clave != e.ses->maestra) {
+                std::fputs(TC("t_maestra_no_abre",
+                              "contraseña maestra incorrecta: no abre los "
+                              "secretos guardados\n"),
+                           stderr);
+                e.ultimoRc = 2;
+                return false;
+            }
         }
         if (!fdNueva.empty()) {
             if (!leerSecretoDeDescriptor(std::atoi(fdNueva.c_str()), nueva, err)) {
@@ -730,20 +742,21 @@ bool ejecutaLinea(Estado& e, const std::string& linea, LectorDeLinea* lector) {
             e.ultimoRc = 2;
             return false;
         }
-        std::string copia;
         B::store::Warning aviso;
-        if (!B::store::rotateMasterKey(e.ses->dirConfig, vieja, nueva, copia, aviso)) {
+        if (!B::store::setMasterPassword(e.ses->dirConfig, e.ses->maestra, nueva, aviso)) {
             std::fprintf(stderr, "%s\n", B::store::labelOf(aviso).c_str());
             e.ultimoRc = 1;
             return false;
         }
-        // La sesión sigue abierta, así que su copia de la maestra tiene que moverse con
-        // el fichero: si no, la siguiente escritura cifraría con la vieja.
-        e.ses->maestra = nueva;
+        if (e.ses->maestra.empty()) {
+            // There was none: that was the first, and the session takes its data key.
+            std::string clave;
+            if (B::store::unlockWithPassword(e.ses->dirConfig, nueva, clave, aviso)) {
+                e.ses->maestra = clave;
+            }
+        }
         recarga(e);
-        std::fprintf(stdout,
-                     TC("t_mp_ok", "contraseña maestra cambiada; copia de seguridad en «*%s»\n"),
-                     copia.c_str());
+        std::fputs(TC("t_mp_ok_clave", "contraseña maestra cambiada\n"), stdout);
         return false;
     }
     if (orden == "pwd") {

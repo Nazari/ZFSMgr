@@ -455,7 +455,19 @@ bool cmdCrearConexion(Estado& e, const Peticion& pet) {
                            stderr);
                 return false;
             }
-            e.ses->maestra = maestra;
+            // The first master: it creates the data key, and the session takes that.
+            std::string clave;
+            B::store::Warning avisoMaestra;
+            const bool creada =
+                B::store::unlockWithPassword(e.ses->dirConfig, maestra, clave, avisoMaestra);
+            for (char& c : maestra) {
+                c = '\0';
+            }
+            if (!creada) {
+                std::fprintf(stderr, "%s\n", B::store::labelOf(avisoMaestra).c_str());
+                return false;
+            }
+            e.ses->maestra = clave;
         } else {
             std::fputs(TC("t_aviso_sin__287990",
                           "aviso: sin contraseña maestra (--password-fd) la conexión se crea "
