@@ -414,6 +414,19 @@ run_logged github-release "${GH_RELEASE_CMD[@]}"
 
 log "Release creada correctamente"
 write_state "github-release" "completed" "release creada correctamente"
+
+# Only the packages of the last three versions stay here (they are on GitHub anyway): each
+# version weighed between 300 and 500 MB, and 26 of them had piled up to 9.4 GB. Ordered by
+# version, not by name or date. The small state and logs/ stay, since --resume reads them;
+# and only in the default place, never in an OUTPUT_DIR given by hand.
+if [[ "$(dirname "${ARTIFACTS_DIR}")" == "${ARTIFACTS_ROOT}" ]]; then
+  while IFS= read -r viejo; do
+    [[ -n "${viejo}" ]] || continue
+    log "Se borran los paquetes de una versión antigua: ${viejo##*/}"
+    rm -rf -- "${ARTIFACTS_ROOT:?}/${viejo}"
+  done < <(find "${ARTIFACTS_ROOT}" -mindepth 1 -maxdepth 1 -type d -name '[0-9]*.[0-9]*.[0-9]*' \
+             -printf '%f\n' | sort -V | head -n -3)
+fi
 printf 'Tag: %s\n' "${TAG}"
 printf 'Logs:\n'
 printf '  %s\n' "${LOG_DIR}/git-push.log" "${LOG_DIR}/buildall.log" "${LOG_DIR}/git-push-tag.log" "${LOG_DIR}/github-release.log"

@@ -694,3 +694,23 @@ fi
 run_phase empaqueta "${SCRIPT_DIR}/empaqueta.sh" --salida "${OUTPUT_DIR}"
 log "Artefactos en ${OUTPUT_DIR}:"
 find "${OUTPUT_DIR}" -maxdepth 1 -type f -printf '  %f\n' | sort
+
+# Only the last three builds are kept, and their logs: each one is about 480 MB, and they
+# piled up. Only after a build that FINISHED, so a failed one never pushes a good one out;
+# and only in the default places, never in a directory given with --output-dir / --log-dir.
+# The names are timestamps, so their order is their age.
+conserva_ultimas() {
+  local dir="$1" patron="$2" viejo
+  [[ -d "${dir}" ]] || return 0
+  while IFS= read -r viejo; do
+    [[ -n "${viejo}" ]] || continue
+    log "Se borra una compilación antigua: ${viejo#"${PROJECT_ROOT}/"}"
+    rm -rf -- "${viejo}"
+  done < <(find "${dir}" -mindepth 1 -maxdepth 1 -type d -name "${patron}" | sort | head -n -3)
+}
+if [[ "$(dirname "${OUTPUT_DIR}")" == "${PROJECT_ROOT}/builds/artifacts" ]]; then
+  conserva_ultimas "${PROJECT_ROOT}/builds/artifacts" '[0-9]*-[0-9]*'
+fi
+if [[ "$(dirname "${LOG_DIR}")" == "${PROJECT_ROOT}/builds/logs" ]]; then
+  conserva_ultimas "${PROJECT_ROOT}/builds/logs" 'buildall-cross-*'
+fi
