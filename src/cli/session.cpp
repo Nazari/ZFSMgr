@@ -678,6 +678,33 @@ bool marcarDesconectada(Sesion& s, const std::string& id, bool desconectada, std
     return true;
 }
 
+namespace {
+
+// Why this computer's daemon cannot be talked to, in words that say what to do. Its TLS
+// material is root's: without sudo it cannot be read, and with no daemon it is not there.
+std::string motivoSinTlsLocal(const B::ConnectionProfile& p, const B::transport::WarningNote& a) {
+    using A = B::transport::Warning;
+    const bool sinSudo = a.warning == A::LocalTlsNeedsSudo
+                         || (a.warning == A::LocalTlsCannotBeRead && B::trim(p.password).empty());
+    if (sinSudo) {
+        return T("t_tls_local_sin_sudo",
+                 "falta la contraseña de sudo de este ordenador, y sin ella no se puede hablar "
+                 "con su daemon: «edit zfsm://local --sudo» la guarda (en la ventana: "
+                 "Máquinas → Local → «Dar la contraseña de sudo…»)");
+    }
+    if (a.warning == A::LocalTlsIncomplete || a.warning == A::LocalTlsUnreadable) {
+        return T("t_tls_local_sin_daemon",
+                 "este ordenador no tiene el daemon de ZFSMgr instalado, o le falta su "
+                 "material TLS: «install-daemon --on zfsm://local» lo instala");
+    }
+    if (!a.empty()) {
+        return textoDeAviso(a);
+    }
+    return T("t_no_tls_local", "no se pudo leer el material TLS del daemon local");
+}
+
+}  // namespace
+
 bool ejecutarAgente(Sesion& s,
                     const B::ConnectionProfile& p,
                     const std::vector<std::string>& args,
@@ -705,9 +732,24 @@ bool ejecutarAgente(Sesion& s,
         std::string cli;
         std::string key;
         std::uint16_t puerto = 47653;
-        if (!T::ensureLocalDaemonTlsMaterial(s.transporte, srv, cli, key, puerto)) {
+        // What went wrong comes as a transport warning; it is caught here so the reason says
+        // it. «Could not read the daemon's TLS material» was all a first run showed when the
+        // only thing missing was this computer's sudo password.
+        B::transport::WarningNote porQue;
+        const auto sumidero = s.transporte.warningSink;
+        s.transporte.warningSink = [&porQue, &sumidero](B::TransportSession::Level n,
+                                                        const std::string& id,
+                                                        const B::transport::WarningNote& a) {
+            porQue = a;
+            if (sumidero) {
+                sumidero(n, id, a);
+            }
+        };
+        const bool hay = T::ensureLocalDaemonTlsMaterial(s.transporte, srv, cli, key, puerto);
+        s.transporte.warningSink = sumidero;
+        if (!hay) {
             if (motivo) {
-                *motivo = T("t_no_tls_local", "no se pudo leer el material TLS del daemon local");
+                *motivo = motivoSinTlsLocal(p, porQue);
             }
             return false;
         }

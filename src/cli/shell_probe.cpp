@@ -311,6 +311,9 @@ bool cmdProbe(Estado& e, const LineaAnalizada& linea) {
         }
         doc.set("daemon_version", J::Value(version));
         doc.set("daemon", J::Value(daemon));
+        // With sudo failing, that is the reason and it was said just above; a second warning
+        // about the daemon told it again and suggested installing one that may be there.
+        const bool sudoFalla = sudo == "needs_password" || sudo == "wrong_password";
         if (daemon == "unreachable") {
             // Not «there is none»: without sudo its credentials cannot be read, and a daemon
             // that is stopped looks the same from here.
@@ -318,6 +321,8 @@ bool cmdProbe(Estado& e, const LineaAnalizada& linea) {
                 porque = B::trim(H::oneLine(err.empty() ? out : err));
             }
             doc.set("daemon_detail", J::Value(porque));
+        }
+        if (daemon == "unreachable" && !sudoFalla) {
             avisos.push_back({"warning", "daemon",
                               B::format(T("t_pr_sin_daemon",
                                           "no se pudo hablar con el daemon de %1 (%2): si no "

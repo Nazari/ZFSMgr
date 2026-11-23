@@ -424,6 +424,22 @@ void MachinesPage::showMachine(const QString& id) {
         buttons->addWidget(b, placed / 3, placed % 3);
         ++placed;
     };
+    // sudo asks for a password the connection lacks, or rejects the stored one: the way to
+    // give it, first. The CLI asks for it as a secret; it never goes on a line.
+    if (probeIt != m_probe.constEnd()) {
+        const QString sudo = probeIt->value(QStringLiteral("sudo")).toString();
+        if (sudo == QLatin1String("needs_password") || sudo == QLatin1String("wrong_password")) {
+            auto* give = button(L("Give the sudo password…", "Dar la contraseña de sudo…"), w);
+            connect(give, &QPushButton::clicked, this, [this, id] {
+                act(QStringLiteral("edit ") + url(id) + QStringLiteral(" --sudo"),
+                    L("sudo password stored.", "Contraseña de sudo guardada."), true, [this, id] {
+                        m_probe.remove(id);
+                        showDetail();
+                    });
+            });
+            place(give);
+        }
+    }
     auto* again = button(L("Check again", "Comprobar de nuevo"), w);
     connect(again, &QPushButton::clicked, this, [this, id] {
         m_probe.remove(id);

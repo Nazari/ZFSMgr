@@ -1356,6 +1356,8 @@
     "t_tambi_n_en_33e099": "On the descendants too.",
     "t_text_es_pa_52ce5c": "text is for reading: aligned columns and human-readable sizes. tsv is for scripts: no header, tabs and fixed English columns. json adds TYPES: numbers are numbers and what does not apply is null.",
     "t_text_tsv_j_5794d8": "[text|tsv|json]",
+    "t_tls_local_sin_daemon": "this computer has no ZFSMgr daemon installed, or its TLS material is missing: «install-daemon --on zfsm://local» installs it",
+    "t_tls_local_sin_sudo": "this computer's sudo password is missing, and without it its daemon cannot be reached: «edit zfsm://local --sudo» stores it (in the window: Machines → Local → «Give the sudo password…»)",
     "t_tls_sin_maestra": "without a master password the TLS material is not stored in the clear",
     "t_todas_las__c1ee0e": "«help <command>» gives the detail of one: what it does, its options and examples.\nEvery command takes --on <url> (or --from, same thing) to act on another\nlocation without moving. Without it, the current location is used. TAB\ncompletes commands and URLs. The first letters of a command are enough if\nno other starts the same way; if several do, they are listed.",
     "t_trabajo_estado_fin": "job %s: %s%s\n",

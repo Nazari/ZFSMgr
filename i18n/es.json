@@ -1466,6 +1466,8 @@
     "t_tambi_n_en_33e099": "También en los descendientes.",
     "t_text_es_pa_52ce5c": "text es para leer: columnas alineadas y tamaños legibles. tsv es para guiones: sin encabezado, tabuladores y columnas fijas en inglés. json añade TIPOS: los números son números y lo que no aplica es null.",
     "t_text_tsv_j_5794d8": "[text|tsv|json]",
+    "t_tls_local_sin_daemon": "este ordenador no tiene el daemon de ZFSMgr instalado, o le falta su material TLS: «install-daemon --on zfsm://local» lo instala",
+    "t_tls_local_sin_sudo": "falta la contraseña de sudo de este ordenador, y sin ella no se puede hablar con su daemon: «edit zfsm://local --sudo» la guarda (en la ventana: Máquinas → Local → «Dar la contraseña de sudo…»)",
     "t_tls_sin_maestra": "sin contraseña maestra no se guarda el material TLS en claro",
     "t_todas_las__c1ee0e": "«help <orden>» da el detalle de una: qué hace, sus opciones y ejemplos.\nTodas admiten --on <url> (o --from, que es lo mismo) para actuar sobre\notro sitio sin moverse. Sin ella se usa el sitio actual. El tabulador\ncompleta órdenes y URL. Basta con las primeras letras de una orden si\nninguna otra empieza igual; si varias lo hacen, se enumeran.",
     "t_trabajo_estado_fin": "trabajo %s: %s%s\n",
