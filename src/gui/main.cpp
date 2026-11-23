@@ -10,6 +10,7 @@
 #include "mainwindow.h"
 #include "text.h"
 
+#include <QAbstractButton>
 #include <QApplication>
 #include <QCursor>
 #include <QEvent>
@@ -18,20 +19,24 @@
 #include <QInputDialog>
 #include <QTimer>
 #include <QLineEdit>
+#include <QMenu>
 #include <QMessageBox>
+#include <QPointer>
 #include <QSettings>
 
 #include <algorithm>
 #include <cstdio>
+#include <map>
 #include <memory>
 
 using namespace zfsmgr::gui;
 
 namespace {
 
-// Knows when a click or a key is being handled: a request made inside one is the person's,
-// and shows the busy cursor (BusyHooks). notify() wraps the whole dispatch, so the slot
-// a click ends in —and the request it makes— runs inside the count.
+// Knows when a click or a key is being handled, and on which control: a request made inside
+// one is the person's, shows the busy cursor and keeps that control disabled until its
+// answer (BusyHooks). notify() wraps the whole dispatch, so the slot a click ends in —and the
+// request it makes— runs inside it.
 class GuiApp : public QApplication {
 public:
     using QApplication::QApplication;
@@ -42,9 +47,12 @@ public:
             case QEvent::KeyPress:
             case QEvent::KeyRelease:
             case QEvent::Shortcut: {
+                const QPointer<QWidget> before = m_control;
                 ++m_input;
+                m_control = controlOf(receiver);
                 const bool r = QApplication::notify(receiver, e);
                 --m_input;
+                m_control = before;
                 return r;
             }
             default:
@@ -52,9 +60,26 @@ public:
         }
     }
     bool inUserInput() const { return m_input > 0; }
+    QWidget* control() const { return m_control; }
 
 private:
+    // The button pressed; for an entry of a button's menu, that button.
+    static QWidget* controlOf(QObject* o) {
+        if (auto* b = qobject_cast<QAbstractButton*>(o)) {
+            return b;
+        }
+        if (auto* m = qobject_cast<QMenu*>(o)) {
+            QWidget* w = m;
+            while (qobject_cast<QMenu*>(w) && w->parentWidget()) {
+                w = w->parentWidget();
+            }
+            return qobject_cast<QAbstractButton*>(w);
+        }
+        return nullptr;
+    }
+
     int m_input{0};
+    QPointer<QWidget> m_control;
 };
 
 void installBusyCursor(GuiApp& app) {
@@ -69,6 +94,50 @@ void installBusyCursor(GuiApp& app) {
         } else if (!now && before) {
             QApplication::restoreOverrideCursor();
         }
+    };
+    // Per control, how many of its requests are still out; it is enabled again with the last,
+    // and only if it was this that disabled it. A control rebuilt meanwhile —a page reloads
+    // after an action— is a new one, and the old pointer just goes null.
+    struct Held {
+        QPointer<QWidget> w;
+        int count{0};
+        bool disabledHere{false};
+    };
+    static std::map<QWidget*, Held> held;
+    static std::map<int, QWidget*> tokens;
+    static int next = 0;
+    BusyHooks::begin = [&app]() -> int {
+        const int token = ++next;
+        QWidget* w = app.control();
+        tokens[token] = w;
+        if (w) {
+            Held& h = held[w];
+            if (!h.w) {
+                h = Held{};  // a dead control's entry, its address reused by a new one
+            }
+            if (h.count++ == 0) {
+                h.w = w;
+                h.disabledHere = w->isEnabled();
+                w->setEnabled(false);
+            }
+        }
+        return token;
+    };
+    BusyHooks::end = [](int token) {
+        const auto t = tokens.find(token);
+        if (t == tokens.end()) {
+            return;
+        }
+        QWidget* key = t->second;
+        tokens.erase(t);
+        const auto it = key ? held.find(key) : held.end();
+        if (it == held.end() || --it->second.count > 0) {
+            return;
+        }
+        if (it->second.w && it->second.disabledHere) {
+            it->second.w->setEnabled(true);
+        }
+        held.erase(it);
     };
 }
 

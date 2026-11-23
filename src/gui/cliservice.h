@@ -44,13 +44,20 @@ struct CliQuestion {
     QString typeToConfirm;  // non-empty: the answer must carry this word, typed by the person
 };
 
-// The busy cursor, from outside: this class links only QtCore, the cursor is QtGui. main.cpp
-// sets both. `userInput`: true while a click or a key is being handled, so a request made
-// right then is the person's and shows the cursor busy. `adjust`: +1 / -1 on the count of
-// such requests still waiting for their answer.
+// The busy cursor and the pressed button, from outside: this class links only QtCore, both
+// are QtGui/QtWidgets. main.cpp sets the hooks.
+//   userInput  true while a click or a key is being handled: a request made right then is
+//              the person's.
+//   adjust     +1 / -1 on the count that shows the busy cursor. Given back while a question
+//              is open —the person's turn— and taken again when it is answered.
+//   begin/end  the control that was pressed stays disabled from the request to its answer,
+//              question included: pressing it twice launched the command twice. `begin`
+//              returns a token for `end`.
 struct BusyHooks {
     static std::function<bool()> userInput;
     static std::function<void(int)> adjust;
+    static std::function<int()> begin;
+    static std::function<void(int)> end;
 };
 
 class CliService : public QObject {
@@ -96,10 +103,12 @@ private:
         QPointer<QObject> owner;
         Done done;
         bool busy{false};  // holds one count of the busy cursor
+        int token{0};      // BusyHooks::begin's, for the control disabled meanwhile
     };
 
     static void holdBusy(Pending& p);
     static void releaseBusy(Pending& p);
+    static void finishBusy(Pending& p);  // the cursor and the control, both given back
 
     void onOutput();
     void onFinished();

@@ -25,6 +25,8 @@ QStringList stringsOf(const QJsonValue& v) {
 
 std::function<bool()> BusyHooks::userInput;
 std::function<void(int)> BusyHooks::adjust;
+std::function<int()> BusyHooks::begin;
+std::function<void(int)> BusyHooks::end;
 
 void CliService::holdBusy(Pending& p) {
     if (!p.busy && BusyHooks::adjust) {
@@ -38,6 +40,14 @@ void CliService::releaseBusy(Pending& p) {
         p.busy = false;
         BusyHooks::adjust(-1);
     }
+}
+
+void CliService::finishBusy(Pending& p) {
+    releaseBusy(p);
+    if (p.token != 0 && BusyHooks::end) {
+        BusyHooks::end(p.token);
+    }
+    p.token = 0;
 }
 
 QString findCli() {
@@ -75,10 +85,10 @@ CliService::~CliService() {
     m_proc.disconnect(this);
     blockSignals(true);
     for (auto& p : m_queue) {
-        releaseBusy(p);
+        finishBusy(p);
     }
     if (m_current) {
-        releaseBusy(*m_current);
+        finishBusy(*m_current);
     }
     m_queue.clear();
     m_current.reset();
@@ -109,6 +119,9 @@ void CliService::request(const QString& line, QObject* owner, Done done, const Q
     // and the button got pressed again.
     if (BusyHooks::userInput && BusyHooks::userInput()) {
         holdBusy(m_queue.back());
+        if (BusyHooks::begin) {
+            m_queue.back().token = BusyHooks::begin();
+        }
     }
     sendNext();
 }
@@ -204,7 +217,7 @@ void CliService::handleEvent(const QJsonObject& ev) {
         Pending done = std::move(*m_current);
         m_current.reset();
         m_pausedForUser = false;
-        releaseBusy(done);  // before `done`: what it opens is not «working»
+        finishBusy(done);  // before `done`: what it opens is not «working»
         if (done.done && done.owner) {
             done.done(r);
         }
@@ -269,7 +282,7 @@ void CliService::failAll(const QString& reason) {
     m_queue.clear();
     m_pausedForUser = false;
     for (auto& p : all) {
-        releaseBusy(p);
+        finishBusy(p);
         if (p.done && p.owner) {
             p.done(r);
         }

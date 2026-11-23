@@ -117,6 +117,10 @@ int main(int argc, char** argv) {
         bool input = true;
         BusyHooks::userInput = [&input] { return input; };
         BusyHooks::adjust = [&count](int d) { count += d; };
+        int begun = 0;
+        int ended = 0;
+        BusyHooks::begin = [&begun] { return ++begun; };
+        BusyHooks::end = [&ended](int) { ++ended; };
         int asked = 0;
         int qid = 0;
         auto c = QObject::connect(&s, &CliService::confirmRequested, [&](const CliQuestion& q) {
@@ -129,16 +133,20 @@ int main(int argc, char** argv) {
         check(count == 1, "a request made during a click holds the busy cursor");
         waitFor([&] { return asked > 0; });
         check(asked == 1 && count == 0, "a question gives the cursor back");
+        check(begun == 1 && ended == 0, "but the pressed control stays disabled meanwhile");
         s.answerConfirm(qid, true);
         check(count == 1, "answering it takes the cursor again");
         waitFor([&] { return done > 0; });
         check(done == 1 && count == 0, "the answer gives it back");
+        check(ended == 1, "and enables the control again");
         s.request(QStringLiteral("pwd"), &alive, [&done](const CliResult&) { ++done; });
-        check(count == 0, "a request made outside a click does not touch it");
+        check(count == 0 && begun == 1, "a request made outside a click does not touch them");
         waitFor([&] { return done > 1; });
         QObject::disconnect(c);
         BusyHooks::userInput = nullptr;
         BusyHooks::adjust = nullptr;
+        BusyHooks::begin = nullptr;
+        BusyHooks::end = nullptr;
     }
 
     if (g_fails == 0) {
