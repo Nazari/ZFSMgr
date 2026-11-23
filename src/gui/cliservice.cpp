@@ -23,6 +23,23 @@ QStringList stringsOf(const QJsonValue& v) {
 
 }  // namespace
 
+std::function<bool()> BusyHooks::userInput;
+std::function<void(int)> BusyHooks::adjust;
+
+void CliService::holdBusy(Pending& p) {
+    if (!p.busy && BusyHooks::adjust) {
+        p.busy = true;
+        BusyHooks::adjust(+1);
+    }
+}
+
+void CliService::releaseBusy(Pending& p) {
+    if (p.busy && BusyHooks::adjust) {
+        p.busy = false;
+        BusyHooks::adjust(-1);
+    }
+}
+
 QString findCli() {
 #ifdef Q_OS_WIN
     const QString name = QStringLiteral("zfsmgr-cli.exe");
@@ -57,6 +74,12 @@ CliService::~CliService() {
     // (2026-11-22). Pending answers are dropped too: whoever asked is going away.
     m_proc.disconnect(this);
     blockSignals(true);
+    for (auto& p : m_queue) {
+        releaseBusy(p);
+    }
+    if (m_current) {
+        releaseBusy(*m_current);
+    }
     m_queue.clear();
     m_current.reset();
     if (m_proc.state() != QProcess::NotRunning) {
@@ -81,6 +104,12 @@ void CliService::start(const QByteArray& masterPassword) {
 
 void CliService::request(const QString& line, QObject* owner, Done done, const QString& format) {
     m_queue.push_back(Pending{m_nextId++, line, format, owner, std::move(done)});
+    // Made while a click or a key is handled: the person's, and the cursor says «working»
+    // until the answer —or a question— arrives. Without it a slow command looked ignored,
+    // and the button got pressed again.
+    if (BusyHooks::userInput && BusyHooks::userInput()) {
+        holdBusy(m_queue.back());
+    }
     sendNext();
 }
 
@@ -90,6 +119,7 @@ void CliService::sendNext() {
     }
     m_current = std::move(m_queue.front());
     m_queue.pop_front();
+    m_pausedForUser = false;
     QJsonObject req;
     req.insert(QStringLiteral("id"), m_current->id);
     req.insert(QStringLiteral("line"), m_current->line);
@@ -97,7 +127,15 @@ void CliService::sendNext() {
     write(req);
 }
 
+void CliService::resumeAfterQuestion() {
+    if (m_pausedForUser && m_current) {
+        m_pausedForUser = false;
+        holdBusy(*m_current);
+    }
+}
+
 void CliService::answerConfirm(int id, bool yes, const QString& typed) {
+    resumeAfterQuestion();
     QJsonObject a;
     a.insert(QStringLiteral("id"), id);
     a.insert(QStringLiteral("answer"), yes);
@@ -108,6 +146,7 @@ void CliService::answerConfirm(int id, bool yes, const QString& typed) {
 }
 
 void CliService::answerSecret(int id, const std::optional<QString>& secret) {
+    resumeAfterQuestion();
     QJsonObject a;
     a.insert(QStringLiteral("id"), id);
     a.insert(QStringLiteral("secret"), secret ? QJsonValue(*secret) : QJsonValue());
@@ -164,6 +203,8 @@ void CliService::handleEvent(const QJsonObject& ev) {
         r.err = ev.value(QStringLiteral("stderr")).toString();
         Pending done = std::move(*m_current);
         m_current.reset();
+        m_pausedForUser = false;
+        releaseBusy(done);  // before `done`: what it opens is not «working»
         if (done.done && done.owner) {
             done.done(r);
         }
@@ -183,13 +224,23 @@ void CliService::handleEvent(const QJsonObject& ev) {
         if (q.title.isEmpty()) {
             q.title = q.text;
         }
+        pauseForQuestion();
         Q_EMIT confirmRequested(q);
         return;
     }
     if (type == QLatin1String("secret")) {
+        pauseForQuestion();
         Q_EMIT secretRequested(ev.value(QStringLiteral("id")).toInt(),
                                ev.value(QStringLiteral("text")).toString());
         return;
+    }
+}
+
+// A question is open: it is the person's turn, not «working».
+void CliService::pauseForQuestion() {
+    if (m_current && m_current->busy) {
+        releaseBusy(*m_current);
+        m_pausedForUser = true;
     }
 }
 
@@ -216,7 +267,9 @@ void CliService::failAll(const QString& reason) {
         all.push_back(std::move(p));
     }
     m_queue.clear();
+    m_pausedForUser = false;
     for (auto& p : all) {
+        releaseBusy(p);
         if (p.done && p.owner) {
             p.done(r);
         }

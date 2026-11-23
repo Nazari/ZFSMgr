@@ -52,6 +52,9 @@ int main(int argc, char** argv) {
             "echo '{\"type\":\"ready\"}'\n"
             "while read line; do\n"
             "  id=$(printf '%s' \"$line\" | sed 's/.*\"id\":\\([0-9]*\\).*/\\1/')\n"
+            // «ask»: a question first, and the answer line read, as a confirm does.
+            "  case \"$line\" in *ask*) echo \"{\\\"type\\\":\\\"confirm\\\",\\\"id\\\":$id,"
+            "\\\"title\\\":\\\"q\\\"}\"; read answer;; esac\n"
             "  echo \"{\\\"type\\\":\\\"result\\\",\\\"id\\\":$id,\\\"rc\\\":0,"
             "\\\"stdout\\\":\\\"ok\\\",\\\"stderr\\\":\\\"\\\"}\"\n"
             "done\n");
@@ -105,6 +108,37 @@ int main(int argc, char** argv) {
         QCoreApplication::processEvents();
         check(up && failures == 0, "destroying a running service does not emit failed");
         check(late == 0, "nor delivers the answers still pending");
+    }
+
+    // The busy cursor's count: held by a request made during a click, given back while its
+    // question is open, held again once answered, and given back with the answer.
+    {
+        int count = 0;
+        bool input = true;
+        BusyHooks::userInput = [&input] { return input; };
+        BusyHooks::adjust = [&count](int d) { count += d; };
+        int asked = 0;
+        int qid = 0;
+        auto c = QObject::connect(&s, &CliService::confirmRequested, [&](const CliQuestion& q) {
+            ++asked;
+            qid = q.id;
+        });
+        int done = 0;
+        s.request(QStringLiteral("ask"), &alive, [&done](const CliResult&) { ++done; });
+        input = false;
+        check(count == 1, "a request made during a click holds the busy cursor");
+        waitFor([&] { return asked > 0; });
+        check(asked == 1 && count == 0, "a question gives the cursor back");
+        s.answerConfirm(qid, true);
+        check(count == 1, "answering it takes the cursor again");
+        waitFor([&] { return done > 0; });
+        check(done == 1 && count == 0, "the answer gives it back");
+        s.request(QStringLiteral("pwd"), &alive, [&done](const CliResult&) { ++done; });
+        check(count == 0, "a request made outside a click does not touch it");
+        waitFor([&] { return done > 1; });
+        QObject::disconnect(c);
+        BusyHooks::userInput = nullptr;
+        BusyHooks::adjust = nullptr;
     }
 
     if (g_fails == 0) {

@@ -11,6 +11,8 @@
 #include "text.h"
 
 #include <QApplication>
+#include <QCursor>
+#include <QEvent>
 #include <QFile>
 #include <QIcon>
 #include <QInputDialog>
@@ -19,12 +21,56 @@
 #include <QMessageBox>
 #include <QSettings>
 
+#include <algorithm>
 #include <cstdio>
 #include <memory>
 
 using namespace zfsmgr::gui;
 
 namespace {
+
+// Knows when a click or a key is being handled: a request made inside one is the person's,
+// and shows the busy cursor (BusyHooks). notify() wraps the whole dispatch, so the slot
+// a click ends in —and the request it makes— runs inside the count.
+class GuiApp : public QApplication {
+public:
+    using QApplication::QApplication;
+    bool notify(QObject* receiver, QEvent* e) override {
+        switch (e->type()) {
+            case QEvent::MouseButtonRelease:
+            case QEvent::MouseButtonDblClick:
+            case QEvent::KeyPress:
+            case QEvent::KeyRelease:
+            case QEvent::Shortcut: {
+                ++m_input;
+                const bool r = QApplication::notify(receiver, e);
+                --m_input;
+                return r;
+            }
+            default:
+                return QApplication::notify(receiver, e);
+        }
+    }
+    bool inUserInput() const { return m_input > 0; }
+
+private:
+    int m_input{0};
+};
+
+void installBusyCursor(GuiApp& app) {
+    BusyHooks::userInput = [&app] { return app.inUserInput(); };
+    BusyHooks::adjust = [](int delta) {
+        static int count = 0;
+        const bool before = count > 0;
+        count = std::max(0, count + delta);
+        const bool now = count > 0;
+        if (now && !before) {
+            QApplication::setOverrideCursor(Qt::WaitCursor);
+        } else if (!now && before) {
+            QApplication::restoreOverrideCursor();
+        }
+    };
+}
 
 class Starter : public QObject {
 public:
@@ -120,7 +166,8 @@ private:
 }  // namespace
 
 int main(int argc, char** argv) {
-    QApplication app(argc, argv);
+    GuiApp app(argc, argv);
+    installBusyCursor(app);
     QApplication::setApplicationName(QStringLiteral("ZFSMgr"));
     // `--version`: the only way to check WITHOUT A SCREEN that the interface starts. After
     // creating QApplication on purpose: by then Qt's libraries and the platform plugin are

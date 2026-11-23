@@ -44,6 +44,15 @@ struct CliQuestion {
     QString typeToConfirm;  // non-empty: the answer must carry this word, typed by the person
 };
 
+// The busy cursor, from outside: this class links only QtCore, the cursor is QtGui. main.cpp
+// sets both. `userInput`: true while a click or a key is being handled, so a request made
+// right then is the person's and shows the cursor busy. `adjust`: +1 / -1 on the count of
+// such requests still waiting for their answer.
+struct BusyHooks {
+    static std::function<bool()> userInput;
+    static std::function<void(int)> adjust;
+};
+
 class CliService : public QObject {
     Q_OBJECT
 public:
@@ -86,12 +95,18 @@ private:
         QString format;
         QPointer<QObject> owner;
         Done done;
+        bool busy{false};  // holds one count of the busy cursor
     };
+
+    static void holdBusy(Pending& p);
+    static void releaseBusy(Pending& p);
 
     void onOutput();
     void onFinished();
     void handleEvent(const QJsonObject& ev);
     void sendNext();
+    void pauseForQuestion();
+    void resumeAfterQuestion();
     void failAll(const QString& reason);
     void write(const QJsonObject& obj);
 
@@ -105,6 +120,7 @@ private:
     int m_nextId{1};
     std::deque<Pending> m_queue;
     std::optional<Pending> m_current;
+    bool m_pausedForUser{false};  // m_current's busy count given back while a question is open
 };
 
 // Where zfsmgr-cli is: next to this executable, else on PATH. Empty if nowhere.
