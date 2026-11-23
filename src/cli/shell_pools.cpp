@@ -49,7 +49,12 @@ bool cmdPoolSimple(Estado& e, const LineaAnalizada& linea, const char* verbo, co
         return false;
     }
     const ZfsmUrl& destino = pet.objetivo;
-    if (pregunta && !confirma(e, pregunta(destino.pool))) {
+    Pregunta q;
+    if (pregunta) {
+        q = pregunta(destino.pool);
+        q.maquinas = {destino.connection};
+    }
+    if (pregunta && !confirma(e, q)) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
     }
@@ -427,6 +432,7 @@ bool cmdCrearPool(Estado& e, const Peticion& pet, const ZfsmUrl& destino,
     q.escribir = pool;
     q.sePierde.push_back(B::format(T("t_pq_create_pool_pierde", "todo lo que hubiera en: %1"),
                                    {B::join(vdevs, ", ")}));
+    q.maquinas = {destino.connection};
     if (!confirma(e, q)) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;

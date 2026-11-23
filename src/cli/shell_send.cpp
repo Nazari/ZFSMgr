@@ -359,6 +359,7 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
                 {aMedias.heldBy, destino.connection});
             q.sePierde.push_back(T("t_pq_descartar_pierde",
                                    "lo que ya había llegado: la próxima copia empieza de cero"));
+            q.maquinas = {destino.connection};
             if (!confirma(e, q)) {
                 std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
                 return false;
@@ -385,6 +386,7 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
         q.titulo = B::format(
             T("t_pq_reanudar_t", "Continuar la copia a medias de %1 en %2 desde donde iba"),
             {aMedias.heldBy, destino.connection});
+        q.maquinas = {destino.connection};
         if (!confirma(e, q)) {
             std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
             return false;
@@ -404,6 +406,7 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
             q.notas.push_back(B::format(T("t_pq_send_comprimido", "Comprimido con %1."),
                                         {zfsmgr::compresion::textoDe(compresion)}));
         }
+        q.maquinas = {destino.connection};
         if (!confirma(e, q)) {
             std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
             return false;
@@ -416,6 +419,7 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
         q.notas.push_back(T("t_pq_sobrescribe_nota",
                             "Si el destino ya existe y es distinto, se sobrescribe con lo que "
                             "traiga la copia."));
+        q.maquinas = {destino.connection};
         if (!confirma(e, q)) {
             std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
             return false;
@@ -435,6 +439,7 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
                            : T("t_pq_level_nota",
                                "Si alguien cambió la copia del destino después de la última "
                                "puesta al día, esos cambios se pierden."));
+                   q.maquinas = {destino.connection};
                    return q;
                }())) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);

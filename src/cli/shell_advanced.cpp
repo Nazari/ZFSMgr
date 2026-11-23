@@ -352,6 +352,7 @@ bool cmdBreakdown(Estado& e, const LineaAnalizada& linea) {
     if (!sinMontar.empty()) {
         q.notas.push_back(sinMontar);
     }
+    q.maquinas = {destino.connection};
     if (!confirma(e, q)) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
@@ -401,6 +402,7 @@ bool cmdAssemble(Estado& e, const LineaAnalizada& linea) {
     if (!sinMontar.empty()) {
         q.notas.push_back(sinMontar);
     }
+    q.maquinas = {destino.connection};
     if (!confirma(e, q)) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
@@ -449,6 +451,7 @@ bool cmdToDir(Estado& e, const LineaAnalizada& linea) {
         q.seConserva.push_back(
             B::format(T("t_pq_todir_ficheros", "sus ficheros, en %1"), {dirDestino}));
     }
+    q.maquinas = {destino.connection};
     if (!confirma(e, q)) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
@@ -594,6 +597,7 @@ bool cmdFromDir(Estado& e, const LineaAnalizada& linea) {
                                          "sin una sola diferencia"),
                                        {dir, origen.connection}));
     }
+    q.maquinas = {destino.connection};
     if (!confirma(e, q)) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;

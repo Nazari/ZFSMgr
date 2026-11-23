@@ -1191,6 +1191,7 @@
     "t_pq_mk_quitar_nota": "Dejará de abrir ZFSMgr. La contraseña maestra y las demás llaves siguen sirviendo; en la llave no se borra nada.",
     "t_pq_montado": "está montado en %1: lo que use esos ficheros dejará de encontrarlos",
     "t_pq_no_coincide": "no es «%1»: no se hace nada",
+    "t_pq_otra_sesion": "Ojo: ZFSMgr también está abierto en otra máquina que llega a %1: %2. Verá este cambio sin haberlo pedido; «sessions close %3» le pide que se cierre.",
     "t_pq_patron_t": "%1 sobre %2 destinos que casan con «%3»",
     "t_pq_peers_listen_nota": "El daemon se reinicia. Con 0.0.0.0 o :: su puerto se puede alcanzar desde la red; solo contesta a quien tenga un certificado de esta instalación.",
     "t_pq_peers_listen_t": "Hacer que el daemon de %1 atienda en %2",

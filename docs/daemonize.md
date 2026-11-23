@@ -139,3 +139,8 @@ verbos que contesta el propio daemon (no pasan por la caché ni por la tabla de 
   siguiente indicador o tecla—, cerrando túneles y montajes como siempre. La interfaz lo dice
   con una cuenta atrás de 20 s y deja elegir «Seguir abierto». `sessions close <máquina>
   [--force]` en el CLI, y los botones del aviso en Estado, son la otra punta.
+- Antes de cambiar una máquina —destruir, rollback, send o recibir un fichero, borrar ficheros,
+  `cp --delete`, crear o exportar un pool, labelclear, breakdown/assemble, todir/fromdir— la
+  pregunta de confirmación lleva una nota por cada sesión de OTRA máquina que llegue a esa
+  (`Pregunta::maquinas`, src/cli/shell_confirm.cpp). Se pregunta solo a los daemons afectados,
+  con 5 s de plazo, y solo cuando hay a quién preguntar (terminal o interfaz); con -y no.

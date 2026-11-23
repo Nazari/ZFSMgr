@@ -497,6 +497,7 @@ bool cmdRsync(Estado& e, const LineaAnalizada& linea) {
                           {rutaDestino, pares.front().first}));
             q.notas.push_back(
                 T("t_pq_cp_delete_nota", "Con --dry-run se ve antes qué se borraría."));
+            q.maquinas = {destino.connection};
             return q;
         }())) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
@@ -744,6 +745,7 @@ bool cmdLabelclear(Estado& e, const LineaAnalizada& linea) {
     q.sePierde.push_back(T("t_pq_labelclear_pierde",
                            "si ese disco era de un pool, el pool ya no se podrá importar "
                            "desde él"));
+    q.maquinas = {conexion.connection};
     if (!confirma(e, q)) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;

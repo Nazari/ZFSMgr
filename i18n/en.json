@@ -1,6 +1,7 @@
 {
   "language": "en",
   "translations": {
+    "t_pq_otra_sesion": "Careful: ZFSMgr is also open on another machine that reaches %1: %2. It will see this change without having asked; «sessions close %3» asks it to close.",
     "t_ses_te_cierran": "%1, on %2, asked that this session close: closing.",
     "t_ses_force": "--force",
     "t_ses_q_fuerza": "Force closed %1",

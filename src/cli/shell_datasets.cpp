@@ -48,6 +48,7 @@ bool borraContenido(Estado& e, const Peticion& pet, const ZfsmUrl& destino) {
     q.seConserva.push_back(
         B::format(T("t_pq_ruta_en_snaps", "lo que guarden los snapshots de %1 que ya existen"),
                   {destino.dataset}));
+    q.maquinas = {destino.connection};
     if (!confirma(e, q)) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
@@ -114,6 +115,7 @@ bool cmdDestroy(Estado& e, const LineaAnalizada& linea) {
         impactoDeDestruir(e, destino, destino.pool, /*recursivo=*/true, q);
         q.sePierde.push_back(T("t_pq_destroy_pool_discos",
                                "el propio pool: sus discos quedan libres para otra cosa"));
+        q.maquinas = {destino.connection};
         if (!confirma(e, q)) {
             std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
             return false;
@@ -164,6 +166,7 @@ bool cmdDestroy(Estado& e, const LineaAnalizada& linea) {
             return false;
         }
     }
+    q.maquinas = {destino.connection};
     if (!confirma(e, q)) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;
@@ -231,6 +234,7 @@ bool cmdRollback(Estado& e, const LineaAnalizada& linea) {
             }
         }
     }
+    q.maquinas = {destino.connection};
     if (!confirma(e, q)) {
         std::fputs(TC("t_cancelado_329c0e", "cancelado\n"), stderr);
         return false;

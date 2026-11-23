@@ -6,6 +6,7 @@
 // «y»: a yes/no gets answered without reading. The terminal and --serve show the same
 // question; the client never rewrites it.
 
+#include "sessionlock.h"
 #include "shell_internal.h"
 
 #include <set>
@@ -60,9 +61,55 @@ std::string textoDePregunta(const Pregunta& p) {
     return t;
 }
 
-bool confirma(const Estado& e, const Pregunta& p) {
+namespace {
+
+// ZFSMgr open on another machine that reaches what this question changes: one note each, so
+// the person knows someone else will see it change. Asked only of those machines' daemons, with
+// a short timeout: a daemon that does not answer only leaves the question without the note.
+std::vector<std::string> notasDeOtrasSesiones(const Estado& e, const Pregunta& p) {
+    if (p.maquinas.empty() || !e.ses || e.ses->sinSecretos) {
+        return {};
+    }
+    Conexiones afectadas = e.conns;
+    afectadas.perfiles.clear();
+    for (const std::string& m : p.maquinas) {
+        if (const auto* perfil = buscarConexion(e.conns, m)) {
+            afectadas.perfiles.push_back(*perfil);
+        }
+    }
+    if (afectadas.perfiles.empty()) {
+        return {};
+    }
+    const auto otras = zfsmgr::commands::sessions::othersThan(
+        sesionesEnLaRed(*e.ses, afectadas, 5000), zfsmgr::base::session::hostName());
+    std::vector<std::string> notas;
+    for (const auto& s : otras) {
+        std::string llega;
+        for (const std::string& m : s.machines) {
+            llega += (llega.empty() ? "" : ", ") + m;
+        }
+        notas.push_back(B::format(T("t_pq_otra_sesion",
+                                    "Ojo: ZFSMgr también está abierto en otra máquina que llega a "
+                                    "%1: %2. Verá este cambio sin haberlo pedido; «sessions close "
+                                    "%3» le pide que se cierre."),
+                                  {llega, describeSesion(s), s.host}));
+    }
+    return notas;
+}
+
+}  // namespace
+
+bool confirma(const Estado& e, const Pregunta& pregunta) {
     if (e.asumirSi) {
         return true;
+    }
+    // Only when there is someone to ask: without a terminal nor a client it is refused below
+    // anyway, and asking the daemons would be time thrown away.
+    Pregunta p = pregunta;
+    if (e.preguntaServicio || hayTerminal()) {
+        for (std::string& n : notasDeOtrasSesiones(e, p)) {
+            p.notas.push_back(std::move(n));
+        }
     }
     if (e.preguntaServicio) {
         return e.preguntaServicio(p);

@@ -159,6 +159,10 @@ struct Pregunta {
     std::vector<std::string> notas;       // anything else worth reading before answering
     // The word to type to confirm, for what cannot be undone; empty: a yes/no is enough.
     std::string escribir;
+    // The connections whose machine this changes. If ZFSMgr is open on another machine that
+    // reaches any of them, confirma() says so in the question: the other session will see it
+    // change without having asked (presence.h).
+    std::vector<std::string> maquinas;
 };
 
 struct Estado {
