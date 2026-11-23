@@ -89,7 +89,7 @@ void StatusPage::render() {
     m_body = new QWidget();
     m_bodyLayout = new QVBoxLayout(m_body);
     m_bodyLayout->setAlignment(Qt::AlignTop);
-    m_scroll->setWidget(m_body);
+    replaceScrollWidget(m_scroll, m_body);
     QTimer::singleShot(0, this,
                        [this, scrollPos] { m_scroll->verticalScrollBar()->setValue(scrollPos); });
     updateAgo();

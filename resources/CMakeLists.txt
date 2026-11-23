@@ -754,6 +754,15 @@ if(BUILD_TESTING)
     target_compile_definitions(zfsmgr_gui_status_test PRIVATE QT_NO_KEYWORDS)
     add_test(NAME zfsmgr_gui_status_test COMMAND zfsmgr_gui_status_test)
 
+    # A page rebuilt from inside one of its own widgets' handlers does not crash (the double
+    # click on a directory, 2026-11-23). Offscreen: no screen needed.
+    add_executable(zfsmgr_gui_uikit_test ../tests/gui_uikit_test.cpp ../src/gui/uikit.cpp
+                   ../src/gui/uikit.h)
+    target_link_libraries(zfsmgr_gui_uikit_test PRIVATE Qt6::Widgets Qt6::Test)
+    target_compile_definitions(zfsmgr_gui_uikit_test PRIVATE QT_NO_KEYWORDS)
+    add_test(NAME zfsmgr_gui_uikit_test COMMAND zfsmgr_gui_uikit_test)
+    set_tests_properties(zfsmgr_gui_uikit_test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # The interface's service against a fake `zfsmgr-cli --serve`: an answer for an owner that
     # no longer exists is dropped. Not on Windows: the fake is a shell script.
     if(NOT WIN32)

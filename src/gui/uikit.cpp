@@ -10,6 +10,7 @@
 #include <QFrame>
 #include <QLabel>
 #include <QPalette>
+#include <QScrollArea>
 #include <QPlainTextEdit>
 #include <QSpinBox>
 #include <QVBoxLayout>
@@ -144,6 +145,14 @@ void askKeep(QWidget* parent, const QString& title, const QString& note, const Q
         d->accept();
     });
     d->open();
+}
+
+void replaceScrollWidget(QScrollArea* area, QWidget* w) {
+    if (QWidget* old = area->takeWidget()) {
+        old->hide();
+        old->deleteLater();
+    }
+    area->setWidget(w);
 }
 
 }  // namespace zfsmgr::gui

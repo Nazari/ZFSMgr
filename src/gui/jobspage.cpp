@@ -215,7 +215,7 @@ void JobsPage::render() {
         lay->addWidget(box);
     }
 
-    m_scroll->setWidget(body);
+    replaceScrollWidget(m_scroll, body);
     QTimer::singleShot(0, this, [this, pos] { m_scroll->verticalScrollBar()->setValue(pos); });
 }
 

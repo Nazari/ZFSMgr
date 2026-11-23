@@ -260,7 +260,7 @@ void MachinesPage::loadPool(QTreeWidgetItem* poolItem) {
 }
 
 void MachinesPage::setDetail(QWidget* w) {
-    m_detail->setWidget(w);
+    replaceScrollWidget(m_detail, w);
 }
 
 void MachinesPage::reveal(const QString& machine, const QString& dataset) {

@@ -476,7 +476,7 @@ void AdminPage::render() {
         lay->addLayout(row);
     }
 
-    m_scroll->setWidget(body);
+    replaceScrollWidget(m_scroll, body);
     QTimer::singleShot(0, this, [this, pos] { m_scroll->verticalScrollBar()->setValue(pos); });
 }
 
