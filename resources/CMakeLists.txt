@@ -607,6 +607,8 @@ qt_add_executable(zfsmgr-gui
     ../src/gui/machinespage.cpp
     ../src/gui/machinespage_manage.cpp
     ../src/gui/addmachinedialog.cpp
+    ../src/gui/unlockdialog.cpp
+    ../src/gui/unlockdialog.h
     ../src/gui/adminpage.cpp
     ../src/gui/createpooldialog.cpp
     gui.qrc

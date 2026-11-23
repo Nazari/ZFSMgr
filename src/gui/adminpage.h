@@ -34,11 +34,13 @@ private:
     void render();
     void act(const QString& line, const QString& done, int delayMs = 0);
     void editMachine(const QString& id);
+    void addKey();
 
     StateStore* m_store;
     QScrollArea* m_scroll{nullptr};
     QJsonArray m_connections;             // `ls zfsm://`
     QJsonArray m_daemons;                 // `install-daemon -a --check`
+    QJsonArray m_keys;                    // `master-key`: what opens ZFSMgr
     QHash<QString, QJsonArray> m_checks;  // machine → `peers --check`: whom it reaches
     QHash<QString, QString> m_checkError;  // machine → why it could not be asked
     QHash<QString, QString> m_probeText;  // machine → what «Test» said

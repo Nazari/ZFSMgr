@@ -18,7 +18,10 @@
 #include <QJsonDocument>
 #include <QLabel>
 #include <QLineEdit>
+#include <QInputDialog>
 #include <QMenu>
+#include <QMessageBox>
+#include <QPointer>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QScrollBar>
@@ -97,6 +100,10 @@ void AdminPage::load() {
                     render();
                 });
         }
+        m_store->general()->request(QStringLiteral("master-key"), this, [this](const CliResult& k) {
+            m_keys = firstObject(k.out).value(QStringLiteral("keys")).toArray();
+            render();
+        });
         m_store->general()->request(
             QStringLiteral("install-daemon -a --check"), this, [this](const CliResult& d) {
                 m_daemons = firstObject(d.out).value(QStringLiteral("items")).toArray();
@@ -114,6 +121,48 @@ void AdminPage::act(const QString& line, const QString& done, int delayMs) {
         // square towards it would read «does not get there».
         QTimer::singleShot(delayMs, this, [this] { load(); });
     });
+}
+
+// Registering asks for two touches —one to create the credential, one to read its secret— and
+// takes as long as the person does: a note says so while it waits, and goes when it is done.
+// A PIN, if the key wants one, comes as a secret question like any other.
+void AdminPage::addKey() {
+    auto* d = new QInputDialog(this);
+    d->setAttribute(Qt::WA_DeleteOnClose);
+    d->setWindowTitle(L("Add a YubiKey", "Añadir una YubiKey"));
+    d->setLabelText(L("Plug the key in. What should it be called?",
+                      "Conecta la llave. ¿Cómo quieres llamarla?"));
+    d->setTextValue(QStringLiteral("YubiKey"));
+    connect(d, &QInputDialog::textValueSelected, this, [this](const QString& name) {
+        auto* note =
+            new QMessageBox(QMessageBox::Information, L("Add a YubiKey", "Añadir una YubiKey"),
+                            L("Touch the key TWICE when it blinks: once to register it "
+                              "and once to read its secret.",
+                              "Toca la llave DOS veces cuando parpadee: una para "
+                              "registrarla y otra para leer su secreto."),
+                            QMessageBox::NoButton, this);
+        note->setAttribute(Qt::WA_DeleteOnClose);
+        note->setStandardButtons(QMessageBox::NoButton);
+        note->open();
+        const QPointer<QMessageBox> keep = note;
+        QString line = QStringLiteral("master-key add");
+        if (!name.trimmed().isEmpty()) {
+            line += QStringLiteral(" --label ") + quoted(name.trimmed());
+        }
+        m_store->general()->request(line, this, [this, keep](const CliResult& r) {
+            if (keep) {
+                keep->done(0);
+            }
+            Q_EMIT message(r.ok() ? L("Key added: from now on it opens ZFSMgr.",
+                                      "Llave añadida: desde ahora abre ZFSMgr.")
+                                  : r.err.trimmed());
+            if (!r.ok()) {
+                showText(this, L("Add a YubiKey", "Añadir una YubiKey"), r.err.trimmed());
+            }
+            load();
+        });
+    });
+    d->open();
 }
 
 void AdminPage::render() {
@@ -453,6 +502,56 @@ void AdminPage::render() {
             load();
         });
         lay->addWidget(again, 0, Qt::AlignLeft);
+    }
+
+    // ── Opening ZFSMgr: the master password, and the FIDO2 keys (a YubiKey) registered to
+    // open it besides it (`master-key`). Only with a master password: a key opens what it does.
+    if (!m_keys.isEmpty()) {
+        auto* head = new QHBoxLayout();
+        head->addWidget(heading(L("Opening ZFSMgr", "Abrir ZFSMgr"), body));
+        head->addStretch(1);
+        auto* add = small(L("Add a YubiKey…", "Añadir una YubiKey…"), body);
+        add->setToolTip(
+            L("A FIDO2 security key: touching it opens ZFSMgr instead of typing the "
+              "master password, which keeps working.",
+              "Una llave de seguridad FIDO2: tocarla abre ZFSMgr en vez de escribir "
+              "la contraseña maestra, que sigue sirviendo."));
+        connect(add, &QPushButton::clicked, this, &AdminPage::addKey);
+        head->addWidget(add);
+        lay->addLayout(head);
+        QFrame* box = card(body);
+        auto* g = new QGridLayout(box);
+        int row = 0;
+        for (const QJsonValue& v : m_keys) {
+            const QJsonObject k = v.toObject();
+            const bool password =
+                k.value(QStringLiteral("type")).toString() == QLatin1String("password");
+            g->addWidget(label(password ? L("Master password", "Contraseña maestra")
+                                        : k.value(QStringLiteral("label")).toString(),
+                               box),
+                         row, 0);
+            g->addWidget(muted(password ? L("always works", "sirve siempre")
+                                        : L("key: touch it at start", "llave: tocarla al arrancar"),
+                               box),
+                         row, 1);
+            if (!password) {
+                const QString slot = k.value(QStringLiteral("slot")).toString();
+                const QString name = k.value(QStringLiteral("label")).toString();
+                auto* remove = small(L("Remove…", "Quitar…"), box);
+                remove->setToolTip(
+                    L("It will no longer open ZFSMgr. Nothing is deleted on the "
+                      "key.",
+                      "Dejará de abrir ZFSMgr. En la llave no se borra nada."));
+                connect(remove, &QPushButton::clicked, this, [this, slot, name] {
+                    act(QStringLiteral("master-key remove ") + slot,
+                        L("Key %1 removed.", "Llave %1 quitada.").arg(name));
+                });
+                g->addWidget(remove, row, 2);
+            }
+            ++row;
+        }
+        g->setColumnStretch(1, 1);
+        lay->addWidget(box);
     }
 
     // ── Language: the system's unless one is chosen; it applies on the next start, since every
