@@ -2,10 +2,15 @@
 
 #include <fido.h>
 #include <openssl/crypto.h>
+#include <openssl/evp.h>
+#include <openssl/hmac.h>
 #include <openssl/rand.h>
 
+#include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <mutex>
+#include <thread>
 
 namespace zfsmgr::cli::fido {
 namespace {
@@ -136,9 +141,70 @@ Result getSecret(fido_dev_t* dev, const std::vector<std::string>& ids, const std
     return res;
 }
 
+// A FAKE key, for the battery only: ZFSMGR_TEST_FAKE_FIDO=<seed>[:<ms to wait for the
+// «touch»>]. It answers like a key with no hardware: its one credential is derived from the
+// seed, and its secret is HMAC-SHA256(seed, salt). It opens nothing that was not registered
+// with it first, and registering needs the configuration open already. The seed «none» is no
+// key connected at all.
+struct Falsa {
+    bool activa = false;
+    std::string semilla;
+    int esperaMs = 0;
+};
+
+Falsa falsa() {
+    Falsa f;
+    const char* v = std::getenv("ZFSMGR_TEST_FAKE_FIDO");
+    if (!v || !*v) {
+        return f;
+    }
+    f.activa = true;
+    f.semilla = v;
+    const auto dos = f.semilla.find(':');
+    if (dos != std::string::npos) {
+        f.esperaMs = std::atoi(f.semilla.c_str() + dos + 1);
+        f.semilla.resize(dos);
+    }
+    return f;
+}
+
+std::string credencialFalsa(const Falsa& f) {
+    return "fake-credential-" + f.semilla;
+}
+
+std::string secretoFalso(const Falsa& f, const std::string& salt) {
+    unsigned char out[EVP_MAX_MD_SIZE];
+    unsigned int n = 0;
+    HMAC(EVP_sha256(), f.semilla.data(), static_cast<int>(f.semilla.size()),
+         reinterpret_cast<const unsigned char*>(salt.data()), salt.size(), out, &n);
+    return std::string(reinterpret_cast<const char*>(out), n);
+}
+
+// The «touch»: waits, and can be cancelled like a real one.
+Result esperaFalsa(const Falsa& f) {
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        g_cancelled = false;
+    }
+    for (int t = 0; t < f.esperaMs; t += 20) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        if (cancelledNow()) {
+            return Result::Cancelled;
+        }
+    }
+    return Result::Ok;
+}
+
 }  // namespace
 
 std::vector<Device> devices() {
+    if (const Falsa f = falsa(); f.activa) {
+        // «none»: no key connected.
+        if (f.semilla == "none") {
+            return {};
+        }
+        return {Device{"fake://", "Fake key", false}};
+    }
     init();
     std::vector<Device> out;
     fido_dev_info_t* list = fido_dev_info_new(16);
@@ -161,6 +227,16 @@ std::vector<Device> devices() {
 
 Result registerKey(const std::string& salt, const std::string& pin, std::string& credentialId,
                    bool& resident, std::string& secret, std::string& product, std::string& detail) {
+    if (const Falsa f = falsa(); f.activa) {
+        product = "Fake key";
+        resident = false;
+        credentialId = credencialFalsa(f);
+        const Result r = esperaFalsa(f);
+        if (r == Result::Ok) {
+            secret = secretoFalso(f, salt);
+        }
+        return r;
+    }
     bool hello = false;
     fido_dev_t* dev = openFirst(product, hello);
     if (!dev) {
@@ -196,6 +272,21 @@ Result registerKey(const std::string& salt, const std::string& pin, std::string&
 
 Result secret(const std::vector<std::string>& credentialIds, const std::string& salt,
               const std::string& pin, std::string& used, std::string& out, std::string& detail) {
+    if (const Falsa f = falsa(); f.activa) {
+        bool suya = false;
+        for (const std::string& id : credentialIds) {
+            suya = suya || id == credencialFalsa(f);
+        }
+        if (!suya) {
+            return Result::NotRegistered;
+        }
+        const Result r = esperaFalsa(f);
+        if (r == Result::Ok) {
+            used = credencialFalsa(f);
+            out = secretoFalso(f, salt);
+        }
+        return r;
+    }
     std::string product;
     bool hello = false;
     fido_dev_t* dev = openFirst(product, hello);

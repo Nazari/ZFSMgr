@@ -1876,6 +1876,115 @@ def casos_primera_maestra(ctx):
               else [f"rc={q.returncode} {q.stdout!r}"])
 
 
+def casos_servicio_llave(ctx):
+    """Opening with a FIDO2 key through `--serve`, with the fake key of the CLI
+    (ZFSMGR_TEST_FAKE_FIDO=<seed>[:<ms>]; «none» is no key connected). With keys registered and
+    no password the service stays locked: «locked», «touch», and the password can come
+    meanwhile. `ready` carries the data key, which opens other services with --data-key.
+    """
+    cfg = os.path.join(ctx.dir_tmp, "cfg-llave")
+    if os.path.isdir(cfg):
+        shutil.rmtree(cfg)
+
+    def comprueba(nombre, problemas):
+        if problemas:
+            ctx.fallos.append((nombre, problemas, ""))
+            print(f"  FALLO  {nombre}")
+            for x in problemas:
+                print(f"         {x}")
+        else:
+            ctx.pasados.append(nombre)
+            print(f"  ok     {nombre}")
+
+    def sirve(primera, llave=None, extra=()):
+        entorno = dict(os.environ)
+        entorno.pop("ZFSMGR_TEST_FAKE_FIDO", None)
+        if llave:
+            entorno["ZFSMGR_TEST_FAKE_FIDO"] = llave
+        p = subprocess.Popen([CLI, "--serve", "--lang", "es", "--config-dir", cfg, *extra],
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True,
+                             bufsize=1, env=entorno)
+        p.stdin.write(primera + "\n")
+        p.stdin.flush()
+        return p
+
+    def lee(p):
+        linea = p.stdout.readline()
+        return json.loads(linea) if linea.strip() else {}
+
+    def manda(p, contrasena):
+        p.stdin.write(json.dumps({"unlock": "password", "password": contrasena}) + "\n")
+        p.stdin.flush()
+
+    def cierra(p):
+        p.stdin.close()
+        p.wait(timeout=30)
+
+    p = sirve("maestra-llave")
+    listo = lee(p)
+    cierra(p)
+    clave = listo.get("data_key", "")
+    comprueba("llave: el ready de un servicio abierto con contraseña lleva la clave de datos",
+              [] if len(clave) == 43 else [repr(listo)])
+    q = subprocess.run(["bash", "-c", f'printf "master-key add --label Falsa\\nexit\\n" | '
+                        f'ZFSMGR_TEST_FAKE_FIDO=semilla {CLI} --lang es --config-dir {cfg} '
+                        f'--password-fd 3 3< <(echo maestra-llave)'],
+                       capture_output=True, text=True, timeout=60)
+    comprueba("llave: master-key add registra la llave",
+              [] if "llave añadida" in q.stderr else [q.stderr[-300:]])
+
+    p = sirve("", "semilla:200")
+    eventos = [lee(p), lee(p), lee(p)]
+    cierra(p)
+    comprueba("llave: sin contraseña queda cerrado, espera el toque y abre con él",
+              [] if [e.get("type") for e in eventos] == ["locked", "touch", "ready"]
+              and eventos[0].get("key_present") is True and eventos[2].get("data_key") == clave
+              else [repr(eventos)])
+
+    p = sirve("", "semilla:20000")
+    a, b = lee(p), lee(p)
+    manda(p, "no-es-esta")
+    c, d = lee(p), lee(p)
+    t = time.time()
+    manda(p, "maestra-llave")
+    e = lee(p)
+    cierra(p)
+    comprueba("llave: una contraseña mala mientras espera se rechaza y vuelve a esperar",
+              [] if c.get("type") == "unlock_failed" and c.get("reason") == "password"
+              and d.get("type") == "touch" else [repr([a, b, c, d])])
+    comprueba("llave: la buena abre sin esperar al toque",
+              [] if e.get("type") == "ready" and e.get("data_key") == clave and time.time() - t < 5
+              else [repr(e)])
+
+    p = sirve("", "none")
+    a = lee(p)
+    manda(p, "maestra-llave")
+    b = lee(p)
+    cierra(p)
+    comprueba("llave: sin llave conectada lo dice, y la contraseña abre",
+              [] if a.get("type") == "locked" and a.get("key_present") is False
+              and b.get("type") == "ready" else [repr([a, b])])
+
+    p = sirve("", "otra:200")
+    a, b, c = lee(p), lee(p), lee(p)
+    manda(p, "maestra-llave")
+    d = lee(p)
+    cierra(p)
+    comprueba("llave: una llave que no está registrada lo dice, y la contraseña sigue abriendo",
+              [] if c.get("type") == "unlock_failed" and c.get("code") == "not_registered"
+              and d.get("type") == "ready" else [repr([a, b, c, d])])
+
+    p = sirve(clave, None, ["--data-key"])
+    a = lee(p)
+    cierra(p)
+    p = sirve("x" * 43, None, ["--data-key"])
+    b = lee(p)
+    cierra(p)
+    comprueba("llave: --data-key abre con la clave de otro servicio, y no con otra",
+              [] if a.get("type") == "ready" and "data_key" not in a and b.get("type") == "error"
+              else [repr([a, b])])
+
+
 def casos_servicio_conexiones(ctx):
     """`create`/`edit` of a connection through `--serve`, as the graphical interface runs them.
 
@@ -3653,7 +3762,7 @@ def casos_arranque(ctx):
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
 LOCALES = [casos_arranque, casos_identidad, casos_devices, casos_ayuda, casos_version_openzfs, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
-           casos_volumenes, casos_dedup, casos_overview, casos_json_gui, casos_sudo_sin_argv, casos_probe, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_send_level, casos_recepcion_a_medias, casos_send_fichero, casos_send_comprimido, casos_gsa, casos_sin_montar, casos_cp_destino, casos_load_key, casos_editor_ancho, casos_tab_continua, casos_pantalla, casos_ctrl_c, casos_monitor_conexiones, casos_path, casos_info_labelclear, casos_servicio, casos_primera_maestra, casos_servicio_conexiones, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
+           casos_volumenes, casos_dedup, casos_overview, casos_json_gui, casos_sudo_sin_argv, casos_probe, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_send_level, casos_recepcion_a_medias, casos_send_fichero, casos_send_comprimido, casos_gsa, casos_sin_montar, casos_cp_destino, casos_load_key, casos_editor_ancho, casos_tab_continua, casos_pantalla, casos_ctrl_c, casos_monitor_conexiones, casos_path, casos_info_labelclear, casos_servicio, casos_primera_maestra, casos_servicio_llave, casos_servicio_conexiones, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
 def rpc_directo(ctx, entrada, cmd, args):

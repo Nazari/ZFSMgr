@@ -30,11 +30,12 @@
 
 namespace zfsmgr::gui {
 
-MainWindow::MainWindow(QString cliPath, QByteArray masterPassword, CliService* general,
-                       QWidget* parent)
+MainWindow::MainWindow(QString cliPath, QByteArray masterPassword, bool isDataKey,
+                       CliService* general, QWidget* parent)
     : QMainWindow(parent),
       m_cliPath(std::move(cliPath)),
       m_master(std::move(masterPassword)),
+      m_masterIsDataKey(isDataKey),
       m_general(general) {
     setWindowTitle(appTitle());
     resize(1100, 760);
@@ -269,7 +270,7 @@ CliService* MainWindow::serviceFor(const QString& machine) {
         }
     });
     m_perMachine.insert(machine, s);
-    s->start(m_master);
+    s->start(m_master, m_masterIsDataKey);
     return s;
 }
 

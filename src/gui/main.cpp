@@ -163,8 +163,16 @@ public:
                 welcome();
                 return;
             }
+            // Opened while locked —a touch or the password—: the dialog goes away by itself.
+            if (m_lockedDialog) {
+                m_unlocked = true;
+                m_lockedDialog->close();
+            }
             // From here the window owns the service and listens to it; the starter does not.
-            auto* w = new MainWindow(m_cli, m_master, s);
+            // The other services get the DATA KEY this one opened, not the password: with a
+            // key registered, each would otherwise ask for its own touch.
+            const bool conClave = !s->dataKey().isEmpty();
+            auto* w = new MainWindow(m_cli, conClave ? s->dataKey() : m_master, conClave, s);
             w->setAttribute(Qt::WA_DeleteOnClose);
             w->show();
             if (m_firstRun) {
@@ -219,6 +227,21 @@ public:
             }
             askPassword(m_asked);
         });
+        // Keys are registered: the service waits for a touch, and the password can be typed
+        // meanwhile into the same service.
+        connect(s, &CliService::locked, this,
+                [this, s](bool keyPresent) { lockedPrompt(s, keyPresent, false); });
+        connect(s, &CliService::keyPresence, this, [this, s](bool present) {
+            if (m_lockedDialog) {
+                m_lockedDialog->setLabelText(lockedText(present, false));
+            }
+        });
+        connect(s, &CliService::unlockFailed, this,
+                [this, s](const QString& reason, const QString&) {
+                    if (reason == QLatin1String("password")) {
+                        lockedPrompt(s, true, true);
+                    }
+                });
         s->start(master);
     }
 
@@ -298,6 +321,45 @@ private:
         }
     }
 
+    static QString lockedText(bool keyPresent, bool again) {
+        if (again) {
+            return L("That is not the master password. Try again, or touch your key:",
+                     "Esa no es la contraseña maestra. Prueba otra vez, o toca tu llave:");
+        }
+        return keyPresent ? L("Touch your key to get in, or type the master password:",
+                              "Toca tu llave para entrar, o escribe la contraseña maestra:")
+                          : L("Master password (or plug in your key and touch it):",
+                              "Contraseña maestra (o conecta tu llave y tócala):");
+    }
+
+    // The locked service's prompt: the password goes to the SAME service, which is waiting
+    // for a touch at the same time; whichever comes first opens.
+    void lockedPrompt(CliService* s, bool keyPresent, bool again) {
+        if (m_lockedDialog) {
+            m_lockedDialog->setLabelText(lockedText(keyPresent, again));
+            m_lockedDialog->setTextValue(QString());
+            return;
+        }
+        auto* d = new QInputDialog();
+        d->setAttribute(Qt::WA_DeleteOnClose);
+        d->setWindowTitle(appTitle());
+        d->setLabelText(lockedText(keyPresent, again));
+        d->setTextEchoMode(QLineEdit::Password);
+        m_lockedDialog = d;
+        connect(d, &QInputDialog::textValueSelected, this, [this, s](const QString& text) {
+            // Accepting closes the dialog; another opens if this password is not it.
+            QByteArray pw = text.toUtf8();
+            s->unlockWithPassword(pw);
+            pw.fill('\0');
+        });
+        connect(d, &QDialog::finished, this, [this](int result) {
+            if (result != QDialog::Accepted && !m_unlocked) {
+                QApplication::exit(0);
+            }
+        });
+        d->open();
+    }
+
     void askPassword(bool again) {
         m_asked = true;
         auto* d = new QInputDialog();
@@ -322,6 +384,8 @@ private:
     QByteArray m_master;
     bool m_asked{false};
     bool m_firstRun{false};
+    QPointer<QInputDialog> m_lockedDialog;
+    bool m_unlocked{false};
 };
 
 }  // namespace

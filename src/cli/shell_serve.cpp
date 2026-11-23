@@ -133,7 +133,7 @@ private:
 
 }  // namespace
 
-int servirOrdenes(Sesion& ses) {
+int servirOrdenes(Sesion& ses, bool anunciaClave) {
     std::fflush(stdout);
     g_eventos = SV_DUP(SV_FILENO(stdout));
     Estado e;
@@ -224,6 +224,9 @@ int servirOrdenes(Sesion& ses) {
     // sudo one of this computer.
     if (e.ses->maestra.empty() && !B::store::hasSomethingEncrypted(e.ses->dirConfig)) {
         listo.set("no_master", J::Value(true));
+    }
+    if (anunciaClave && !e.ses->maestra.empty()) {
+        listo.set("data_key", J::Value(e.ses->maestra));
     }
     emite(listo);
 

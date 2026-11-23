@@ -78,6 +78,7 @@ CliService::CliService(QString cliPath, QString lang, QObject* parent)
 }
 
 CliService::~CliService() {
+    m_dataKey.fill('\0');
     // Quiet first: while the window that owns this service is being destroyed, the process
     // ending must not reach anyone. It emitted `failed` («the service ended») into a
     // MainWindow half destroyed, which wrote on its status bar and crashed on every exit
@@ -102,10 +103,15 @@ CliService::~CliService() {
     }
 }
 
-void CliService::start(const QByteArray& masterPassword) {
-    m_proc.start(m_cliPath, {QStringLiteral("--serve"), QStringLiteral("--lang"), m_lang});
+void CliService::start(const QByteArray& masterPassword, bool isDataKey) {
+    QStringList args{QStringLiteral("--serve"), QStringLiteral("--lang"), m_lang};
+    if (isDataKey) {
+        args << QStringLiteral("--data-key");
+    }
+    m_proc.start(m_cliPath, args);
     // Written right away: QProcess keeps it until the child reads it. The first line is the
-    // master password (see docs/protocolo_serve.md, «Arranque»).
+    // master password —or the data key another service opened— (see docs/protocolo_serve.md,
+    // «Arranque»).
     QByteArray first = masterPassword;
     first.append('\n');
     m_proc.write(first);
@@ -158,6 +164,13 @@ void CliService::answerConfirm(int id, bool yes, const QString& typed) {
     write(a);
 }
 
+void CliService::unlockWithPassword(const QByteArray& password) {
+    QJsonObject a;
+    a.insert(QStringLiteral("unlock"), QStringLiteral("password"));
+    a.insert(QStringLiteral("password"), QString::fromUtf8(password));
+    write(a);
+}
+
 void CliService::answerSecret(int id, const std::optional<QString>& secret) {
     resumeAfterQuestion();
     QJsonObject a;
@@ -195,8 +208,27 @@ void CliService::handleEvent(const QJsonObject& ev) {
         m_ready = true;
         m_version = ev.value(QStringLiteral("version")).toString();
         m_noMaster = ev.value(QStringLiteral("no_master")).toBool();
+        m_dataKey = ev.value(QStringLiteral("data_key")).toString().toUtf8();
         Q_EMIT ready(ev.value(QStringLiteral("warning")).toString());
         sendNext();
+        return;
+    }
+    // Locked: keys are registered and no password came (see servicioCerrado in the CLI).
+    if (type == QLatin1String("locked")) {
+        Q_EMIT locked(ev.value(QStringLiteral("key_present")).toBool());
+        return;
+    }
+    if (type == QLatin1String("touch")) {
+        Q_EMIT touchWaiting();
+        return;
+    }
+    if (type == QLatin1String("key_present") || type == QLatin1String("key_absent")) {
+        Q_EMIT keyPresence(type == QLatin1String("key_present"));
+        return;
+    }
+    if (type == QLatin1String("unlock_failed")) {
+        Q_EMIT unlockFailed(ev.value(QStringLiteral("reason")).toString(),
+                            ev.value(QStringLiteral("code")).toString());
         return;
     }
     if (type == QLatin1String("error")) {

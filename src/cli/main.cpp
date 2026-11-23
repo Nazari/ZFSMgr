@@ -163,6 +163,13 @@ struct Opciones {
     bool sinComprobarProgramaciones{false};
     bool sinPantalla{false};
     bool servir{false};  // --serve: the shell as a service for another program
+    // --data-key (with --serve): the first line is the DATA KEY another service already
+    // opened, not the master password. The interface opens once —with a touch of the key or
+    // the password— and hands the key to the service of each machine: a touch per service
+    // otherwise.
+    bool claveDeDatos{false};
+    // The service's `ready` carries the data key, for the interface to hand on (above).
+    bool anunciaClave{false};
     std::vector<std::string> orden;
 };
 
@@ -326,6 +333,10 @@ int main(int argc, char** argv) {
         }
         if (a == "--serve") {
             op.servir = true;
+            continue;
+        }
+        if (a == "--data-key") {
+            op.claveDeDatos = true;
             continue;
         }
         if (a == "--no-tui") {
@@ -614,15 +625,33 @@ int main(int argc, char** argv) {
     if (!op.sinSecretos
         && (op.passwordFd >= 0 || op.servir || hasSomethingEncrypted(op.dirConfig))) {
         std::string err;
-        if (op.servir && op.passwordFd < 0) {
+        if (op.servir && op.passwordFd < 0 && op.claveDeDatos) {
+            // The data key another service opened. Checked like a master always was.
+            ST::Warning aviso;
+            const bool leida = leeLineaDeEntrada(maestra) || maestra.empty();
+            if (!leida
+                || (hasSomethingEncrypted(op.dirConfig)
+                    && !ST::masterOpensEverything(op.dirConfig, maestra, aviso))) {
+                std::fputs("{\"type\":\"error\",\"text\":\"wrong data key\"}\n", stdout);
+                return 1;
+            }
+        } else if (op.servir && op.passwordFd < 0) {
             // The service's first line of input. Read byte by byte: a buffered read would
             // swallow the requests the client may already have written behind it.
-            // The first line is always the master password, empty when nothing is encrypted.
+            // The first line is the master password, empty when nothing is encrypted —or
+            // when there are keys registered: then the service stays LOCKED, waiting for a
+            // touch or a password (zfsmgr::cli::servicioCerrado).
             const bool leida = leeLineaDeEntrada(contrasena) || contrasena.empty();
-            if (!leida || !abre()) {
+            if (leida && contrasena.empty() && ST::hasMasterSlots(op.dirConfig)
+                && !ST::keySlots(op.dirConfig).empty()) {
+                if (!zfsmgr::cli::servicioCerrado(op.dirConfig, maestra)) {
+                    return 1;
+                }
+            } else if (!leida || !abre()) {
                 std::fputs("{\"type\":\"error\",\"text\":\"wrong master password\"}\n", stdout);
                 return 1;
             }
+            op.anunciaClave = true;
         } else if (op.passwordFd >= 0) {
             if (!zfsmgr::cli::leerSecretoDeDescriptor(op.passwordFd, contrasena, err)) {
                 std::fprintf(stderr, "%s: %s\n", kNombre, err.c_str());
@@ -684,7 +713,7 @@ int main(int argc, char** argv) {
     int rc = 0;
     if (op.servir) {
         auto ses = zfsmgr::cli::crearSesionDeFondo(op.dirConfig, maestra);
-        rc = zfsmgr::cli::servirOrdenes(*ses);
+        rc = zfsmgr::cli::servirOrdenes(*ses, op.anunciaClave);
         zfsmgr::base::transport::closeAllTunnels(ses->transporte);
     } else if (op.orden.empty()) {
         // Sin orden, el intérprete. Es la puerta por la que el CLI pasa de leer la

@@ -25,7 +25,9 @@ class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
     // `general` is already running (it is how the master password was checked).
-    MainWindow(QString cliPath, QByteArray masterPassword, CliService* general,
+    // `secret`: the master password, or —`isDataKey`— the data key the general service
+    // opened; the services of each machine start with it.
+    MainWindow(QString cliPath, QByteArray secret, bool isDataKey, CliService* general,
                QWidget* parent = nullptr);
     ~MainWindow() override;
 
@@ -58,6 +60,7 @@ private:
 
     QString m_cliPath;
     QByteArray m_master;
+    bool m_masterIsDataKey{false};
     CliService* m_general;
     QHash<QString, CliService*> m_perMachine;
     QListWidget* m_nav{nullptr};

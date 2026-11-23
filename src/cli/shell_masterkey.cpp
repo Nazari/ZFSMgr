@@ -12,6 +12,9 @@
 #include <poll.h>
 #include <termios.h>
 #include <unistd.h>
+#else
+#include <io.h>
+#include <windows.h>
 #endif
 
 namespace zfsmgr::cli::detail {
@@ -266,6 +269,183 @@ bool abreConLlave(const std::string& dir, std::string& dek, std::string& teclead
 }  // namespace zfsmgr::cli::detail
 
 namespace zfsmgr::cli {
+
+namespace {
+
+namespace J = zfsmgr::base::json;
+namespace ST = zfsmgr::base::store;
+
+void emiteEvento(const J::Value& ev) {
+    std::fputs((J::toCompact(ev) + "\n").c_str(), stdout);
+    std::fflush(stdout);
+}
+
+void evento(const char* tipo, const std::vector<std::pair<const char*, J::Value>>& campos = {}) {
+    J::Value ev;
+    ev.set("type", J::Value(std::string(tipo)));
+    for (const auto& c : campos) {
+        ev.set(c.first, c.second);
+    }
+    emiteEvento(ev);
+}
+
+// Is there input to read within `ms`? On Windows the service's stdin is a pipe.
+bool hayEntrada(int ms) {
+#ifndef _WIN32
+    pollfd p{0, POLLIN, 0};
+    return poll(&p, 1, ms) > 0;
+#else
+    const HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
+    for (int t = 0; t <= ms; t += 20) {
+        DWORD n = 0;
+        if (!PeekNamedPipe(h, nullptr, 0, nullptr, &n, nullptr)) {
+            return true;  // closed: reading says so
+        }
+        if (n > 0) {
+            return true;
+        }
+        Sleep(20);
+    }
+    return false;
+#endif
+}
+
+// One line, byte by byte: what comes after it belongs to the service.
+bool leeLinea(std::string& linea) {
+    linea.clear();
+    char c = 0;
+    while (true) {
+#ifndef _WIN32
+        const ssize_t n = ::read(0, &c, 1);
+#else
+        const int n = _read(0, &c, 1);
+#endif
+        if (n <= 0) {
+            return !linea.empty();
+        }
+        if (c == '\n') {
+            break;
+        }
+        linea.push_back(c);
+    }
+    if (!linea.empty() && linea.back() == '\r') {
+        linea.pop_back();
+    }
+    return true;
+}
+
+}  // namespace
+
+bool servicioCerrado(const std::string& dir, std::string& dek) {
+    namespace F = zfsmgr::cli::fido;
+    std::vector<std::string> ids;
+    for (const ST::KeySlot& k : ST::keySlots(dir)) {
+        ids.push_back(k.credentialId);
+    }
+    std::string sal;
+    ST::Warning aviso;
+    ST::keySalt(dir, sal, aviso);
+
+    std::thread espera;
+    std::atomic<bool> hecho{false};
+    F::Result resultado = F::Result::Failed;
+    std::string usada;
+    std::string secreto;
+    std::string detalle;
+    bool presente = !F::devices().empty();
+    const auto empieza = [&] {
+        hecho = false;
+        espera = std::thread([&] {
+            resultado = F::secret(ids, sal, {}, usada, secreto, detalle);
+            hecho = true;
+        });
+        evento("touch");
+    };
+    const auto para = [&] {
+        if (espera.joinable()) {
+            F::cancel();
+            espera.join();
+        }
+        for (char& c : secreto) {
+            c = '\0';
+        }
+        secreto.clear();
+    };
+    evento("locked", {{"key_present", J::Value(presente)}});
+    if (presente) {
+        empieza();
+    }
+    int sinMirar = 0;
+    while (true) {
+        if (espera.joinable() && hecho) {
+            espera.join();
+            if (resultado == F::Result::Ok) {
+                const bool ok = ST::unlockWithKeySecret(dir, usada, secreto, dek, aviso);
+                for (char& c : secreto) {
+                    c = '\0';
+                }
+                secreto.clear();
+                if (ok) {
+                    return true;
+                }
+                evento("unlock_failed", {{"reason", J::Value(std::string("key"))},
+                                         {"text", J::Value(ST::labelOf(aviso))}});
+            } else if (resultado != F::Result::NotTouched && resultado != F::Result::Cancelled) {
+                evento(
+                    "unlock_failed",
+                    {{"reason", J::Value(std::string("key"))},
+                     {"code",
+                      J::Value(std::string(resultado == F::Result::NotRegistered ? "not_registered"
+                                           : resultado == F::Result::PinRequired ? "pin_required"
+                                                                                 : "failed"))},
+                     {"text", J::Value(detalle)}});
+            }
+            // Nobody touched it, or it was pulled out: wait again if it is still there.
+            presente = !F::devices().empty();
+            if (presente && resultado != F::Result::NotRegistered) {
+                empieza();
+            } else if (!presente) {
+                evento("key_absent");
+            }
+        }
+        // A key plugged in while waiting: looked for once a second.
+        if (!espera.joinable() && ++sinMirar >= 10) {
+            sinMirar = 0;
+            if (!F::devices().empty()) {
+                presente = true;
+                evento("key_present");
+                empieza();
+            }
+        }
+        if (!hayEntrada(100)) {
+            continue;
+        }
+        std::string linea;
+        if (!leeLinea(linea)) {
+            para();  // the interface went away
+            return false;
+        }
+        J::Value pet;
+        std::string err;
+        if (!J::parse(linea, pet, &err) || pet["unlock"].toString() != "password") {
+            continue;
+        }
+        para();
+        std::string contrasena = pet["password"].toString();
+        const bool ok = ST::unlockWithPassword(dir, contrasena, dek, aviso);
+        for (char& c : contrasena) {
+            c = '\0';
+        }
+        if (ok && !dek.empty()) {
+            return true;
+        }
+        evento("unlock_failed", {{"reason", J::Value(std::string("password"))}});
+        presente = !F::devices().empty();
+        if (presente) {
+            empieza();
+        }
+    }
+}
 
 bool abrirConLlave(const std::string& dirConfig, std::string& dataKey, std::string& typed) {
     return detail::abreConLlave(dirConfig, dataKey, typed);

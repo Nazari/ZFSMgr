@@ -69,7 +69,12 @@ public:
 
     // Starts the process and hands it the master password as the first line of its stdin
     // (empty when nothing is encrypted). Never through argv or the environment.
-    void start(const QByteArray& masterPassword);
+    void start(const QByteArray& masterPassword, bool isDataKey = false);
+    // While locked: the master password, instead of touching the key.
+    void unlockWithPassword(const QByteArray& password);
+    // What its `ready` carried: the data key, for the services of each machine. Empty when
+    // there is no master or the service itself was started with one.
+    const QByteArray& dataKey() const { return m_dataKey; }
     bool isReady() const { return m_ready; }
     // The zfsmgr-cli version this service runs, as its `ready` said.
     const QString& cliVersion() const { return m_version; }
@@ -97,6 +102,13 @@ Q_SIGNALS:
     void failed(const QString& reason, bool wrongPassword);
     void confirmRequested(const zfsmgr::gui::CliQuestion& question);
     void secretRequested(int id, const QString& text);
+    // Keys are registered and it was started without a password: it waits for a touch or for
+    // unlockWithPassword. `keyPresent`: a key is connected right now.
+    void locked(bool keyPresent);
+    void touchWaiting();
+    void keyPresence(bool present);
+    // `reason` «password» or «key»; `code` for a key: «not_registered», «pin_required»…
+    void unlockFailed(const QString& reason, const QString& code);
 
 private:
     struct Pending {
@@ -129,6 +141,7 @@ private:
     bool m_ready{false};
     QString m_version;
     bool m_noMaster{false};
+    QByteArray m_dataKey;
     bool m_failed{false};
     int m_nextId{1};
     std::deque<Pending> m_queue;

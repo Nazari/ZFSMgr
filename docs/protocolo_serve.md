@@ -12,18 +12,51 @@ es cambiar las dos puntas a la vez: no hay compatibilidad con versiones anterior
 ## Arranque
 
 ```
-zfsmgr-cli --serve [--lang es|en] [--config-dir <dir>] [--password-fd <n>]
+zfsmgr-cli --serve [--lang es|en] [--config-dir <dir>] [--password-fd <n>] [--data-key]
 ```
 
 - **Contraseña maestra.** Con `--password-fd`, se lee de ese descriptor. Sin él, es la
   PRIMERA línea de la entrada estándar (vacía si no hay nada cifrado). Nunca por argumento
   ni por entorno.
+- **`--data-key`.** La primera línea no es la contraseña sino la CLAVE DE DATOS que otro
+  servicio ya abrió (la trae su `ready`, abajo). La interfaz abre una sola vez —con la
+  contraseña o tocando la llave— y arranca con ella el servicio de cada máquina: si no, cada
+  uno pediría su propio toque. Si no abre: `{"type":"error","text":"wrong data key"}`.
 - Si no abre los secretos, sale con código 1 tras escribir
   `{"type":"error","text":"wrong master password"}`.
 - Si abre, escribe una vez `{"type":"ready","version":"1.4.3.959941325"}`: `version` es la
-  de este zfsmgr-cli, con su compilación. Puede traer `"warning"`: un aviso al cargar la
-  configuración, para enseñarlo tal cual.
+  de este zfsmgr-cli, con su compilación. Puede traer:
+  - `"warning"`: un aviso al cargar la configuración, para enseñarlo tal cual;
+  - `"no_master": true`: todavía no hay contraseña maestra (primera vez); la interfaz ofrece
+    crearla;
+  - `"data_key"`: la clave de datos, para `--data-key` (no viene si se arrancó con ella).
 - `--lang` decide el idioma de TODOS los textos: errores, preguntas, avisos.
+
+### Cerrado: con llaves FIDO2 registradas
+
+Si hay llaves registradas (`master-key`) y la primera línea va VACÍA, el servicio no falla:
+se queda cerrado, esperando un toque de una llave registrada o la contraseña, lo que llegue
+antes.
+
+| Evento | |
+|---|---|
+| `{"type":"locked","key_present":true}` | Una vez, al empezar. `key_present`: hay una llave conectada ahora. |
+| `{"type":"touch"}` | Esperando el toque (la llave parpadea). Se repite cuando nadie la tocó a tiempo. |
+| `{"type":"key_present"}` / `{"type":"key_absent"}` | Se conectó / se quitó la llave mientras espera. |
+| `{"type":"unlock_failed","reason":"password"}` | Esa contraseña no es. Sigue esperando. |
+| `{"type":"unlock_failed","reason":"key","code":…}` | La llave falló: `not_registered`, `pin_required`, `failed`. Sigue esperando la contraseña. |
+
+En cualquier momento, la contraseña en una línea, que cancela la espera del toque:
+
+```json
+{"unlock": "password", "password": "…"}
+```
+
+Al abrir, sea como sea, llega el `ready` de siempre, con `data_key`. Si la entrada se cierra
+estando cerrado, el servicio termina.
+
+Para la batería existe una llave simulada: `ZFSMGR_TEST_FAKE_FIDO=<semilla>[:<ms>]` en el
+entorno del CLI (`none`: ninguna llave conectada). Solo abre lo que se registró con ella.
 
 ## Peticiones
 

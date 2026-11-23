@@ -40,7 +40,15 @@ namespace zfsmgr::cli {
 // `{"id":N,"secret":"…"}` (or `{"id":N,"secret":null}` to refuse). A command that fails does not end
 // the service. Output is JSON (`--format json` tables), or what a request's optional
 // `"format"` (text, tsv, json) says for that request only.
-int servirOrdenes(Sesion& ses);
+// `anunciaClave`: its `ready` carries the data key, for the interface to hand on to the
+// service of each machine (they start with --data-key).
+int servirOrdenes(Sesion& ses, bool anunciaClave = false);
+
+// The service locked: keys are registered and no password came. It says {"type":"locked"},
+// waits for a touch of a registered key —{"type":"touch"}, again when nobody touched it—, looks
+// for a key plugged in meanwhile, and takes {"unlock":"password","password":…} at any moment.
+// True with the data key; false when the interface went away.
+bool servicioCerrado(const std::string& dirConfig, std::string& dataKey);
 
 // At start, on a terminal: opens with a registered FIDO2 key if one is connected (see
 // detail::abreConLlave).
