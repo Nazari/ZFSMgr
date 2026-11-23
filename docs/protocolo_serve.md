@@ -158,7 +158,7 @@ Un campo nuevo se puede añadir sin avisar. Quitar o renombrar uno es un cambio 
 ```
 
 - Códigos fijos, iguales en cualquier idioma: `status` de máquina y de pool (`ok`, `warning`,
-  `error`), `daemon` (`ok`, `outdated`, `ahead`, `unknown`), `kind` (`push`, `pull`, `local`) y
+  `error`), `daemon` (`ok`, `latest` —más viejo que el cliente pero el último que hay para instalar, sin aviso—, `outdated`, `ahead`, `unknown`), `kind` (`push`, `pull`, `local`) y
   `state` de programación (`ok`, `error`, `pending`, `paused`). Cada programación lleva `keep`,
   lo que guarda: `{"hourly","daily","weekly","monthly","yearly"}`. Las apagadas con `--off`
   salen como `paused`.
