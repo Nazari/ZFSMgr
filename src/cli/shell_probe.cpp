@@ -225,6 +225,9 @@ bool cmdProbe(Estado& e, const LineaAnalizada& linea) {
             const std::string dicho = B::trim(H::oneLine(err.empty() ? out : err));
             if (llego && rc == 0) {
                 sudo = "ok";
+            } else if (H::looksLikeSudoMissing(err + "\n" + out)) {
+                sudo = "missing";
+                avisos.push_back({"error", "sudo", remedioSinSudo(real)});
             } else if (real.password.empty()) {
                 sudo = "needs_password";
                 avisos.push_back({"error", "sudo",
@@ -387,6 +390,24 @@ bool cmdProbe(Estado& e, const LineaAnalizada& linea) {
         std::printf("%s %s\n", a.nivel == "error" ? "✕" : "▲", a.texto.c_str());
     }
     return estado != "error";
+}
+
+std::string remedioSinSudo(const B::ConnectionProfile& p) {
+    const std::string id = p.id.empty() ? p.name : p.id;
+    const std::string usuario = p.username.empty() ? std::string("?") : p.username;
+    std::string como;
+    if (B::toLowerAscii(p.osType).find("freebsd") != std::string::npos) {
+        como = B::format(T("t_sin_sudo_freebsd",
+                           " En FreeBSD, como root: «pkg install sudo», y con «visudo» quitar el "
+                           "# de la línea «%wheel ALL=(ALL:ALL) ALL» (%1 tiene que estar en el "
+                           "grupo wheel: «pw groupmod wheel -m %1»)."),
+                         {usuario});
+    }
+    return B::format(T("t_sin_sudo",
+                       "%1 no tiene sudo instalado, y la conexión dice que lo necesita: instálalo "
+                       "y deja que %2 lo use, o quita sudo de la conexión («edit zfsm://%1 "
+                       "--no-sudo») si %2 ya puede manejar ZFS.%3"),
+                     {id, usuario, como});
 }
 
 }  // namespace zfsmgr::cli::detail

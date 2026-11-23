@@ -237,6 +237,10 @@ std::string asciiSafeShellCommand(const std::string& cmd);
 // again fixes nothing and therefore no retry is offered.
 bool looksLikeSudoAuthFailure(const std::string& text);
 
+// Is sudo simply NOT INSTALLED there? «sh: sudo: not found» (FreeBSD, Debian's dash),
+// «bash: sudo: command not found»… A fresh FreeBSD has no sudo at all (2026-11-23).
+bool looksLikeSudoMissing(const std::string& text);
+
 struct ImportableDevice {
     std::string name;    // as `zpool import` prints it: «sda1», «b9333c91-…», «media-…»
     std::string state;   // ONLINE, UNAVAIL…

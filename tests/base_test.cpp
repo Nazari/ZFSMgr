@@ -5409,6 +5409,31 @@ void caso60() {
     comprobar(S::processImage(::getpid()).find("zfsmgr_base_test") != std::string::npos,
               "sesion: el ejecutable de un proceso");
     comprobar(S::processImage(0).empty(), "sesion: sin proceso, nada");
+
+    // A program that ends without reading what it was given —a remote «sudo: not found» with
+    // the agent binary on its input— must not leave this side waiting: it spun until the idle
+    // timeout, 5 minutes (2026-11-23).
+    {
+        // As the CLI and the agent run: a write to a reader that is gone is EPIPE, not death.
+        const auto antes = ::signal(SIGPIPE, SIG_IGN);
+        const auto t0 = std::chrono::steady_clock::now();
+        const auto r = zfsmgr::base::runExecStream(
+            // It waits a moment so the pipe is FULL when it ends: then a pipe never says POLLOUT
+            // again, only POLLERR, which is what was missed.
+            "/bin/sh", {"-c", "echo 'sh: sudo: not found' >&2; sleep 0.3; exit 127"},
+            std::string(8 * 1024 * 1024, 'x'), 20000, {});
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now() - t0)
+                            .count();
+        comprobar(ms < 3000 && r.rc == 127, "proceso: el que no lee su entrada no deja esperando");
+        comprobar(zfsmgr::base::helpers::looksLikeSudoMissing(r.err),
+                  "proceso: y su «sudo: not found» se reconoce");
+        ::signal(SIGPIPE, antes);
+    }
+    comprobar(
+        zfsmgr::base::helpers::looksLikeSudoMissing("bash: sudo: command not found")
+            && !zfsmgr::base::helpers::looksLikeSudoMissing("sudo: 1 incorrect password attempt"),
+        "sudo: que falte no es que la contrasena este mal");
 }
 
 const Caso kCasos[] = {

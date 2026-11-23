@@ -864,7 +864,9 @@ bool runSsh(TransportSession& ses,
                                              0, vig.callbacks());
         out = res.out;
         err = res.err;
-        if (res.rc == 127 && !vig.porInactividad) {
+        // 127 with nothing said is our own child failing to start; with words, it is the
+        // command —often the remote shell: «sh: sudo: not found»— and it is told as it is.
+        if (res.rc == 127 && !vig.porInactividad && res.out.empty() && res.err.empty()) {
             err = "could not start " + program;
             ses.logConn(Nivel::Normal, p.id, err);
             return false;
@@ -1025,7 +1027,9 @@ bool runSsh(TransportSession& ses,
             programa, args, H::sudoStdin(p, remoteCmd, stdinPayload), 0, vig.callbacks());
         aOut = res.out;
         aErr = res.err;
-        if (res.rc == 127 && !vig.porInactividad) {
+        // 127 with nothing said is our own child failing to start; with words, it is the
+        // remote command —«sh: sudo: not found»— and it is told as it is.
+        if (res.rc == 127 && !vig.porInactividad && res.out.empty() && res.err.empty()) {
             aErr = "could not start " + program;
             ses.logConn(Nivel::Normal, p.id, aErr);
             return false;

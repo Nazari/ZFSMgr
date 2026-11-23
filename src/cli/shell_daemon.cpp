@@ -283,6 +283,11 @@ bool cmdInstalarDaemon(Estado& e, const LineaAnalizada& linea) {
                          r.detail.c_str());
             return false;
         }
+        if (H::looksLikeSudoMissing(r.detail)) {
+            std::fprintf(stderr, "%s\n", remedioSinSudo(perfil).c_str());
+            e.ultimoRc = 1;
+            return false;
+        }
         std::fprintf(stderr, TC("t_la_instala_2b9e0d", "la instalación falló (código %d): %s\n"),
                      r.rc, r.detail.c_str());
         e.ultimoRc = r.rc == 0 ? 1 : r.rc;

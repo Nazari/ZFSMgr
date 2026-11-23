@@ -697,7 +697,17 @@ ExecResult runExecStream(const std::string& program,
                 errAbierto = false;
             }
         }
-        if (idxIn >= 0 && (fds[idxIn].revents & POLLOUT)) {
+        // The reader is gone —the program ended without reading it all, e.g. a remote
+        // «sudo: not found»—: a pipe says so with POLLERR, never with POLLOUT again. Waiting for
+        // POLLOUT spun at full CPU until the idle timeout (5 min installing a daemon,
+        // 2026-11-23).
+        if (idxIn >= 0 && (fds[idxIn].revents & (POLLERR | POLLHUP | POLLNVAL))
+            && !(fds[idxIn].revents & POLLOUT)) {
+            porEscribir.clear();
+            close(inPipe[1]);
+            inPipe[1] = -1;
+        }
+        if (idxIn >= 0 && inPipe[1] >= 0 && (fds[idxIn].revents & POLLOUT)) {
             const ssize_t escritos = write(inPipe[1], porEscribir.data(), porEscribir.size());
             if (escritos > 0) {
                 porEscribir.erase(0, static_cast<std::size_t>(escritos));

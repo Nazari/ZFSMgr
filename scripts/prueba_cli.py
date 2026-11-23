@@ -1775,7 +1775,9 @@ def casos_sesion_unica(ctx):
         if "zfsm://" not in c.texto().split("[s/N]", 1)[-1]:
             problemas.append("el segundo no llegó al intérprete")
         os.write(c.fd, b"exit\r")
-        if c.fin() is None:
+        # Right after starting, exit waits for the first presence announcement still in flight
+        # and says goodbye to every machine: ~2.5 s measured, more with the machine busy.
+        if c.fin(20) is None:
             problemas.append("el segundo no sale con exit")
             c.mata()
         resultado(nombre, problemas, c.texto())

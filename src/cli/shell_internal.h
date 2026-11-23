@@ -443,6 +443,10 @@ std::string horaLocal(long long epoch);
 std::string motivoDeFallo(const std::string& conexion, const B::gsa::DatasetState& d,
                           long long ultimaPasada);
 bool cmdScheduleStatus(Estado& e, const LineaAnalizada& linea);
+// What to do when a machine has no sudo at all, for a person: install it and let the user use
+// it, or say the connection does not need it. With the system's own commands when known.
+std::string remedioSinSudo(const B::ConnectionProfile& p);
+
 // The other interactive sessions —interfaces and CLI shells on a terminal—, as the daemons of
 // every connected machine say, merged (shell_sessions.cpp). Each machine in its own thread and
 // background session: one that is off costs its own timeout only.

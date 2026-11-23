@@ -1130,6 +1130,18 @@ std::string asciiSafeShellCommand(const std::string& cmd) {
     return format("eval \"$(printf '%b' '%1')\"", {shPrintfOctalEscaped(cmd)});
 }
 
+bool looksLikeSudoMissing(const std::string& text) {
+    const std::string t = toLowerUtf8(text);
+    for (const char* n : {"sudo: not found", "sudo: command not found", "sudo: orden no encontrada",
+                          "sudo: no se encontró la orden", "sudo: comando no encontrado",
+                          "sudo: no such file or directory"}) {
+        if (contains(t, n)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool looksLikeSudoAuthFailure(const std::string& text) {
     // toLowerUtf8, no la variante ASCII: las agujas llevan acento y con
     // «SUDO: 1 INTENTO DE CONTRASEÑA INCORRECTO» la versión ASCII respondía que no

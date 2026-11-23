@@ -1,6 +1,9 @@
 {
   "language": "en",
   "translations": {
+    "t_pr_det3": "In JSON every state is a fixed code: sudo (ok, wrong_password, needs_password, missing, could_not_check, not_used), openzfs (ok, too_old, not_loaded, missing, unknown), daemon (ok, outdated, latest, ahead, unknown, unreachable).",
+    "t_sin_sudo_freebsd": " On FreeBSD, as root: «pkg install sudo», and with «visudo» remove the # from the line «%wheel ALL=(ALL:ALL) ALL» (%1 has to be in the wheel group: «pw groupmod wheel -m %1»).",
+    "t_sin_sudo": "%1 has no sudo installed, and the connection says it needs it: install it and let %2 use it, or take sudo off the connection («edit zfsm://%1 --no-sudo») if %2 can already manage ZFS.%3",
     "t_pq_otra_sesion": "Careful: ZFSMgr is also open on another machine that reaches %1: %2. It will see this change without having asked; «sessions close %3» asks it to close.",
     "t_ses_te_cierran": "%1, on %2, asked that this session close: closing.",
     "t_ses_force": "--force",
