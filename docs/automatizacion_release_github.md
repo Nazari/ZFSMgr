@@ -40,15 +40,16 @@ el script:
 3. crea un commit `Release <version>`
 4. hace `push` del commit al remoto git configurado
 5. ejecuta `buildall-cross.sh` (compilación local; antes era `buildall.sh`, que lanzaba builds por SSH en máquinas dedicadas y se ha retirado al desaparecer esas máquinas)
-6. localiza los artefactos generados:
-   - `ZFSMgr-<version>.app.zip`
-   - `ZFSMgr-Setup-<version>*.exe`
-   - `ZFSMgr-<version>-*.AppImage`
-   - `zfsmgr_<version>_*.deb`
+6. localiza los paquetes que deja `buildall-cross.sh`, que son los únicos ficheros de su
+   directorio de salida:
+   - `zfsmgr-cli-<version>.zip` y su `.sha256`: CLI y agentes de las cinco plataformas, con un
+     instalador por sistema. Es lo que se publica en 1.x.
+   - `zfsmgr-<version>.zip` y su `.sha256`: lo mismo más la interfaz de cada sistema (AppDir,
+     `.app`, Setup de Windows). Se genera, pero no se publica hasta la 2.0.
 7. crea el tag `v<version>`
 8. hace `push` del tag
 9. crea la release en GitHub con nombre igual al tag
-10. sube los cuatro artefactos a la release
+10. sube el zip de solo CLI y su suma a la release
 11. guarda logs por fase de:
    - `git push`
    - `buildall.sh`

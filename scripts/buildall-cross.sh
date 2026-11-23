@@ -23,15 +23,15 @@ Uso:
   buildall-cross.sh [--platforms linux,windows,freebsd,macos] [--macos-arches amd64,arm64] [--windows-installer 0|1] [--output-dir <dir>] [--log-dir <dir>] [--jobs <n>]
 
 Descripción:
-  Ejecuta builds locales en fc16 y deja artefactos en OUTPUT_DIR.
-  - Linux nativo: .AppImage + .deb
-  - Windows cross: zfsmgr-gui.exe (+ instalador Inno opcional en Linux)
-  - FreeBSD cross: artefacto .pkg con zfsmgr-gui
-  - macOS cross: .app.zip (una por arquitectura en MACOS_ARCHES) + nota de primer arranque
-  - Agente: binarios zfsmgr_agent por plataforma/arquitectura en OUTPUT_DIR y builds/agents/
+  Compila las cinco plataformas en este equipo y deja en OUTPUT_DIR SOLO los paquetes de
+  la versión (scripts/empaqueta.sh), cada uno con su .sha256:
+  - zfsmgr-cli-<ver>.zip   CLI y agentes de todas las plataformas: el que se publica
+  - zfsmgr-<ver>.zip       lo mismo más la interfaz de cada sistema
+  Las piezas intermedias —AppDir, .app, Setup de Windows, agentes en builds/agents/— se
+  quedan en sus directorios de compilación: ya van dentro de los zip.
 
 Variables opcionales:
-  OUTPUT_DIR      Directorio destino de artefactos (default: builds/artifacts/<timestamp>)
+  OUTPUT_DIR      Directorio de los paquetes (default: builds/artifacts/<timestamp>)
   BUILDALL_LOG_DIR Directorio de logs por plataforma
   BUILD_PLATFORMS Lista separada por comas
   MACOS_ARCHES    Lista separada por comas (default: amd64,arm64)
@@ -136,105 +136,6 @@ verify_macos_bundle_tls() {
       exit 1
     fi
   fi
-}
-
-package_macos_app_zip() {
-  local app_path="$1"
-  local out_zip="$2"
-  local out_dir stage_dir app_name
-  verify_macos_bundle_tls "${app_path}"
-  app_name="ZFSMgr.app"
-  out_dir="$(cd "$(dirname "${out_zip}")" && pwd)"
-  out_zip="${out_dir}/$(basename "${out_zip}")"
-
-  rm -f "${out_zip}"
-  stage_dir="${out_zip}.stage.$$"
-  rm -rf "${stage_dir}"
-  mkdir -p "${stage_dir}"
-  # El artefacto zip conserva la versión/arquitectura en el nombre del fichero,
-  # pero el bundle interno debe llamarse siempre ZFSMgr.app para que al copiarlo
-  # a /Applications sustituya la instalación anterior.
-  cp -a "${app_path}" "${stage_dir}/${app_name}"
-  if command -v ditto >/dev/null 2>&1; then
-    (
-      cd "${stage_dir}"
-      ditto -c -k --sequesterRsrc --keepParent "${app_name}" "${out_zip}"
-    )
-    rm -rf "${stage_dir}"
-    return
-  fi
-  (
-    cd "${stage_dir}"
-    # -y preserva symlinks del bundle .app; sin esto Gatekeeper puede marcar la app como dañada.
-    zip -qry -y "${out_zip}" "${app_name}"
-  )
-  rm -rf "${stage_dir}"
-}
-
-write_macos_first_run_note() {
-  local out_file="$1"
-  cat > "${out_file}" <<'EOF'
-ZFSMgr macOS (cross-build) — first run / primer arranque / 首次运行
-==================================================================
-
-[ES]
-Estos artefactos .app.zip se construyen por cross-build en Linux y no van notarizados por Apple.
-En macOS puedes abrir la app aplicando excepción de seguridad.
-
-Pasos recomendados:
-1) Extraer el .zip y mover la app a /Applications (opcional).
-2) Eliminar cuarentena del bundle:
-   xattr -dr com.apple.quarantine "/ruta/ZFSMgr.app"
-3) Si aun asi macOS lo bloquea:
-   Ajustes del sistema -> Privacidad y seguridad -> "Abrir igualmente".
-   (En macOS 15 y posteriores el clic derecho -> Abrir YA NO sirve para saltar
-   Gatekeeper; use esa ruta de Ajustes.)
-
-   Mejor aun: descargue el .zip con curl en vez de con el navegador. La cuarentena
-   la pone el navegador, no el fichero, asi que por terminal no aparece el aviso.
-4) (Opcional) Re-firma ad-hoc local para estabilizar validaciones:
-   codesign --force --deep --sign - --timestamp=none "/ruta/ZFSMgr.app"
-
-Comprobación:
-   spctl -a -vv "/ruta/ZFSMgr.app"
-   codesign --verify --deep --strict --verbose=4 "/ruta/ZFSMgr.app"
-
-El intérprete (zfsmgr-cli) viaja DENTRO del .app,
-porque en macOS no hay instalador. Para tenerlos en el PATH, un enlace cada uno:
-   sudo ln -s /Applications/ZFSMgr.app/Contents/MacOS/zfsmgr-cli /usr/local/bin/zfsmgr-cli
-Comprobación:  zfsmgr-cli --help
-Al desinstalar (borrar el .app) los enlaces quedan colgando; se quitan con:
-   sudo rm /usr/local/bin/zfsmgr-cli
-
-[EN]
-These .app.zip artifacts are cross-built on Linux and are not Apple-notarized.
-On macOS you can still open the app by applying a local security exception.
-
-Recommended steps:
-1) Extract the .zip and move the app to /Applications (optional).
-2) Remove quarantine from the bundle:
-   xattr -dr com.apple.quarantine "/path/ZFSMgr.app"
-3) If macOS still blocks it:
-   System Settings -> Privacy & Security -> "Open Anyway".
-   (On macOS 15 and later, right-click -> Open NO LONGER bypasses Gatekeeper;
-   use that Settings path instead.)
-
-   Better still: download the .zip with curl rather than a browser. Quarantine is
-   applied by the browser, not by the file, so the warning never appears.
-4) (Optional) Re-sign locally (ad-hoc) to stabilize validation:
-   codesign --force --deep --sign - --timestamp=none "/path/ZFSMgr.app"
-
-Verification:
-   spctl -a -vv "/path/ZFSMgr.app"
-   codesign --verify --deep --strict --verbose=4 "/path/ZFSMgr.app"
-
-The shell tool (zfsmgr-cli) ships INSIDE the
-.app, since macOS has no installer. To get them on your PATH, symlink each:
-   sudo ln -s /Applications/ZFSMgr.app/Contents/MacOS/zfsmgr-cli /usr/local/bin/zfsmgr-cli
-Check with:  zfsmgr-cli --help
-Deleting the .app leaves the symlinks dangling; remove them with:
-   sudo rm /usr/local/bin/zfsmgr-cli
-EOF
 }
 
 run_phase() {
@@ -474,7 +375,6 @@ build_agent_bundle_dir() {
     # con sus símbolos para depurar. Sin esto los cinco ocupan 44 MB en vez de unos 23.
     llvm-strip "${dst}/zfsmgr_agent${ext}" 2>/dev/null || true
     cache_agent_binary "${src}" "${key}" "${ext}"
-    cp -f "${src}" "${OUTPUT_DIR}/zfsmgr-agent-${APP_VERSION}-${key}${ext}"
   done
 }
 
@@ -733,13 +633,11 @@ if has_platform "linux"; then
     "${SCRIPT_DIR}/build-linux.sh" --appimage
   linux_appimage="$(find "${PROJECT_ROOT}/builds/linux" -maxdepth 1 -type f -name "ZFSMgr-${APP_VERSION}-*.AppImage" | sort -V | tail -n1 || true)"
   [[ -n "${linux_appimage}" ]] || { echo "No se encontró AppImage Linux" >&2; exit 1; }
-  cp -f "${linux_appimage}" "${OUTPUT_DIR}/"
 fi
 
 if has_platform "windows"; then
   win_exe="${PROJECT_ROOT}/builds/cross-windows/zfsmgr-gui.exe"
   [[ -f "${win_exe}" ]] || { echo "No se encontró zfsmgr-gui.exe de Windows cross" >&2; exit 1; }
-  cp -f "${win_exe}" "${OUTPUT_DIR}/ZFSMgr-${APP_VERSION}-windows.exe"
   if [[ "${WINDOWS_INSTALLER}" == "1" ]]; then
     _inno_extra_args=()
     [[ -n "${QT6_WINDOWS_PREFIX:-}" ]] && _inno_extra_args+=(--qt-prefix "${QT6_WINDOWS_PREFIX}")
@@ -752,7 +650,6 @@ if has_platform "windows"; then
       "${_inno_extra_args[@]}"
     win_setup="$(find "${PROJECT_ROOT}/builds/windows-installer" -maxdepth 1 -type f -name "ZFSMgr-Setup-${APP_VERSION}*.exe" | sort -V | tail -n1 || true)"
     [[ -n "${win_setup}" ]] || { echo "No se encontró instalador Inno generado" >&2; exit 1; }
-    cp -f "${win_setup}" "${OUTPUT_DIR}/"
   fi
 fi
 
@@ -760,8 +657,6 @@ fi
 # una interfaz de FreeBSD que nunca se ha compilado, así que esta fase fallaba siempre.
 
 if has_platform "macos"; then
-  mac_note="${OUTPUT_DIR}/ZFSMgr-${APP_VERSION}-macOS-first-run.txt"
-  write_macos_first_run_note "${mac_note}"
   IFS=',' read -r -a _mac_arches <<< "${MACOS_ARCHES}"
   for _arch in "${_mac_arches[@]}"; do
     _arch="$(echo "${_arch}" | xargs)"
@@ -788,8 +683,9 @@ if has_platform "macos"; then
       echo "AVISO: macOS/${_arch} sin .app (se compiló solo el agente); no se empaqueta la interfaz." >&2
       continue
     fi
-    mac_zip="${OUTPUT_DIR}/ZFSMgr-${APP_VERSION}-macos-${_arch}.app.zip"
-    package_macos_app_zip "${mac_app}" "${mac_zip}"
+    # Only checked here: empaqueta.sh puts it in the zip, and install-macos.sh lifts the
+    # quarantine that the old «first run» note explained by hand.
+    verify_macos_bundle_tls "${mac_app}"
   done
 fi
 
