@@ -909,7 +909,7 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
      {
       {"master-key",
        {"t_ej_master_key_1", "las llaves que abren ZFSMgr además de la contraseña"}},
-      {"master-key add --label \"YubiKey azul\"",
+      {"master-key add --label \"llave azul\"",
        {"t_ej_master_key_2", "registra la llave conectada: hay que tocarla dos veces"}},
       {"master-key remove 1",
        {"t_ej_master_key_3", "la quita: deja de abrir; en la llave no se borra nada"}},
@@ -1701,7 +1701,7 @@ const std::vector<Orden> kOrdenes = {
       "fácil y no era inocuo, así que aquélla pregunta antes."}}},
     {"master-key", {"t_del_int_rp_d5d82a", "Del intérprete"},
      {"t_mk_uso_c", "[list|add [--label <nombre>]|remove <N>]"},
-     {"t_mk_res", "Llaves FIDO2 (una YubiKey) que abren ZFSMgr además de la contraseña maestra."},
+     {"t_mk_res2", "Llaves de seguridad FIDO2 que abren ZFSMgr además de la contraseña maestra."},
      {{{"t_mk_label", "--label <nombre>"}, {"t_mk_label_q", "Cómo llamarla. Sin ella, el modelo de la llave."}}},
      {{"t_mk_det", "Al arrancar, con una llave registrada conectada, basta con tocarla: ella da un "
        "secreto que abre la clave con la que se cifra la configuración. La contraseña maestra "

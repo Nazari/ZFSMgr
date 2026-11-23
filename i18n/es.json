@@ -848,7 +848,7 @@
     "t_mk_pin_bloq": "el PIN de la llave está bloqueado: hay que desbloquearlo con la herramienta del fabricante",
     "t_mk_pin_malo": "ese no es el PIN de la llave",
     "t_mk_quitada": "llave quitada: «%s»\n",
-    "t_mk_res": "Llaves FIDO2 (una YubiKey) que abren ZFSMgr además de la contraseña maestra.",
+    "t_mk_res2": "Llaves de seguridad FIDO2 que abren ZFSMgr además de la contraseña maestra.",
     "t_mk_sin_llave": "no hay ninguna llave conectada",
     "t_mk_sin_maestra": "primero hace falta una contraseña maestra («master-password»): la llave abre lo mismo que ella, no la sustituye\n",
     "t_mk_toca_dos": "Toca la llave DOS veces cuando parpadee: una para registrarla y otra para leer su secreto.\n",

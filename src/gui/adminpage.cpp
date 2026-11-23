@@ -129,18 +129,19 @@ void AdminPage::act(const QString& line, const QString& done, int delayMs) {
 void AdminPage::addKey() {
     auto* d = new QInputDialog(this);
     d->setAttribute(Qt::WA_DeleteOnClose);
-    d->setWindowTitle(L("Add a YubiKey", "Añadir una YubiKey"));
-    d->setLabelText(L("Plug the key in. What should it be called?",
-                      "Conecta la llave. ¿Cómo quieres llamarla?"));
-    d->setTextValue(QStringLiteral("YubiKey"));
+    d->setWindowTitle(L("Add a security key", "Añadir una llave de seguridad"));
+    // Any FIDO2 key with hmac-secret will do, not one brand: empty, the CLI names it after the
+    // model the key reports.
+    d->setLabelText(L("Plug the key in. What should it be called? (empty: its model)",
+                      "Conecta la llave. ¿Cómo quieres llamarla? (vacío: su modelo)"));
     connect(d, &QInputDialog::textValueSelected, this, [this](const QString& name) {
-        auto* note =
-            new QMessageBox(QMessageBox::Information, L("Add a YubiKey", "Añadir una YubiKey"),
-                            L("Touch the key TWICE when it blinks: once to register it "
-                              "and once to read its secret.",
-                              "Toca la llave DOS veces cuando parpadee: una para "
-                              "registrarla y otra para leer su secreto."),
-                            QMessageBox::NoButton, this);
+        auto* note = new QMessageBox(QMessageBox::Information,
+                                     L("Add a security key", "Añadir una llave de seguridad"),
+                                     L("Touch the key TWICE when it blinks: once to register it "
+                                       "and once to read its secret.",
+                                       "Toca la llave DOS veces cuando parpadee: una para "
+                                       "registrarla y otra para leer su secreto."),
+                                     QMessageBox::NoButton, this);
         note->setAttribute(Qt::WA_DeleteOnClose);
         note->setStandardButtons(QMessageBox::NoButton);
         note->open();
@@ -157,7 +158,8 @@ void AdminPage::addKey() {
                                       "Llave añadida: desde ahora abre ZFSMgr.")
                                   : r.err.trimmed());
             if (!r.ok()) {
-                showText(this, L("Add a YubiKey", "Añadir una YubiKey"), r.err.trimmed());
+                showText(this, L("Add a security key", "Añadir una llave de seguridad"),
+                         r.err.trimmed());
             }
             load();
         });
@@ -504,13 +506,13 @@ void AdminPage::render() {
         lay->addWidget(again, 0, Qt::AlignLeft);
     }
 
-    // ── Opening ZFSMgr: the master password, and the FIDO2 keys (a YubiKey) registered to
+    // ── Opening ZFSMgr: the master password, and the FIDO2 security keys (any brand) registered to
     // open it besides it (`master-key`). Only with a master password: a key opens what it does.
     if (!m_keys.isEmpty()) {
         auto* head = new QHBoxLayout();
         head->addWidget(heading(L("Opening ZFSMgr", "Abrir ZFSMgr"), body));
         head->addStretch(1);
-        auto* add = small(L("Add a YubiKey…", "Añadir una YubiKey…"), body);
+        auto* add = small(L("Add a security key…", "Añadir una llave de seguridad…"), body);
         add->setToolTip(
             L("A FIDO2 security key: touching it opens ZFSMgr instead of typing the "
               "master password, which keeps working.",

@@ -302,7 +302,7 @@
     "t_mk_pin_bloq": "the key's PIN is blocked: it has to be unblocked with the maker's tool",
     "t_mk_pin_malo": "that is not the key's PIN",
     "t_mk_quitada": "key removed: «%s»\n",
-    "t_mk_res": "FIDO2 keys (a YubiKey) that open ZFSMgr besides the master password.",
+    "t_mk_res2": "FIDO2 security keys that open ZFSMgr besides the master password.",
     "t_mk_sin_llave": "no key is connected",
     "t_mk_sin_maestra": "a master password is needed first («master-password»): the key opens the same as it does, it does not replace it\n",
     "t_mk_toca_dos": "Touch the key TWICE when it blinks: once to register it and once to read its secret.\n",

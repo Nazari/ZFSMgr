@@ -1,4 +1,4 @@
-// `master-key`: the FIDO2 keys (a YubiKey) that open ZFSMgr besides the master password, and
+// `master-key`: the FIDO2 security keys (any brand) that open ZFSMgr besides the master password, and
 // opening with one on the terminal. See store::addKeySlot and fidokey.h.
 
 #include "fidokey.h"

@@ -1,6 +1,6 @@
 #pragma once
 
-// FIDO2 security keys (a YubiKey) for opening ZFSMgr: the only code that talks to libfido2.
+// FIDO2 security keys (a YubiKey, a Nitrokey… any with hmac-secret) for opening ZFSMgr: the only code that talks to libfido2.
 //
 // What is asked of a key is its hmac-secret: for a credential registered here and a salt, the
 // key gives 32 bytes, always the same, and only when touched. Those 32 bytes wrap the data key
