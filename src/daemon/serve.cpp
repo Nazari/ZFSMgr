@@ -1085,6 +1085,125 @@ ExecResult rpcJobList(ServerState&, const std::string&, const std::vector<std::s
     return exec;
 }
 
+// ── Presence: the interactive sessions that reach this daemon ─────────────────────────────
+//
+// Each interface and each CLI shell on a terminal announces itself every 30 s to every
+// machine it reaches (--session-announce), and says goodbye when it ends (--session-leave).
+// Kept in memory only and forgotten 90 s after the last announcement: a session that died, or
+// whose machine went off, leaves nothing behind, and a restart of the daemon starts clean.
+// --session-list says who is here, for a session to warn that it is not alone.
+struct PresentSession {
+    std::string id;
+    std::string kind;
+    std::string host;
+    std::string user;
+    long long pid{0};
+    long long since{0};
+    std::chrono::steady_clock::time_point seen;
+};
+
+std::mutex g_presenceMutex;
+std::map<std::string, PresentSession> g_presence;
+constexpr auto kPresenceExpiry = std::chrono::seconds(90);
+constexpr std::size_t kPresenceMax = 64;
+
+// Printable, short, no separators: what arrives is shown to other people as it is.
+bool presenceFieldOk(const std::string& v, std::size_t max) {
+    if (v.empty() || v.size() > max) {
+        return false;
+    }
+    for (const unsigned char c : v) {
+        if (c < 0x20 || c == 0x7f) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool presenceNumber(const std::string& v, long long& out) {
+    if (v.empty() || v.size() > 18 || v.find_first_not_of("0123456789") != std::string::npos) {
+        return false;
+    }
+    out = std::stoll(v);
+    return true;
+}
+
+void forgetExpiredLocked(std::chrono::steady_clock::time_point now) {
+    for (auto it = g_presence.begin(); it != g_presence.end();) {
+        if (now - it->second.seen > kPresenceExpiry) {
+            it = g_presence.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+// `--session-announce <id> <kind> <host> <user> <pid> <since>`: here, or still here.
+ExecResult rpcSessionAnnounce(ServerState&, const std::string&, const std::vector<std::string>& a) {
+    ExecResult exec;
+    PresentSession s;
+    if (a.size() != 6 || !presenceFieldOk(a[0], 64) || !(a[1] == "gui" || a[1] == "cli")
+        || !presenceFieldOk(a[2], 128) || !presenceFieldOk(a[3], 128)
+        || !presenceNumber(a[4], s.pid) || !presenceNumber(a[5], s.since)) {
+        exec.rc = 1;
+        ponCodigo(exec, "usage", {"--session-announce <id> <gui|cli> <host> <user> <pid> <since>"});
+        return exec;
+    }
+    s.id = a[0];
+    s.kind = a[1];
+    s.host = a[2];
+    s.user = a[3];
+    const auto now = std::chrono::steady_clock::now();
+    s.seen = now;
+    std::lock_guard<std::mutex> lock(g_presenceMutex);
+    forgetExpiredLocked(now);
+    if (g_presence.count(s.id) == 0 && g_presence.size() >= kPresenceMax) {
+        exec.rc = 1;
+        ponCodigo(exec, "internal", {"too many sessions"});
+        return exec;
+    }
+    g_presence[s.id] = s;
+    exec.rc = 0;
+    exec.out = "OK\nEXPIRES=" + std::to_string(kPresenceExpiry.count()) + "\n";
+    return exec;
+}
+
+// `--session-leave <id>`: gone. Unknown ids are fine: it may have expired already.
+ExecResult rpcSessionLeave(ServerState&, const std::string&, const std::vector<std::string>& a) {
+    ExecResult exec;
+    if (a.size() != 1) {
+        exec.rc = 1;
+        ponCodigo(exec, "usage", {"--session-leave <id>"});
+        return exec;
+    }
+    std::lock_guard<std::mutex> lock(g_presenceMutex);
+    g_presence.erase(a[0]);
+    exec.rc = 0;
+    exec.out = "OK\n";
+    return exec;
+}
+
+// `--session-list`: one SESSION={…} line each, with how many seconds ago it was last heard.
+ExecResult rpcSessionList(ServerState&, const std::string&, const std::vector<std::string>&) {
+    ExecResult exec;
+    const auto now = std::chrono::steady_clock::now();
+    std::ostringstream o;
+    std::lock_guard<std::mutex> lock(g_presenceMutex);
+    forgetExpiredLocked(now);
+    for (const auto& [id, s] : g_presence) {
+        const long long seen =
+            std::chrono::duration_cast<std::chrono::seconds>(now - s.seen).count();
+        o << "SESSION={\"id\":\"" << jsonEscape(s.id) << "\",\"kind\":\"" << jsonEscape(s.kind)
+          << "\",\"host\":\"" << jsonEscape(s.host) << "\",\"user\":\"" << jsonEscape(s.user)
+          << "\",\"pid\":" << s.pid << ",\"since\":" << s.since << ",\"seen_ago\":" << seen
+          << "}\n";
+    }
+    o << "SESSIONS_COUNT=" << g_presence.size() << "\n";
+    exec.rc = 0;
+    exec.out = o.str();
+    return exec;
+}
+
 // `--job-cancel`, answered by the daemon itself.
 ExecResult rpcJobCancel(ServerState&, const std::string&, const std::vector<std::string>& rpcArgs) {
     ExecResult exec;
@@ -1326,6 +1445,9 @@ ExecResult handleRpcRequest(ServerState& st, const AgentRuntimeConfig& cfg,
         {"--job-status", rpcJobStatus},
         {"--job-list", rpcJobList},
         {"--job-cancel", rpcJobCancel},
+        {"--session-announce", rpcSessionAnnounce},
+        {"--session-leave", rpcSessionLeave},
+        {"--session-list", rpcSessionList},
     };
     if (const auto it = kDaemonVerbs.find(cmd); it != kDaemonVerbs.end()) {
         return it->second(st, cmd, rpcArgs);

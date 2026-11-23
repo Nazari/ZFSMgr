@@ -11,6 +11,7 @@
 
 #include "agentversion.h"
 #include "connectionjson.h"
+#include "presence.h"
 #include "processes.h"
 #include "daemoninstall.h"
 #include "i18n.h"
@@ -174,6 +175,9 @@ struct Opciones {
     bool claveDeDatos{false};
     // The service's `ready` carries the data key, for the interface to hand on (above).
     bool anunciaClave{false};
+    // --presence gui:<pid> (with --serve): this service announces the interface's session to
+    // the daemons (presence.h). The interface passes it to its first service only.
+    long long presenciaGui{0};
     std::vector<std::string> orden;
 };
 
@@ -438,6 +442,17 @@ int main(int argc, char** argv) {
         }
         if (a == "--serve") {
             op.servir = true;
+            continue;
+        }
+        if (a == "--presence" && i + 1 < argc) {
+            const std::string v = argv[++i];
+            if (v.rfind("gui:", 0) != 0 || v.size() < 5
+                || v.find_first_not_of("0123456789", 4) != std::string::npos) {
+                std::fprintf(stderr, TC("t_opcion_desconocida", "%s: opción desconocida: %s\n"),
+                             kNombre, ("--presence " + v).c_str());
+                return 2;
+            }
+            op.presenciaGui = std::atoll(v.c_str() + 4);
             continue;
         }
         if (a == "--data-key") {
@@ -710,8 +725,17 @@ int main(int argc, char** argv) {
     // master password is asked, so nobody types it to be told no. The `--serve` services, a
     // script feeding the shell through a pipe and `connections list` take nothing.
     B::session::Lock sesion;
-    if (!op.servir && op.orden.empty() && zfsmgr::cli::hayTerminal() && !tomaLaSesion(sesion)) {
-        return 1;
+    if (!op.servir && op.orden.empty() && zfsmgr::cli::hayTerminal()) {
+        if (!tomaLaSesion(sesion)) {
+            return 1;
+        }
+#ifdef _WIN32
+        zfsmgr::cli::setPresence("cli", static_cast<long long>(GetCurrentProcessId()));
+#else
+        zfsmgr::cli::setPresence("cli", static_cast<long long>(::getpid()));
+#endif
+    } else if (op.servir && op.presenciaGui > 0) {
+        zfsmgr::cli::setPresence("gui", op.presenciaGui);
     }
 
     // `maestra` ends up holding the DATA KEY, not the password: what is read here —the

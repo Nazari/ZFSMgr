@@ -309,6 +309,26 @@ std::string currentUser() {
 #endif
 }
 
+std::string hostName() {
+    std::string name;
+#ifdef _WIN32
+    wchar_t buf[256];
+    DWORD n = 256;
+    if (GetComputerNameExW(ComputerNameDnsHostname, buf, &n) && n > 0) {
+        name = narrow(std::wstring(buf, n));
+    }
+#else
+    char buf[256] = {};
+    if (::gethostname(buf, sizeof buf - 1) == 0) {
+        name = buf;
+    }
+#endif
+    if (const std::size_t dot = name.find('.'); dot != std::string::npos) {
+        name.resize(dot);
+    }
+    return name.empty() ? std::string("?") : name;
+}
+
 Lock::~Lock() {
     release();
 }

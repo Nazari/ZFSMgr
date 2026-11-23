@@ -344,6 +344,20 @@ std::vector<std::string> abortResumableReceive(const std::string& dataset) {
 
 std::vector<std::string> jobList() { return {"--job-list"}; }
 
+std::vector<std::string> sessionAnnounce(const std::string& id, const std::string& kind,
+                                         const std::string& host, const std::string& user,
+                                         long long pid, long long since) {
+    return {"--session-announce", id, kind, host, user, std::to_string(pid), std::to_string(since)};
+}
+
+std::vector<std::string> sessionLeave(const std::string& id) {
+    return withOne("--session-leave", id);
+}
+
+std::vector<std::string> sessionList() {
+    return {"--session-list"};
+}
+
 std::vector<std::string> jobStatus(const std::string& id) {
     return withOne("--job-status", id);
 }

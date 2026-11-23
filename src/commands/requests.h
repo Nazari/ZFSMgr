@@ -196,4 +196,13 @@ std::vector<std::string> jobList();
 std::vector<std::string> jobStatus(const std::string& id);
 std::vector<std::string> cancelJob(const std::string& id);
 
+// The presence of an interactive session —the interface, or the CLI's shell on a terminal—:
+// announced every 30 s to every machine it reaches, forgotten by the daemon 90 s after the
+// last one. `kind` «gui» or «cli»; `since`, seconds since the epoch.
+std::vector<std::string> sessionAnnounce(const std::string& id, const std::string& kind,
+                                         const std::string& host, const std::string& user,
+                                         long long pid, long long since);
+std::vector<std::string> sessionLeave(const std::string& id);
+std::vector<std::string> sessionList();
+
 }  // namespace zfsmgr::commands::requests

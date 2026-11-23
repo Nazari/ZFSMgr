@@ -13,6 +13,7 @@ es cambiar las dos puntas a la vez: no hay compatibilidad con versiones anterior
 
 ```
 zfsmgr-cli --serve [--lang es|en] [--config-dir <dir>] [--password-fd <n>] [--data-key]
+            [--presence gui:<pid>]
 ```
 
 - **Contraseña maestra.** Con `--password-fd`, se lee de ese descriptor. Sin él, es la
@@ -31,6 +32,11 @@ zfsmgr-cli --serve [--lang es|en] [--config-dir <dir>] [--password-fd <n>] [--da
     crearla;
   - `"data_key"`: la clave de datos, para `--data-key` (no viene si se arrancó con ella).
 - `--lang` decide el idioma de TODOS los textos: errores, preguntas, avisos.
+- **`--presence gui:<pid>`.** Este servicio anuncia la sesión de la interfaz —con el PID de
+  la interfaz, no el suyo— a los daemons de todas las máquinas conectadas, cada 30 s y desde
+  que está `ready`, y se despide al terminar. La interfaz se lo pasa SOLO a su primer
+  servicio, el que vive tanto como su ventana; los de cada máquina no anuncian nada. Ver
+  «Presencia» en docs/daemonize.md.
 
 ### Cerrado: con llaves FIDO2 registradas
 

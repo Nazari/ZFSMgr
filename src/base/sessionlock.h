@@ -59,6 +59,8 @@ private:
 std::string lockPath();
 // The user running this process.
 std::string currentUser();
+// This machine's name, without its domain: what other sessions are told this one runs on.
+std::string hostName();
 
 enum class Stop {
     Stopped,       // it ended and let go of the lock

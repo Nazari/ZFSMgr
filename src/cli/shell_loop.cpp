@@ -1,5 +1,6 @@
 // The interpreter itself: running a line (with patterns) and the read-eval loop.
 
+#include "presence.h"
 #include "shell_internal.h"
 
 #include <algorithm>
@@ -924,6 +925,10 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
     } else if (interactivo && compruebaProgramaciones && !ses.sinSecretos) {
         comprobacion = std::make_unique<ComprobacionDeArranque>(ses, e.conns);
     }
+    // This session's presence in the daemons it reaches (presence.h): only when main turned it
+    // on, that is, for the shell on a terminal.
+    std::unique_ptr<Presencia> presencia = anunciaPresencia(ses, e.conns);
+    std::string huellaPresencia = Presencia::huella(e.conns);
     if (interactivo) {
         std::fputs(TC("t_zfsmgr_cli_44809f",
                       "zfsmgr-cli — «help» lista las órdenes y «help <orden>» explica una.\n"
@@ -945,6 +950,13 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
         return sp == std::string::npos ? t : t.substr(0, sp);
     };
     while (!e.salir) {
+        if (presenceOn()) {
+            if (const std::string h = Presencia::huella(e.conns); h != huellaPresencia) {
+                presencia.reset();
+                presencia = anunciaPresencia(ses, e.conns);
+                huellaPresencia = h;
+            }
+        }
         if (monitor) {
             pantalla::sincroniza();
             // The connections changed under it: a new monitor over the current ones.

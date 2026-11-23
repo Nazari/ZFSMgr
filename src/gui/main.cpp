@@ -156,6 +156,8 @@ public:
 
     void attempt(const QByteArray& master) {
         auto* s = new CliService(m_cli, uiLang());
+        // This one becomes the window's general service: it announces the session.
+        s->setAnnouncesPresence(true);
         m_master = master;
         connect(s, &CliService::ready, this, [this, s](const QString&) {
             s->disconnect(this);

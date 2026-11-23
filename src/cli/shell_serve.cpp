@@ -1,3 +1,4 @@
+#include "presence.h"
 #include "shell_internal.h"
 
 #include "json.h"
@@ -230,6 +231,21 @@ int servirOrdenes(Sesion& ses, bool anunciaClave) {
     }
     emite(listo);
 
+    // The interface's presence in the daemons it reaches (presence.h): only for the service
+    // the interface started with --presence, and rebuilt when the connections change.
+    std::unique_ptr<Presencia> presencia = anunciaPresencia(ses, e.conns);
+    std::string huellaPresencia = Presencia::huella(e.conns);
+    const auto revisaPresencia = [&] {
+        if (!presenceOn()) {
+            return;
+        }
+        if (const std::string h = Presencia::huella(e.conns); h != huellaPresencia) {
+            presencia.reset();
+            presencia = anunciaPresencia(ses, e.conns);
+            huellaPresencia = h;
+        }
+    };
+
     std::string peticion;
     while (!e.salir && std::getline(std::cin, peticion)) {
         if (B::trim(peticion).empty()) {
@@ -274,6 +290,7 @@ int servirOrdenes(Sesion& ses, bool anunciaClave) {
             recarga(e);
             leida = huellaConfig(ses.dirConfig);
         }
+        revisaPresencia();
         res.set("rc", J::Value(static_cast<double>(e.ultimoRc)));
         res.set("stdout", J::Value(out));
         res.set("stderr", J::Value(errTexto));

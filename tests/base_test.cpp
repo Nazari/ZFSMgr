@@ -5359,6 +5359,19 @@ void caso60() {
     comprobar(d.acquire("cli", h, det) == S::Acquire::Failed, "sesion: un enlace no se sigue");
     ::unlink(ruta.c_str());
     ::unsetenv("ZFSMGR_SESSION_LOCK");
+
+    // Presence in the daemons: what is sent, in the order the daemon reads it.
+    namespace PET = zfsmgr::commands::requests;
+    comprobar(PET::sessionAnnounce("id1", "gui", "fc16", "ana", 42, 1700000000)
+                  == std::vector<std::string>{"--session-announce", "id1", "gui", "fc16", "ana",
+                                              "42", "1700000000"},
+              "sesion: el anuncio lleva sus seis datos");
+    comprobar(PET::sessionLeave("id1") == std::vector<std::string>{"--session-leave", "id1"},
+              "sesion: la despedida, su id");
+    comprobar(PET::sessionList() == std::vector<std::string>{"--session-list"},
+              "sesion: la lista, nada");
+    comprobar(!S::hostName().empty() && S::hostName().find('.') == std::string::npos,
+              "sesion: el nombre de la maquina, sin dominio");
 }
 
 const Caso kCasos[] = {

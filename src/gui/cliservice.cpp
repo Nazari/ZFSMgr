@@ -96,7 +96,9 @@ CliService::~CliService() {
     if (m_proc.state() != QProcess::NotRunning) {
         // EOF ends the service with code 0; give it a moment before forcing it.
         m_proc.closeWriteChannel();
-        if (!m_proc.waitForFinished(1500)) {
+        // Long enough for the service that announces the interface's presence to say
+        // goodbye to each machine; the others end at once.
+        if (!m_proc.waitForFinished(m_presence ? 4000 : 1500)) {
             m_proc.kill();
             m_proc.waitForFinished(1000);
         }
@@ -107,6 +109,10 @@ void CliService::start(const QByteArray& masterPassword, bool isDataKey) {
     QStringList args{QStringLiteral("--serve"), QStringLiteral("--lang"), m_lang};
     if (isDataKey) {
         args << QStringLiteral("--data-key");
+    }
+    if (m_presence) {
+        args << QStringLiteral("--presence")
+             << QStringLiteral("gui:%1").arg(QCoreApplication::applicationPid());
     }
     m_proc.start(m_cliPath, args);
     // Written right away: QProcess keeps it until the child reads it. The first line is the

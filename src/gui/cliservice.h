@@ -70,6 +70,10 @@ public:
     // Starts the process and hands it the master password as the first line of its stdin
     // (empty when nothing is encrypted). Never through argv or the environment.
     void start(const QByteArray& masterPassword, bool isDataKey = false);
+    // Before start(): this service announces the interface's session to the daemons it reaches
+    // (`--presence gui:<pid>`, see presence.h in the CLI). Only the interface's first service,
+    // the one that lives as long as its window.
+    void setAnnouncesPresence(bool on) { m_presence = on; }
     // While locked: the master password, instead of touching the key.
     void unlockWithPassword(const QByteArray& password);
     // What its `ready` carried: the data key, for the services of each machine. Empty when
@@ -136,6 +140,7 @@ private:
 
     QString m_cliPath;
     QString m_lang;
+    bool m_presence{false};
     QProcess m_proc;
     QByteArray m_buffer;
     bool m_ready{false};

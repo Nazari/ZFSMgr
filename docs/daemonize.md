@@ -109,3 +109,26 @@ Ejecuta `zfs allow dataset`. Salida: texto estructurado por secciones (local, de
 - Si `daemonReadApiOk == true` pero daemon-rpc falla por TLS/socket, se aplica backoff, se registra el motivo, se intenta refresh suave del daemon/TLS y se conserva fallback SSH.
 - No hay bump de `kApiVersion`. Los handlers son aditivos.
 - Un daemon antiguo que no tenga `--dump-zfs-diff` o `--dump-zfs-allow` nunca será seleccionado por la GUI (el check de versión de API lo impide) mientras el daemon se actualice al desplegarse la nueva versión.
+
+## Presencia: quién tiene ZFSMgr abierto
+
+Cada sesión interactiva —la interfaz, o el intérprete del CLI en un terminal— se anuncia a los
+daemons de todas las máquinas a las que llega, para que otra sesión sepa que no está sola. Tres
+verbos que contesta el propio daemon (no pasan por la caché ni por la tabla de verbos):
+
+| Verbo | Argumentos | Qué hace |
+|---|---|---|
+| `--session-announce` | `<id> <gui\|cli> <máquina> <usuario> <pid> <desde>` | Está aquí, o sigue aquí. `desde` en segundos desde la época. Responde `OK` y `EXPIRES=90`. |
+| `--session-leave` | `<id>` | Se fue. Un id desconocido no es error: puede haber caducado ya. |
+| `--session-list` | — | Una línea `SESSION={"id","kind","host","user","pid","since","seen_ago"}` por sesión y `SESSIONS_COUNT=<n>`. |
+
+- **Solo en memoria**, y se olvida a los 90 s del último anuncio: una sesión que murió, o cuya
+  máquina se apagó, no deja nada atrás, y reiniciar el daemon empieza limpio.
+- El cliente anuncia cada 30 s (src/cli/presence.cpp): un hilo y una sesión de fondo por
+  máquina, como el monitor de estado, para que una apagada no retrase a las demás. Se rehace
+  si cambian las conexiones, con el mismo id para todo el proceso.
+- Solo la credencial completa; la de traer no los tiene en su lista cerrada.
+- Los campos se validan (imprimibles, cortos, `pid` y `desde` numéricos) y caben 64 sesiones:
+  lo que llega se enseña a otras personas tal cual.
+- Una máquina solo tiene una sesión interactiva a la vez (src/base/sessionlock.h); varias a la
+  vez en la lista son, por tanto, de máquinas distintas.
