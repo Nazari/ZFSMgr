@@ -35,3 +35,32 @@ lz4 and zstd each bring their own `xxhash`; the lz4 sources are built with
 
 Download the new release, check its checksum, replace the same files and update this table.
 `tests/base_test.cpp` round-trips the three formats, including cut and damaged streams.
+
+
+# FIDO2 security keys
+
+Opening ZFSMgr with a YubiKey (`master-key`, src/cli/fidokey.cpp). Only the CLI links them,
+never the agent: on Linux libfido2 needs libudev, and the agent must keep having no
+dependencies. Built from source inside `resources/CMakeLists.txt` (target `zfsmgr_fido`), with
+the defines libfido2's own CMake found on each platform.
+
+| Library | Version | Source tarball | SHA-256 of the tarball | License |
+|---|---|---|---|---|
+| libfido2 | 1.16.0 | https://developers.yubico.com/libfido2/Releases/libfido2-1.16.0.tar.gz | `8c2b6fb279b5b42e9ac92ade71832e485852647b53607c43baaafbbcecea04e4` | BSD-2-Clause (`libfido2/LICENSE`) |
+| libcbor | 0.12.0 | https://github.com/PJK/libcbor/archive/refs/tags/v0.12.0.tar.gz | `5368add109db559f546d7ed10f440f39a273b073daa8da4abffc83815069fa7f` | MIT (`libcbor/LICENSE.md`) |
+
+The libfido2 tarball's signature (`.sig` next to it) was verified: a good signature by Ludvig
+Michaelsson, key `B37003FF15A068A413E50B1C3D6A49E4C4E0B673`, a libfido2 maintainer at Yubico.
+
+## What was copied
+
+- **libfido2**: `src/` — the library sources its CMake builds on every platform, the four HID
+  backends (`hid_linux`, `hid_unix`, `hid_osx`, `hid_freebsd`, `hid_win`) and `winhello.c`;
+  its headers and `src/fido/`; and the ten `openbsd-compat/` files it builds, with their
+  headers. Not NFC, PC/SC, the tools, the examples or the tests. `openbsd-compat/` must NOT be
+  on the include path: its `time.h` includes itself through the system one.
+- **libcbor**: `src/` — the library sources and headers. `cbor/configuration.h` is the one
+  its CMake generates (the same on the five targets); `cbor/cbor_export.h` is written by hand
+  for a static library.
+
+zlib comes from `zlib/` above (target `zfsmgr_zlib`, shared with the agent's compression).

@@ -5229,6 +5229,36 @@ void caso59() {
         !ST::setMasterPassword(dir, dek, "", av) && av.reason == ST::Reason::NewMasterPasswordEmpty,
         "clave: una contrasena nueva vacia se rechaza");
 
+    // A key's slot, with the 32 bytes a key would give (fixed here: no key in a test).
+    std::string sal;
+    comprobar(ST::keySalt(dir, sal, av) && sal.size() == 32, "llave: la sal, 32 bytes");
+    std::string sal2;
+    comprobar(ST::keySalt(dir, sal2, av) && sal2 == sal, "llave: y siempre la misma");
+    const std::string secreto(32, '\x5a');
+    const std::string credencial = "credencial-de-prueba";
+    comprobar(ST::addKeySlot(dir, dek, "YubiKey", credencial, false, secreto, av),
+              "llave: se anade su ranura");
+    comprobar(ST::keySlots(dir).size() == 1 && ST::keySlots(dir)[0].label == "YubiKey"
+                  && ST::keySlots(dir)[0].credentialId == credencial,
+              "llave: y se lista con su nombre y su credencial");
+    comprobar(ST::addKeySlot(dir, dek, "YubiKey", credencial, false, secreto, av)
+                  && ST::keySlots(dir).size() == 1,
+              "llave: registrar la misma otra vez no la duplica");
+    comprobar(ST::unlockWithKeySecret(dir, credencial, secreto, otra, av) && otra == dek,
+              "llave: su secreto abre la clave");
+    comprobar(!ST::unlockWithKeySecret(dir, credencial, std::string(32, '\x5b'), otra, av),
+              "llave: otro secreto no");
+    comprobar(!ST::unlockWithKeySecret(dir, "otra-credencial", secreto, otra, av),
+              "llave: ni una credencial que no esta");
+    comprobar(ST::setMasterPassword(dir, dek, "tres", av)
+                  && ST::unlockWithKeySecret(dir, credencial, secreto, otra, av) && otra == dek,
+              "llave: cambiar la contrasena no la toca");
+    const std::size_t n = ST::keySlots(dir)[0].index;
+    comprobar(ST::removeKeySlot(dir, n, av) && ST::keySlots(dir).empty(), "llave: se quita");
+    comprobar(!ST::removeKeySlot(dir, 0, av), "llave: la ranura de la contrasena no se quita");
+    comprobar(ST::unlockWithPassword(dir, "tres", otra, av) && otra == dek,
+              "llave: y la contrasena sigue abriendo");
+
     // The format before: the password itself encrypts the secrets.
     const std::string vieja = "/tmp/zfsmgr-base-test-clave-vieja";
     std::filesystem::remove_all(vieja);

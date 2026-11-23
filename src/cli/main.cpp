@@ -641,6 +641,22 @@ int main(int argc, char** argv) {
             // intentos: los suficientes para un dedazo, no tantos como para que esto sirva
             // de banco de pruebas a nadie.
             bool abierta = false;
+            // A registered key connected: touching it opens, and what is typed meanwhile is
+            // the password, as a first try.
+            std::string tecleada;
+            if (ST::hasMasterSlots(op.dirConfig)
+                && zfsmgr::cli::abrirConLlave(op.dirConfig, maestra, tecleada)) {
+                abierta = true;
+            } else if (!tecleada.empty()) {
+                contrasena = tecleada;
+                abierta = abre();
+                if (!abierta) {
+                    std::fputs(TC("t_maestra_no_abre",
+                                  "contraseña maestra incorrecta: no abre los "
+                                  "secretos guardados\n"),
+                               stderr);
+                }
+            }
             for (int intento = 0; intento < 3 && !abierta; ++intento) {
                 if (!zfsmgr::cli::preguntarSecretoPorTerminal(
                         T("t_p_maestra", "Contraseña maestra: "), contrasena, err)) {

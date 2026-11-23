@@ -42,6 +42,10 @@ namespace zfsmgr::cli {
 // `"format"` (text, tsv, json) says for that request only.
 int servirOrdenes(Sesion& ses);
 
+// At start, on a terminal: opens with a registered FIDO2 key if one is connected (see
+// detail::abreConLlave).
+bool abrirConLlave(const std::string& dirConfig, std::string& dataKey, std::string& typed);
+
 int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial = {},
                   bool asumirSi = false, bool compruebaProgramaciones = true,
                   bool pantallaCompleta = true);

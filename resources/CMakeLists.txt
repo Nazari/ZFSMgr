@@ -328,11 +328,22 @@ set(ZFSMGR_ZLIB_FUENTES
     ${ZFSMGR_TERCEROS}/zlib/inffast.c ${ZFSMGR_TERCEROS}/zlib/inflate.c
     ${ZFSMGR_TERCEROS}/zlib/inftrees.c ${ZFSMGR_TERCEROS}/zlib/trees.c
     ${ZFSMGR_TERCEROS}/zlib/uncompr.c ${ZFSMGR_TERCEROS}/zlib/zutil.c)
+# zlib on its own: the compression of the agent and libfido2 of the CLI both need it, and in
+# one static library its symbols are never there twice.
+add_library(zfsmgr_zlib STATIC ${ZFSMGR_ZLIB_FUENTES})
+target_include_directories(zfsmgr_zlib PUBLIC ${ZFSMGR_TERCEROS}/zlib)
+set_target_properties(zfsmgr_zlib PROPERTIES POSITION_INDEPENDENT_CODE ON)
+if(MSVC)
+    target_compile_options(zfsmgr_zlib PRIVATE /W0)
+else()
+    target_compile_options(zfsmgr_zlib PRIVATE -w)
+endif()
+
 add_library(zfsmgr_compresion STATIC
     ../src/commands/compresion.cpp
     ../src/commands/compresion.h
-    ${ZFSMGR_ZSTD_FUENTES} ${ZFSMGR_LZ4_FUENTES} ${ZFSMGR_ZLIB_FUENTES})
-target_link_libraries(zfsmgr_compresion PUBLIC zfsmgr_commands)
+    ${ZFSMGR_ZSTD_FUENTES} ${ZFSMGR_LZ4_FUENTES})
+target_link_libraries(zfsmgr_compresion PUBLIC zfsmgr_commands zfsmgr_zlib)
 target_include_directories(zfsmgr_compresion
     PUBLIC ../src/commands
     PRIVATE ${ZFSMGR_TERCEROS}/zlib ${ZFSMGR_TERCEROS}/lz4 ${ZFSMGR_TERCEROS}/zstd)
@@ -349,6 +360,78 @@ if(MSVC)
 else()
     target_compile_options(zfsmgr_compresion PRIVATE $<$<COMPILE_LANGUAGE:C>:-Wno-error=switch -w>)
 endif()
+# FIDO2 security keys (libfido2 + libcbor, third_party/README.md): opening ZFSMgr with a
+# YubiKey. ONLY the CLI links it —never the agent, which must keep having no dependencies; on
+# Linux libfido2 needs libudev— and our wrapper over it is the only code that includes it.
+# Built here, from its sources, with the defines its own CMake found on each platform (checked
+# in phase 0, 2026-11-23); NFC and PC/SC are not built. Not in agent-only builds.
+if(NOT ZFSMGR_AGENT_ONLY)
+set(ZFSMGR_FIDO_COMUNES aes256 assert authkey bio blob buf cbor compress config cred credman dev
+    ecdh eddsa err es256 es384 hid info io iso7816 largeblob log pin random reset rs1 rs256 time
+    touch tpm types u2f util)
+set(ZFSMGR_FIDO_FUENTES)
+foreach(_f IN LISTS ZFSMGR_FIDO_COMUNES)
+    list(APPEND ZFSMGR_FIDO_FUENTES ${ZFSMGR_TERCEROS}/libfido2/src/${_f}.c)
+endforeach()
+# The same ten its own CMake builds; each one is empty where the system already has it.
+foreach(_f bsd-asprintf bsd-getpagesize clock_gettime endian_win32 explicit_bzero
+           explicit_bzero_win32 freezero recallocarray strlcat timingsafe_bcmp)
+    list(APPEND ZFSMGR_FIDO_FUENTES ${ZFSMGR_TERCEROS}/libfido2/openbsd-compat/${_f}.c)
+endforeach()
+file(GLOB ZFSMGR_CBOR_FUENTES ${ZFSMGR_TERCEROS}/libcbor/src/*.c
+    ${ZFSMGR_TERCEROS}/libcbor/src/cbor/*.c ${ZFSMGR_TERCEROS}/libcbor/src/cbor/internal/*.c)
+set(ZFSMGR_FIDO_DEFS _FIDO_INTERNAL _FIDO_MAJOR=1 _FIDO_MINOR=16 _FIDO_PATCH=0
+    OPENSSL_API_COMPAT=0x10100000L TLS=__thread _BSD_SOURCE _POSIX_C_SOURCE=200809L
+    HAVE_ASPRINTF HAVE_CLOCK_GETTIME HAVE_GETOPT HAVE_SIGNAL_H HAVE_UNISTD_H)
+if(WIN32)
+    list(APPEND ZFSMGR_FIDO_FUENTES ${ZFSMGR_TERCEROS}/libfido2/src/hid_win.c
+        ${ZFSMGR_TERCEROS}/libfido2/src/winhello.c)
+    list(APPEND ZFSMGR_FIDO_DEFS USE_WINHELLO FIDO_NO_DIAGNOSTIC WIN32_LEAN_AND_MEAN
+        _WIN32_WINNT=0x0600 WC_ERR_INVALID_CHARS=0x80 _DEFAULT_SOURCE _GNU_SOURCE)
+elseif(APPLE)
+    list(APPEND ZFSMGR_FIDO_FUENTES ${ZFSMGR_TERCEROS}/libfido2/src/hid_osx.c)
+    list(APPEND ZFSMGR_FIDO_DEFS _DARWIN_C_SOURCE __STDC_WANT_LIB_EXT1__=1 HAVE_ARC4RANDOM_BUF
+        HAVE_DEV_URANDOM HAVE_ERR_H HAVE_GETLINE HAVE_MEMSET_S HAVE_READPASSPHRASE HAVE_STRLCAT
+        HAVE_STRLCPY HAVE_STRSEP HAVE_SYSCONF HAVE_SYS_RANDOM_H HAVE_TIMINGSAFE_BCMP)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "FreeBSD")
+    list(APPEND ZFSMGR_FIDO_FUENTES ${ZFSMGR_TERCEROS}/libfido2/src/hid_freebsd.c
+        ${ZFSMGR_TERCEROS}/libfido2/src/hid_unix.c)
+    list(APPEND ZFSMGR_FIDO_DEFS __BSD_VISIBLE=1 HAVE_ARC4RANDOM_BUF HAVE_DEV_URANDOM HAVE_ENDIAN_H
+        HAVE_ERR_H HAVE_EXPLICIT_BZERO HAVE_GETLINE HAVE_GETPAGESIZE HAVE_GETRANDOM
+        HAVE_OPENSSLV_H HAVE_READPASSPHRASE HAVE_STRLCAT HAVE_STRLCPY HAVE_STRSEP HAVE_SYSCONF
+        HAVE_SYS_RANDOM_H HAVE_TIMESPECSUB HAVE_TIMINGSAFE_BCMP)
+else()
+    list(APPEND ZFSMGR_FIDO_FUENTES ${ZFSMGR_TERCEROS}/libfido2/src/hid_linux.c
+        ${ZFSMGR_TERCEROS}/libfido2/src/hid_unix.c)
+    list(APPEND ZFSMGR_FIDO_DEFS _DEFAULT_SOURCE _GNU_SOURCE HAVE_ARC4RANDOM_BUF HAVE_DEV_URANDOM
+        HAVE_ENDIAN_H HAVE_ERR_H HAVE_EXPLICIT_BZERO HAVE_GETLINE HAVE_GETPAGESIZE HAVE_GETRANDOM
+        HAVE_OPENSSLV_H HAVE_STRLCAT HAVE_STRLCPY HAVE_STRSEP HAVE_SYSCONF HAVE_SYS_RANDOM_H)
+endif()
+add_library(zfsmgr_fido STATIC ../src/cli/fidokey.cpp ../src/cli/fidokey.h
+    ${ZFSMGR_FIDO_FUENTES} ${ZFSMGR_CBOR_FUENTES})
+target_include_directories(zfsmgr_fido
+    PUBLIC ../src/cli
+    PRIVATE ${ZFSMGR_TERCEROS}/libfido2/src ${ZFSMGR_TERCEROS}/libcbor/src)
+set_source_files_properties(${ZFSMGR_FIDO_FUENTES} ${ZFSMGR_CBOR_FUENTES} PROPERTIES
+    COMPILE_DEFINITIONS "${ZFSMGR_FIDO_DEFS}")
+target_link_libraries(zfsmgr_fido PRIVATE zfsmgr_zlib OpenSSL::Crypto)
+set_target_properties(zfsmgr_fido PROPERTIES POSITION_INDEPENDENT_CODE ON)
+if(MSVC)
+    target_compile_options(zfsmgr_fido PRIVATE $<$<COMPILE_LANGUAGE:C>:/W0>)
+else()
+    target_compile_options(zfsmgr_fido PRIVATE $<$<COMPILE_LANGUAGE:C>:-w -std=c99>)
+endif()
+if(WIN32)
+    # libcrypto comes in through this library, so what it needs goes after it, here.
+    target_link_libraries(zfsmgr_fido PRIVATE hid setupapi bcrypt ws2_32 crypt32)
+elseif(APPLE)
+    target_link_libraries(zfsmgr_fido PRIVATE "-framework IOKit" "-framework CoreFoundation")
+elseif(NOT CMAKE_SYSTEM_NAME STREQUAL "FreeBSD")
+    find_library(ZFSMGR_UDEV udev REQUIRED)
+    target_link_libraries(zfsmgr_fido PRIVATE ${ZFSMGR_UDEV})
+endif()
+endif()
+
 if(WIN32)
     # El cliente TLS abre sockets con Winsock, así que la biblioteca va con la capa base
     # y no con quien la use: si no, cada consumidor tendría que acordarse.
@@ -454,6 +537,7 @@ add_executable(zfsmgr-cli
     ../src/cli/shell_listing.cpp
     ../src/cli/shell_datasets.cpp
     ../src/cli/shell_admin.cpp
+    ../src/cli/shell_masterkey.cpp
     ../src/cli/shell_schedules.cpp
     ../src/cli/shell_overview.cpp
     ../src/cli/shell_probe.cpp
@@ -473,7 +557,7 @@ add_executable(zfsmgr-cli
     ../src/cli/shell.h
     ../src/cli/tabla.h
 )
-target_link_libraries(zfsmgr-cli PRIVATE zfsmgr_commands)
+target_link_libraries(zfsmgr-cli PRIVATE zfsmgr_commands zfsmgr_fido)
 # En Windows, un `.exe` que se basta solo, igual que el agente.
 #
 # Sin esto dependía de `libgcc_s_seh-1.dll` y `libstdc++-6.dll`. Dentro del Setup daba

@@ -413,6 +413,11 @@ bool cmdAuthorizeKey(Estado& e, const LineaAnalizada& linea);
 bool cmdExportTrust(Estado& e, const LineaAnalizada& linea);
 bool cmdRepairMounts(Estado& e, const LineaAnalizada& linea);
 bool cmdPeers(Estado& e, const LineaAnalizada& linea);
+bool cmdMasterKey(Estado& e, const LineaAnalizada& linea);
+// Opens with a registered key, on the terminal: «touch the key, or type the master password».
+// True with the data key; false and `typed` holding what was typed instead (or empty if
+// nothing was, the key is not there or it failed: then the password is asked as always).
+bool abreConLlave(const std::string& dir, std::string& dek, std::string& typed);
 bool cmdAccounts(Estado& e, const LineaAnalizada& linea);
 bool cmdLog(Estado& e, const LineaAnalizada& linea);
 bool cmdSchedules(Estado& e, const LineaAnalizada& linea);

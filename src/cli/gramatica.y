@@ -54,7 +54,7 @@ void zfsmclierror(void* scanner, AnalisisCli* res, const char* msg);
 
 /* Un token por VERBO. El léxico los reconoce con su tabla de palabras clave. */
 %token <texto> V_CD V_LS V_PWD V_INFO V_HELP V_EXIT V_FORMAT V_YES V_CLS
-%token <texto> V_MASTER_PASSWORD
+%token <texto> V_MASTER_PASSWORD V_MASTER_KEY
 %token <texto> V_CONNECT V_DISCONNECT V_REFRESH V_EDIT V_DEVICES V_INSTALL_DAEMON
 %token <texto> V_LABELCLEAR
 %token <texto> V_JOBS V_JOB V_IMPORT
@@ -100,6 +100,10 @@ orden
     | V_FORMAT palabra                   { astVerbo(res, $1); astRanura(res, "texto", $2); }
     | V_CLS                              { astVerbo(res, $1); }
     | V_MASTER_PASSWORD                  { astVerbo(res, $1); }
+    | V_MASTER_KEY                       { astVerbo(res, $1); }
+    | V_MASTER_KEY palabra               { astVerbo(res, $1); astRanura(res, "texto", $2); }
+    | V_MASTER_KEY palabra palabra       { astVerbo(res, $1); astRanura(res, "texto", $2);
+                                           astRanura(res, "texto", $3); }
 
 /* --- Conexiones ---------------------------------------------------------------------
  * Una conexión se nombra por su IDENTIFICADOR —`oldlau`—, que no lleva barra, así que aquí

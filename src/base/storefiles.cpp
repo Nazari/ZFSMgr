@@ -1035,6 +1035,162 @@ bool unlockWithPassword(const std::string& dirConfig, const std::string& contras
     return true;
 }
 
+namespace {
+
+std::string secretoComoTexto(const std::string& secreto) {
+    return base64Encode(secreto);
+}
+
+}  // namespace
+
+std::vector<KeySlot> keySlots(const std::string& dirConfig) {
+    std::vector<KeySlot> out;
+    Warning aviso;
+    const json::Value config = readConfig(dirConfig, aviso);
+    if (!tieneRanuras(config)) {
+        return out;
+    }
+    const json::Array ranuras = config[kMaster]["slots"].toArray();
+    for (std::size_t i = 0; i < ranuras.size(); ++i) {
+        const json::Value& r = ranuras[i];
+        if (r["type"].toString() != "fido2") {
+            continue;
+        }
+        KeySlot k;
+        k.index = i;
+        k.label = r["label"].toString();
+        base64Decode(r["credential_id"].toString(), k.credentialId);
+        k.resident = r["resident"].isBool() && r["resident"].toBool();
+        out.push_back(k);
+    }
+    return out;
+}
+
+bool keySalt(const std::string& dirConfig, std::string& sal, Warning& aviso) {
+    aviso = Warning{};
+    const ConfigLock cerrojo(dirConfig);
+    json::Value config = readConfig(dirConfig, aviso);
+    if (!aviso.empty()) {
+        return false;
+    }
+    if (!tieneRanuras(config)) {
+        aviso = Warning{Reason::MasterPasswordRequired, {}, kMaster, {}};
+        return false;
+    }
+    if (config[kMaster]["fido_salt"].isString()
+        && base64Decode(config[kMaster]["fido_salt"].toString(), sal) && sal.size() == 32) {
+        return true;
+    }
+    sal.assign(32, '\0');
+    if (RAND_bytes(reinterpret_cast<unsigned char*>(sal.data()), static_cast<int>(sal.size()))
+        != 1) {
+        aviso = Warning{Reason::CannotEncrypt, {}, kMaster, "RAND_bytes"};
+        return false;
+    }
+    json::Value bloque = config[kMaster];
+    bloque.set("fido_salt", json::Value(base64Encode(sal)));
+    config.set(kMaster, bloque);
+    return writeConfig(dirConfig, config, aviso);
+}
+
+bool addKeySlot(const std::string& dirConfig, const std::string& dek, const std::string& etiqueta,
+                const std::string& credencial, bool residente, const std::string& secreto,
+                Warning& aviso) {
+    aviso = Warning{};
+    if (dek.empty() || credencial.empty() || secreto.size() != 32) {
+        aviso = Warning{Reason::CannotEncrypt, {}, kMaster, "key slot"};
+        return false;
+    }
+    const ConfigLock cerrojo(dirConfig);
+    json::Value config = readConfig(dirConfig, aviso);
+    if (!aviso.empty()) {
+        return false;
+    }
+    if (!tieneRanuras(config)) {
+        aviso = Warning{Reason::MasterPasswordRequired, {}, kMaster, {}};
+        return false;
+    }
+    std::string envuelta;
+    std::string err;
+    if (!SecretCipher::encryptEncv1(dek, secretoComoTexto(secreto), envuelta, err)) {
+        aviso = Warning{Reason::CannotEncrypt, {}, kMaster, err};
+        return false;
+    }
+    json::Value r;
+    r.set("type", json::Value(std::string("fido2")));
+    r.set("label", json::Value(etiqueta));
+    r.set("credential_id", json::Value(base64Encode(credencial)));
+    r.set("resident", json::Value(residente));
+    r.set("value", json::Value(envuelta));
+    json::Array ranuras = config[kMaster]["slots"].toArray();
+    // The same credential again replaces its slot: registering a key twice is not two keys.
+    json::Array salida;
+    for (const json::Value& x : ranuras) {
+        if (!(x["type"].toString() == "fido2"
+              && x["credential_id"].toString() == base64Encode(credencial))) {
+            salida.push_back(x);
+        }
+    }
+    salida.push_back(r);
+    json::Value bloque = config[kMaster];
+    bloque.set("slots", json::Value(salida));
+    config.set(kMaster, bloque);
+    return writeConfig(dirConfig, config, aviso);
+}
+
+bool removeKeySlot(const std::string& dirConfig, std::size_t indice, Warning& aviso) {
+    aviso = Warning{};
+    const ConfigLock cerrojo(dirConfig);
+    json::Value config = readConfig(dirConfig, aviso);
+    if (!aviso.empty()) {
+        return false;
+    }
+    if (!tieneRanuras(config)) {
+        aviso = Warning{Reason::MasterPasswordRequired, {}, kMaster, {}};
+        return false;
+    }
+    const json::Array ranuras = config[kMaster]["slots"].toArray();
+    if (indice >= ranuras.size() || ranuras[indice]["type"].toString() != "fido2") {
+        aviso = Warning{Reason::CannotDecrypt, {}, kMaster, "no such key"};
+        return false;
+    }
+    json::Array salida;
+    for (std::size_t i = 0; i < ranuras.size(); ++i) {
+        if (i != indice) {
+            salida.push_back(ranuras[i]);
+        }
+    }
+    json::Value bloque = config[kMaster];
+    bloque.set("slots", json::Value(salida));
+    config.set(kMaster, bloque);
+    return writeConfig(dirConfig, config, aviso);
+}
+
+bool unlockWithKeySecret(const std::string& dirConfig, const std::string& credencial,
+                         const std::string& secreto, std::string& dek, Warning& aviso) {
+    aviso = Warning{};
+    dek.clear();
+    Warning lectura;
+    const json::Value config = readConfig(dirConfig, lectura);
+    if (!tieneRanuras(config)) {
+        aviso = Warning{Reason::MasterPasswordRequired, {}, kMaster, {}};
+        return false;
+    }
+    const std::string id = base64Encode(credencial);
+    for (const json::Value& r : config[kMaster]["slots"].toArray()) {
+        if (r["type"].toString() != "fido2" || r["credential_id"].toString() != id) {
+            continue;
+        }
+        std::string err;
+        if (SecretCipher::decryptEncv1(r["value"].toString(), secretoComoTexto(secreto), dek,
+                                       err)) {
+            return masterOpensEverything(dirConfig, dek, aviso);
+        }
+    }
+    aviso = Warning{Reason::CannotDecrypt, {}, kMaster, {}};
+    return false;
+}
+
 bool setMasterPassword(const std::string& dirConfig, const std::string& dek,
                        const std::string& nueva, Warning& aviso) {
     aviso = Warning{};

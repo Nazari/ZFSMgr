@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include "connectionjson.h"
 #include "json.h"
@@ -174,6 +175,33 @@ bool hasMasterSlots(const std::string& configDir);
 // False with the warning when the password does not open.
 bool unlockWithPassword(const std::string& configDir, const std::string& password,
                         std::string& dataKey, Warning& warning);
+
+// A slot of a FIDO2 key (a YubiKey): the data key wrapped with the secret the key gives for
+// its credential and the configuration's salt (hmac-secret). The key is what holds the secret;
+// the file only knows the credential that asks for it.
+struct KeySlot {
+    std::size_t index = 0;     // position among ALL the slots, for removeKeySlot
+    std::string label;         // what the person called it, or the key's model
+    std::string credentialId;  // raw bytes
+    bool resident = false;     // stored in the key (Windows Hello needs it)
+};
+std::vector<KeySlot> keySlots(const std::string& configDir);
+
+// The salt every key is asked with: 32 random bytes, created the first time. Needs a master
+// (a data key) to exist.
+bool keySalt(const std::string& configDir, std::string& salt, Warning& warning);
+
+// Adds a key: the data key wrapped with the 32-byte secret it gave.
+bool addKeySlot(const std::string& configDir, const std::string& dataKey, const std::string& label,
+                const std::string& credentialId, bool resident, const std::string& secret,
+                Warning& warning);
+
+// Removes the slot at that position, if it is a key's. The password slot is never removed.
+bool removeKeySlot(const std::string& configDir, std::size_t index, Warning& warning);
+
+// Opens with the secret a key gave for one of its credentials.
+bool unlockWithKeySecret(const std::string& configDir, const std::string& credentialId,
+                         const std::string& secret, std::string& dataKey, Warning& warning);
 
 // Changes the master password: only its slot is wrapped again with the new one —nothing else
 // is re-encrypted—; other slots stay. With no data key yet, it creates the first one.

@@ -905,6 +905,15 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
       {"cls",
        {"t_ej_cls_1", "limpia la pantalla; «clear» es la del pool"}},
      }},
+    {"master-key",
+     {
+      {"master-key",
+       {"t_ej_master_key_1", "las llaves que abren ZFSMgr además de la contraseña"}},
+      {"master-key add --label \"YubiKey azul\"",
+       {"t_ej_master_key_2", "registra la llave conectada: hay que tocarla dos veces"}},
+      {"master-key remove 1",
+       {"t_ej_master_key_3", "la quita: deja de abrir; en la llave no se borra nada"}},
+     }},
     {"master-password",
      {
       {"master-password",
@@ -1690,16 +1699,25 @@ const std::vector<Orden> kOrdenes = {
      {}, {{"t_cls_det", "Se llama «cls» y no «clear» porque `clear` ya existe y es la del pool: pone a "
       "cero sus contadores de error. Escribir `clear` esperando limpiar el terminal es "
       "fácil y no era inocuo, así que aquélla pregunta antes."}}},
+    {"master-key", {"t_del_int_rp_d5d82a", "Del intérprete"},
+     {"t_mk_uso_c", "[list|add [--label <nombre>]|remove <N>]"},
+     {"t_mk_res", "Llaves FIDO2 (una YubiKey) que abren ZFSMgr además de la contraseña maestra."},
+     {{{"t_mk_label", "--label <nombre>"}, {"t_mk_label_q", "Cómo llamarla. Sin ella, el modelo de la llave."}}},
+     {{"t_mk_det", "Al arrancar, con una llave registrada conectada, basta con tocarla: ella da un "
+       "secreto que abre la clave con la que se cifra la configuración. La contraseña maestra "
+       "sigue sirviendo siempre, por si la llave se pierde o no está a mano."},
+      {"t_mk_det2", "Registrar pide tocarla dos veces, y su PIN si la llave lo exige. En Windows "
+       "la credencial se guarda en la llave: Windows Hello no da el secreto de otro modo."}},
+     Objetivo::None_,
+     {}},
     {"master-password", {"t_del_int_rp_d5d82a", "Del intérprete"}, {"t_mp_uso", "[--old-fd <n>] [--new-fd <n>]"},
-     {"t_mp_res", "Cambia la contraseña maestra que cifra la configuración."},
-     {{{"t_mp_old", "--old-fd <n>"}, {"t_mp_old_q", "La actual, por descriptor."}},
-      {{"t_mp_new", "--new-fd <n>"}, {"t_mp_new_q", "La nueva, por descriptor. Sin ellas se teclean, y la nueva se pide dos veces."}}},
-     {{"t_mp_det", "No cambia UN valor: de la maestra cuelgan la contraseña de cada conexión y el "
-       "material TLS del daemon —certificado del servidor, certificado y clave del cliente—, "
-       "que además está repetido en el almacén de confianza. Se descifra todo con la vieja y "
-       "se vuelve a cifrar con la nueva, y antes de tocar nada se deja una copia de los dos "
-       "ficheros con el sufijo «.antes-de-rotar»: si algo falla a mitad, lo que queda en "
-       "disco no serviría ni con una clave ni con la otra."},
+     {"t_mp_res2", "Cambia la contraseña maestra que abre la configuración."},
+     {{{"t_mp_old", "--old-fd <n>"}, {"t_mp_old_q2", "La actual, por descriptor, para comprobarla. Sin ella no se pide: la sesión ya está abierta."}},
+      {{"t_mp_new", "--new-fd <n>"}, {"t_mp_new_q2", "La nueva, por descriptor. Sin ella se teclea dos veces."}}},
+     {{"t_mp_det3", "Los secretos —la contraseña de cada conexión, el material TLS de los daemons— "
+       "no están cifrados con la contraseña sino con una clave interna, y la contraseña es una "
+       "de las formas de abrir esa clave. Cambiarla solo vuelve a envolver la clave: no se "
+       "recifra nada más, y las llaves registradas («master-key») siguen sirviendo."},
       {"t_mp_det2", "Ninguna de las dos viaja por argumento: se teclean sin eco o se pasan por "
        "descriptor. Al terminar, la sesión sigue abierta con la nueva."}},
      Objetivo::None_,
