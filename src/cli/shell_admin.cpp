@@ -447,6 +447,16 @@ bool cmdPeers(Estado& e, const LineaAnalizada& linea) {
         if (pd) {
             uidDeDestino = B::trim(pd->machineUid);
         }
+        if (uidDeDestino.empty() && pd) {
+            // Not known yet: asked to its daemon now, as `refresh` does.
+            std::string basicos;
+            if (agente(e, destino, PET::refreshBasics(), basicos, 30000)) {
+                guardaUidDe(e, pd->id.empty() ? pd->name : pd->id, basicos);
+                if (const auto* p2 = buscarConexion(e.conns, destino.connection)) {
+                    uidDeDestino = B::trim(p2->machineUid);
+                }
+            }
+        }
         if (uidDeDestino.empty()) {
             std::fputs(TC("t_push_sin_uid2",
                           "no se conoce el identificador de máquina de este destino: un «refresh»\n"

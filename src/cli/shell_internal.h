@@ -296,6 +296,7 @@ bool cmdCrearPool(Estado& e, const Peticion& pet, const ZfsmUrl& destino,
 bool enviaComoTrabajo(Estado& e, const ZfsmUrl& destino, const std::vector<std::string>& argv);
 bool lanzaOEspera(Estado& e, const Peticion& pet, const ZfsmUrl& destino,
                   const std::vector<std::string>& argv);
+void guardaUidDe(Estado& e, const std::string& id, const std::string& basicos);
 std::map<std::string, std::string> clavesDe(const std::string& texto);
 bool agente(Estado& e, const ZfsmUrl& destino, const std::vector<std::string>& args,
             std::string& out, int timeoutMs = 60000, std::string* errorDeOrden = nullptr);

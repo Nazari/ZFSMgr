@@ -45,6 +45,45 @@ bool cmdConectar(Estado& e, const LineaAnalizada& linea, bool conectar) {
     return true;
 }
 
+// The machine identifier, kept and not only shown. `refresh` learns it here, and so does
+// `peers --push` when the profile still lacks it: the interface never runs a `refresh` of its
+// own, and «give keys» refused on a machine that had never had one.
+void guardaUidDe(Estado& e, const std::string& id, const std::string& basicos) {
+    // El IDENTIFICADOR DE MÁQUINA se guarda, no solo se enseña.
+    //
+    // El daemon lo publica en cada refresco y los dos clientes lo tiraban: lo leían, lo
+    // pintaban y se olvidaban. Resultado, en esta instalación: `local` y `mmela` tenían uid
+    // —puesto a mano hace tiempo— y `unib` y `mbp` lo tenían VACÍO.
+    //
+    // Hace falta porque es la única identidad de una máquina que no depende de quién la
+    // mire. El nombre no lo es: `local` significa una máquina distinta según desde dónde se
+    // pregunte, y la misma máquina aparece como `unib` en una lista y `unibody` en otra. Es
+    // lo que `peers` necesita para que dos daemons sepan de quién hablan.
+    {
+        const auto claves = clavesDe(basicos);
+        const auto it = claves.find("MACHINE_UUID");
+        const std::string uid =
+            it == claves.end() ? std::string() : B::refresh::extractMachineUuid(it->second);
+        const auto* vivo = buscarConexion(e.conns, id);
+        if (!uid.empty() && vivo && B::trim(vivo->machineUid) != uid && !e.ses->sinSecretos) {
+            B::ConnectionProfile copia = *vivo;
+            copia.machineUid = uid;
+            std::string errGuardar;
+            if (guardarConexion(*e.ses, copia, errGuardar)) {
+                recarga(e);
+            } else {
+                // Se avisa y se sigue: no poder guardarlo no invalida el refresco, pero
+                // callarlo dejaría a `peers` sin identidad sin que nadie supiera por qué.
+                std::fprintf(stderr,
+                             TC("t_uid_no_guardado",
+                                "aviso: no se pudo guardar el identificador de máquina "
+                                "de %s: %s\n"),
+                             id.c_str(), errGuardar.c_str());
+            }
+        }
+    }
+}
+
 // Refrescar: soltar lo que se tenía guardado de esa máquina y volver a preguntárselo.
 //
 // No es solo un listado: se cierra el túnel, se vacía la caché del material TLS, se quita
@@ -81,39 +120,7 @@ bool cmdRefrescar(Estado& e, const LineaAnalizada& linea) {
     const auto* p = buscarConexion(e.conns, id);
     ejecutarAgente(*e.ses, *p, {"--health"}, salud, err, rc, &motivo, 20000);
 
-    // El IDENTIFICADOR DE MÁQUINA se guarda, no solo se enseña.
-    //
-    // El daemon lo publica en cada refresco y los dos clientes lo tiraban: lo leían, lo
-    // pintaban y se olvidaban. Resultado, en esta instalación: `local` y `mmela` tenían uid
-    // —puesto a mano hace tiempo— y `unib` y `mbp` lo tenían VACÍO.
-    //
-    // Hace falta porque es la única identidad de una máquina que no depende de quién la
-    // mire. El nombre no lo es: `local` significa una máquina distinta según desde dónde se
-    // pregunte, y la misma máquina aparece como `unib` en una lista y `unibody` en otra. Es
-    // lo que `peers` necesita para que dos daemons sepan de quién hablan.
-    {
-        const auto claves = clavesDe(basicos);
-        const auto it = claves.find("MACHINE_UUID");
-        const std::string uid =
-            it == claves.end() ? std::string() : B::refresh::extractMachineUuid(it->second);
-        const auto* vivo = buscarConexion(e.conns, id);
-        if (!uid.empty() && vivo && B::trim(vivo->machineUid) != uid && !e.ses->sinSecretos) {
-            B::ConnectionProfile copia = *vivo;
-            copia.machineUid = uid;
-            std::string errGuardar;
-            if (guardarConexion(*e.ses, copia, errGuardar)) {
-                recarga(e);
-            } else {
-                // Se avisa y se sigue: no poder guardarlo no invalida el refresco, pero
-                // callarlo dejaría a `peers` sin identidad sin que nadie supiera por qué.
-                std::fprintf(stderr,
-                             TC("t_uid_no_guardado",
-                                "aviso: no se pudo guardar el identificador de máquina "
-                                "de %s: %s\n"),
-                             id.c_str(), errGuardar.c_str());
-            }
-        }
-    }
+    guardaUidDe(e, id, basicos);
 
     Tabla t;
     t.nombreJson = "refresh";
