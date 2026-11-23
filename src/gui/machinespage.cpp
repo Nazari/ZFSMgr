@@ -21,6 +21,7 @@
 #include <QInputDialog>
 #include <QJsonDocument>
 #include <QLabel>
+#include <QMessageBox>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSplitter>
@@ -421,7 +422,7 @@ void MachinesPage::showMachine(const QString& id) {
     auto* buttons = new QGridLayout();
     int placed = 0;
     const auto place = [buttons, &placed](QPushButton* b) {
-        buttons->addWidget(b, placed / 3, placed % 3);
+        buttons->addWidget(b, placed / 2, placed % 2);
         ++placed;
     };
     // sudo asks for a password the connection lacks, or rejects the stored one: the way to
@@ -440,62 +441,97 @@ void MachinesPage::showMachine(const QString& id) {
             place(give);
         }
     }
-    auto* again = button(L("Check again", "Comprobar de nuevo"), w);
+    // Every button names what it acts on —«Remove…» alone did not say remove WHAT— and only
+    // the ones that make sense now are shown: no «install the daemon» with it up to date, no
+    // «temporary mountpoints» with none left over.
+    auto* again = button(L("Check this machine again", "Volver a comprobar esta máquina"), w);
     connect(again, &QPushButton::clicked, this, [this, id] {
         m_probe.remove(id);
+        m_stranded.remove(id);
         showDetail();
     });
     place(again);
     const bool connected = mv ? mv->connected : true;
-    auto* conn = button(connected ? L("Disconnect", "Desconectar") : L("Connect", "Conectar"), w);
+    auto* conn = button(connected ? L("Disconnect this machine", "Desconectar esta máquina")
+                                  : L("Connect this machine", "Conectar esta máquina"),
+                        w);
+    conn->setToolTip(connected ? L("ZFSMgr stops asking it anything until it is connected "
+                                   "again. Nothing changes on the machine.",
+                                   "ZFSMgr deja de preguntarle nada hasta que se vuelva a "
+                                   "conectar. En la máquina no cambia nada.")
+                               : QString());
     connect(conn, &QPushButton::clicked, this, [this, id, connected] {
         act((connected ? QStringLiteral("disconnect ") : QStringLiteral("connect ")) + url(id),
             connected ? L("Disconnected.", "Desconectada.") : L("Connected.", "Conectada."));
     });
     place(conn);
-    auto* daemon =
-        button(L("Install or update the daemon…", "Instalar o actualizar el daemon…"), w);
-    connect(daemon, &QPushButton::clicked, this, [this, id] {
-        // Checked again when the installation has FINISHED: asked before, the answer came
-        // from the old daemon and stayed, so the button seemed to do nothing.
-        act(QStringLiteral("install-daemon --on ") + url(id),
-            L("Daemon installed.", "Daemon instalado."), false, [this, id] {
-                m_probe.remove(id);
-                showDetail();
+    // The daemon: only when `probe` says it is missing or behind. Unreachable because sudo
+    // fails is not «missing»: the sudo button above is the way.
+    if (probeIt != m_probe.constEnd()) {
+        const QString daemonCode = probeIt->value(QStringLiteral("daemon")).toString();
+        const QString sudoCode = probeIt->value(QStringLiteral("sudo")).toString();
+        const bool sudoFails = sudoCode == QLatin1String("needs_password")
+                               || sudoCode == QLatin1String("wrong_password");
+        QString text;
+        if (daemonCode == QLatin1String("unreachable") && !sudoFails) {
+            text = L("Install its daemon…", "Instalar su daemon…");
+        } else if (daemonCode == QLatin1String("outdated")) {
+            text = L("Update its daemon…", "Actualizar su daemon…");
+        }
+        if (!text.isEmpty()) {
+            auto* daemon = button(text, w);
+            connect(daemon, &QPushButton::clicked, this, [this, id] {
+                // Checked again when the installation has FINISHED: asked before, the answer
+                // came from the old daemon and stayed, so the button seemed to do nothing.
+                act(QStringLiteral("install-daemon --on ") + url(id),
+                    L("Daemon installed.", "Daemon instalado."), false, [this, id] {
+                        m_probe.remove(id);
+                        showDetail();
+                    });
             });
-    });
-    place(daemon);
+            place(daemon);
+        }
+    }
     if (m_advanced && connected) {
-        auto* create = button(L("Create a pool…", "Crear un pool…"), w);
+        auto* create =
+            button(L("Create a pool on this machine…", "Crear un pool en esta máquina…"), w);
         connect(create, &QPushButton::clicked, this,
                 [this, id] { Q_EMIT createPoolRequested(id); });
         place(create);
-        auto* import = button(L("Import a pool…", "Importar un pool…"), w);
+        auto* import =
+            button(L("Import a pool on this machine…", "Importar un pool en esta máquina…"), w);
         connect(import, &QPushButton::clicked, this, [this, id] { importPool(id); });
         place(import);
     }
     // Advanced: what is done between machines and after something was cut short.
     if (m_advanced && connected) {
-        auto* mounts = button(L("Temporary mountpoints…", "Montajes temporales…"), w);
-        mounts->setToolTip(L("Datasets an interrupted action left mounted somewhere else.",
-                             "Datasets que una acción interrumpida dejó montados en otro sitio."));
-        connect(mounts, &QPushButton::clicked, this, [this, id] {
-            showOutput(id, QStringLiteral("repair-mounts --on ") + url(id),
-                       L("Left on a temporary mountpoint", "Dejados en un montaje temporal"));
-        });
-        place(mounts);
-        auto* log = button(L("Daemon log", "Log del daemon"), w);
+        // Datasets an interrupted action left on a temporary mountpoint: asked once, and the
+        // button only when there are some.
+        const auto stranded = m_stranded.constFind(id);
+        if (stranded == m_stranded.constEnd()) {
+            m_store->forMachine(id)->request(
+                QStringLiteral("repair-mounts --on ") + url(id), this,
+                [this, id](const CliResult& r) {
+                    m_stranded.insert(
+                        id, firstObject(r.out).value(QStringLiteral("stranded")).toArray().size());
+                    showDetail();
+                });
+        } else if (*stranded > 0) {
+            auto* mounts = button(L("%n dataset(s) left on a temporary mountpoint…",
+                                    "%n dataset(s) en un montaje temporal…")
+                                      .replace(QStringLiteral("%n"), QString::number(*stranded)),
+                                  w);
+            mounts->setToolTip(L("An interrupted action left them mounted somewhere else.",
+                                 "Una acción interrumpida los dejó montados en otro sitio."));
+            connect(mounts, &QPushButton::clicked, this, [this, id] { strandedMounts(id); });
+            place(mounts);
+        }
+        auto* log = button(L("See what its daemon did", "Ver lo que ha hecho su daemon"), w);
         connect(log, &QPushButton::clicked, this, [this, id] {
             showOutput(id, QStringLiteral("log --lines 500 --on ") + url(id),
                        L("What the daemon of %1 did", "Qué ha hecho el daemon de %1").arg(id));
         });
         place(log);
-        auto* repair = button(L("Put them back", "Devolverlos a su sitio"), w);
-        connect(repair, &QPushButton::clicked, this, [this, id] {
-            act(QStringLiteral("repair-mounts --apply --on ") + url(id),
-                L("Put back where they belong.", "Devueltos a su sitio."));
-        });
-        place(repair);
         QStringList others;
         for (const MachineView& m : m_store->machines()) {
             if (m.id != id && m.connected) {
@@ -516,39 +552,92 @@ void MachinesPage::showMachine(const QString& id) {
                     });
             d->open();
         };
-        auto* trust = button(L("Take the trust store to…", "Llevar el trust-store a…"), w);
-        trust->setEnabled(!others.isEmpty());
-        connect(trust, &QPushButton::clicked, this, [toAnother] {
-            toAnother(L("Trust store", "Trust-store"),
-                      L("The client opened on that machine will talk to the same daemons. It "
-                        "carries private keys.",
-                        "El cliente que se abra en esa máquina hablará con los mismos daemons. "
-                        "Lleva claves privadas."),
-                      QStringLiteral("export-trust"),
-                      L("Trust store copied to %1.", "Trust-store copiado a %1."));
-        });
-        place(trust);
-        auto* key = button(L("Authorize its SSH key on…", "Autorizar su clave SSH en…"), w);
-        key->setEnabled(!others.isEmpty());
-        connect(key, &QPushButton::clicked, this, [toAnother] {
-            toAnother(L("SSH key", "Clave SSH"),
-                      L("After this, this machine logs into that one without a password.",
-                        "Después, esta máquina entra en aquella sin contraseña."),
-                      QStringLiteral("authorize-key"),
-                      L("Key authorized on %1.", "Clave autorizada en %1."));
-        });
-        place(key);
+        // Both need another machine to go to: without one they are not shown.
+        if (!others.isEmpty()) {
+            auto* trust = button(L("Copy the daemons it knows to another machine…",
+                                   "Copiar a otra máquina los daemons que conoce…"),
+                                 w);
+            trust->setToolTip(
+                L("Its trust store: the certificates of the daemons this machine "
+                  "talks to.",
+                  "Su trust-store: los certificados de los daemons con los que "
+                  "habla esta máquina."));
+            connect(trust, &QPushButton::clicked, this, [toAnother] {
+                toAnother(L("Trust store", "Trust-store"),
+                          L("The client opened on that machine will talk to the same daemons. "
+                            "It carries private keys.",
+                            "El cliente que se abra en esa máquina hablará con los mismos "
+                            "daemons. Lleva claves privadas."),
+                          QStringLiteral("export-trust"),
+                          L("Trust store copied to %1.", "Trust-store copiado a %1."));
+            });
+            place(trust);
+            auto* key = button(L("Let it log into another machine without a password…",
+                                 "Que entre en otra máquina sin contraseña…"),
+                               w);
+            connect(key, &QPushButton::clicked, this, [toAnother] {
+                toAnother(L("SSH key", "Clave SSH"),
+                          L("Its SSH key is authorized on that one: after this, this machine "
+                            "logs into it without a password.",
+                            "Su clave SSH se autoriza en aquella: después, esta máquina entra "
+                            "en ella sin contraseña."),
+                          QStringLiteral("authorize-key"),
+                          L("Key authorized on %1.", "Clave autorizada en %1."));
+            });
+            place(key);
+        }
     }
 
-    auto* remove = button(L("Remove…", "Quitar…"), w);
+    auto* remove =
+        button(L("Remove this machine from ZFSMgr…", "Quitar esta máquina de ZFSMgr…"), w);
+    remove->setToolTip(
+        L("ZFSMgr forgets it: its connection and stored password. Nothing on the "
+          "machine is touched.",
+          "ZFSMgr la olvida: su conexión y su contraseña guardada. En la máquina "
+          "no se toca nada."));
     connect(remove, &QPushButton::clicked, this, [this, id] {
-        act(QStringLiteral("destroy ") + url(id), L("Connection removed.", "Conexión quitada."));
+        act(QStringLiteral("destroy ") + url(id), L("Machine removed.", "Máquina quitada."));
     });
     place(remove);
-    buttons->setColumnStretch(3, 1);
+    buttons->setColumnStretch(2, 1);
     l->addLayout(buttons);
     l->addStretch(1);
     setDetail(w);
+}
+
+// The datasets left on a temporary mountpoint: where they are and where they belong, and the
+// way to put them back right there.
+void MachinesPage::strandedMounts(const QString& id) {
+    m_store->forMachine(id)->request(
+        QStringLiteral("repair-mounts --on ") + url(id), this,
+        [this, id](const CliResult& r) {
+            auto* b = new QMessageBox(this);
+            b->setAttribute(Qt::WA_DeleteOnClose);
+            b->setWindowTitle(L("Left on a temporary mountpoint", "En un montaje temporal"));
+            b->setText(
+                L("An interrupted action left these datasets mounted somewhere else. "
+                  "Putting them back mounts each one where it belongs; nothing else "
+                  "is touched.",
+                  "Una acción interrumpida dejó estos datasets montados en otro sitio. "
+                  "Devolverlos monta cada uno donde le corresponde; no se toca nada "
+                  "más."));
+            b->setDetailedText(r.out.trimmed().isEmpty() ? r.err.trimmed() : r.out.trimmed());
+            QPushButton* back =
+                b->addButton(L("Put them back", "Devolverlos a su sitio"), QMessageBox::AcceptRole);
+            b->addButton(QMessageBox::Close);
+            connect(b, &QMessageBox::finished, this, [this, b, back, id](int) {
+                if (b->clickedButton() != back) {
+                    return;
+                }
+                act(QStringLiteral("repair-mounts --apply --on ") + url(id),
+                    L("Put back where they belong.", "Devueltos a su sitio."), true, [this, id] {
+                        m_stranded.remove(id);
+                        showDetail();
+                    });
+            });
+            b->open();
+        },
+        QStringLiteral("text"));
 }
 
 void MachinesPage::setAdvanced(bool on) {

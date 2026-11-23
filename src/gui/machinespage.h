@@ -75,6 +75,7 @@ private:
     QTreeWidget* m_tree{nullptr};
     QScrollArea* m_detail{nullptr};
     QHash<QString, QJsonObject> m_probe;   // machine → its `probe`
+    QHash<QString, int> m_stranded;        // machine → datasets on a temporary mountpoint
     QHash<QString, QJsonArray> m_pools;    // machine → `ls zfsm://m` pools
     QHash<QString, QJsonArray> m_entries;  // machine/pool → `ls -r` entries
     QHash<QString, QJsonObject> m_status;  // machine/pool → `status` (JSON)
@@ -86,6 +87,7 @@ private:
     QSet<QString> m_propsAsked;              // machine/dataset whose properties are on the way
     QHash<QString, QJsonArray> m_breakdown;  // machine/dataset → `breakdown --list`
     void importPool(const QString& machine);
+    void strandedMounts(const QString& machine);
     void forgetPools(const QString& machine);
     QString m_revealMachine;  // what reveal() still has to reach
     QString m_revealDataset;
