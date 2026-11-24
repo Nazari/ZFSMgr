@@ -176,6 +176,14 @@ if [[ "${SOLO_CLI}" -eq 0 ]]; then
     for kk in "${CLAVES[@]}"; do
       exige_huella ".app ${k}: agente ${kk}" "${a}/Contents/Resources/agents/${kk}/zfsmgr_agent$(ext_de "$kk")"
     done
+    # Los de macOS, byte a byte los firmados con el certificado estable: recortados o firmados
+    # otra vez al montar el .app quedan ad hoc, y cada Mac pierde el «Acceso total al disco»
+    # al instalar (mmela, 2026-11-24).
+    for kk in macos-amd64 macos-arm64; do
+      cmp -s "${a}/Contents/Resources/agents/${kk}/zfsmgr_agent" \
+             "${RAIZ}/builds/agents/${kk}/zfsmgr_agent" \
+        || falla ".app ${k}: el agente ${kk} no es el firmado de builds/agents (¿recortado o firmado de nuevo?)"
+    done
     exige_catalogos ".app ${k}" "${a}/Contents/Resources/i18n"
   done
 

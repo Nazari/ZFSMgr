@@ -312,9 +312,13 @@ mete_cli_en_bundle_macos() {
     mkdir -p "${app_bundle}/Contents/Resources/agents/${k}"
     cp -f "${agentes}/${k}/zfsmgr_agent${ext}" "${app_bundle}/Contents/Resources/agents/${k}/"
     chmod 0755 "${app_bundle}/Contents/Resources/agents/${k}/zfsmgr_agent${ext}"
-    # Podados: sin símbolos, los cinco pasan de 44 MB a unos 23. `llvm-strip` reajusta la
-    # firma ad hoc de los de macOS y siguen arrancando —comprobado en mmela, arm64—.
-    llvm-strip "${app_bundle}/Contents/Resources/agents/${k}/zfsmgr_agent${ext}" 2>/dev/null || true
+    # Podados: sin símbolos, los cinco pasan de 44 MB a unos 23. Los de macOS NO: ya vienen
+    # recortados y FIRMADOS con el certificado estable (buildall-cross.sh, firma_agente_macos),
+    # y `llvm-strip` les deja una firma ad hoc. Con ella macOS pierde el «Acceso total al
+    # disco» en cada actualización instalada desde el .app (mmela, 2026-11-24).
+    if [[ "${k}" != macos-* ]]; then
+      llvm-strip "${app_bundle}/Contents/Resources/agents/${k}/zfsmgr_agent${ext}" 2>/dev/null || true
+    fi
   done
   echo "  empaquetado: Contents/Resources/agents (5 plataformas)"
 
@@ -338,7 +342,11 @@ firma_adhoc_bundle() {
     exit 1
   fi
   echo "Firmando (ad-hoc) ${bundle} con ${firmador}"
-  "${firmador}" sign --exclude '**/*.dSYM' --exclude '**/*.dSYM/**' "${bundle}" >/dev/null
+  # Los agentes de macOS que lleva dentro, fuera de la firma de código: ya traen la suya, la
+  # del certificado estable, y firmarlos aquí la cambiaría por una ad hoc (macOS ataría el
+  # «Acceso total al disco» a cada binario). Siguen sellados como recursos del .app.
+  "${firmador}" sign --exclude '**/*.dSYM' --exclude '**/*.dSYM/**' \
+    --exclude 'Contents/Resources/agents/macos-*/zfsmgr_agent' "${bundle}" >/dev/null
 }
 
 ensure_macos_bundle_runtime_cross() {
