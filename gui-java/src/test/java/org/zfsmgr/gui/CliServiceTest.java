@@ -94,8 +94,104 @@ class CliServiceTest {
                 "a confirmed request is not asked; an irreversible question still is");
         assertTrue(Files.readString(dir.resolve("answers")).contains("\"answer\":true"));
         String args = Files.readString(dir.resolve("args"));
-        assertTrue(args.contains("--serve --lang en --presence gui:" + ProcessHandle.current().pid()), args);
+        assertTrue(args.contains("--serve --lang en --presence gui"), args);
         s.stop(2000);
+    }
+
+    /** A fake that knows the session lock and the locked start (docs/protocolo_serve.md). */
+    private Path fakeWithSession() throws Exception {
+        Path f = dir.resolve("zfsmgr-cli-s");
+        Files.writeString(f, """
+                #!/bin/sh
+                case "$*" in *--session*)
+                  echo '{"type":"error","code":"session_busy","text":"ya está abierto","holder":{"kind":"cli","pid":42}}'; exit 1;; esac
+                case "$*" in *--take-session*) printf '%s\n' "$*" > "$(dirname "$0")/took";; esac
+                read pw
+                if [ -z "$pw" ]; then
+                  echo '{"type":"locked","key_present":false}'
+                  echo '{"type":"key_present"}'
+                  while read line; do
+                    case "$line" in *'"password":"good"'*) break;; esac
+                    echo '{"type":"unlock_failed","reason":"password"}'
+                  done
+                fi
+                echo '{"type":"ready","version":"9.9","data_key":"dk"}'
+                while read line; do :; done
+                """);
+        Files.setPosixFilePermissions(f, PosixFilePermissions.fromString("rwx------"));
+        return f;
+    }
+
+    @Test
+    void aBusySessionSaysWhoseAndTakeSessionGoesAhead() throws Exception {
+        Path cli = fakeWithSession();
+        LinkedBlockingQueue<Runnable> q = new LinkedBlockingQueue<>();
+        List<String> events = new CopyOnWriteArrayList<>();
+        CliService.Listener l = new CliService.Listener() {
+            @Override
+            public void sessionBusy(String text, boolean couldNotClose) {
+                events.add("busy " + text + " " + couldNotClose);
+            }
+
+            @Override
+            public void ready(java.util.Map<String, Object> ev) {
+                events.add("ready");
+            }
+
+            @Override
+            public void failed(String reason, boolean wrongPassword) {
+                events.add("failed " + reason);
+            }
+        };
+        CliService s = new CliService(cli.toString(), "es", q::add, l);
+        s.setSession(CliService.Session.TAKE);
+        s.start("m".toCharArray(), false);
+        pump(q, () -> !events.isEmpty());
+        assertEquals("busy ya está abierto false", events.get(0), "said as a busy session, not as a failure");
+        events.clear();
+        CliService t = new CliService(cli.toString(), "es", q::add, l);
+        t.setSession(CliService.Session.TAKE_BY_FORCE);
+        t.start("m".toCharArray(), false);
+        pump(q, () -> events.contains("ready"));
+        assertTrue(events.contains("ready"));
+        assertTrue(Files.readString(dir.resolve("took")).contains("--take-session"));
+        t.stop(2000);
+    }
+
+    @Test
+    void lockedWaitsForTheKeyOrThePassword() throws Exception {
+        Path cli = fakeWithSession();
+        LinkedBlockingQueue<Runnable> q = new LinkedBlockingQueue<>();
+        List<String> events = new CopyOnWriteArrayList<>();
+        CliService[] self = new CliService[1];
+        self[0] = new CliService(cli.toString(), "es", q::add, new CliService.Listener() {
+            @Override
+            public void locked(boolean keyPresent) {
+                events.add("locked " + keyPresent);
+                self[0].unlockWithPassword("bad".toCharArray());
+            }
+
+            @Override
+            public void keyPresence(boolean present) {
+                events.add("key " + present);
+            }
+
+            @Override
+            public void unlockFailed(String reason, String code) {
+                events.add("failed " + reason);
+                self[0].unlockWithPassword("good".toCharArray());
+            }
+
+            @Override
+            public void ready(java.util.Map<String, Object> ev) {
+                events.add("ready");
+            }
+        });
+        self[0].start(new char[0], false);
+        pump(q, () -> events.contains("ready"));
+        assertEquals(List.of("locked false", "key true", "failed password", "ready"), events);
+        assertEquals("dk", self[0].dataKey());
+        self[0].stop(2000);
     }
 
     @Test

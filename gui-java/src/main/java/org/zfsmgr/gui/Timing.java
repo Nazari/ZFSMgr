@@ -15,7 +15,14 @@ import java.nio.file.Path;
 public final class Timing {
     private static final long START = ManagementFactory.getRuntimeMXBean().getStartTime();
 
+    private static final boolean ON = "1".equals(System.getenv("ZFSMGR_GUI_DEBUG"));
+
     private Timing() {}
+
+    /** ZFSMGR_GUI_DEBUG=1: the measurements and the diagnosis are written; otherwise nothing. */
+    public static boolean on() {
+        return ON;
+    }
 
     /** Where the CLI services' stderr goes: zfsmgr-gui-cli.log in the temporary directory. */
     public static java.io.File cliLog() {
@@ -23,14 +30,23 @@ public final class Timing {
     }
 
     public static void request(String line, long ms, int rc) {
+        if (!ON) {
+            return;
+        }
         System.err.printf("[request] %6d ms rc=%d  %s%n", ms, rc, line);
     }
 
     public static void mark(String what) {
+        if (!ON) {
+            return;
+        }
         System.err.printf("[timing] %-22s %6d ms%n", what, System.currentTimeMillis() - START);
     }
 
     public static void memory(String what) {
+        if (!ON) {
+            return;
+        }
         Runtime rt = Runtime.getRuntime();
         long heap = (rt.totalMemory() - rt.freeMemory()) / (1024 * 1024);
         System.err.printf("[timing] %-22s rss %s MiB, heap %d MiB%n", what, rssMiB(), heap);

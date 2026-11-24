@@ -80,8 +80,10 @@ public final class StateStore {
             for (StatusModel.MachineView m : fresh) {
                 seen.append(' ').append(m.id).append(m.connected ? "" : "(disconnected)");
             }
-            System.err.println("[ls] " + fresh.size() + " machines:" + seen);
-            if (fresh.isEmpty()) {
+            if (Timing.on()) {
+                System.err.println("[ls] " + fresh.size() + " machines:" + seen);
+            }
+            if (Timing.on() && fresh.isEmpty()) {
                 String o = r.out();
                 System.err.println("[ls] stdout (" + o.length() + " chars): "
                         + o.substring(0, Math.min(400, o.length())).replace("\n", " "));

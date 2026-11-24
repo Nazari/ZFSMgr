@@ -28,8 +28,8 @@ import javax.swing.Timer;
  * <p>For tests without a screen (under Xvfb): ZFSMGR_GUI_CAPTURE=&lt;file.png&gt; saves the window
  * after ZFSMGR_GUI_CAPTURE_MS (8000) and ends; ZFSMGR_GUI_CAPTURE_SIZE=&lt;w&gt;x&lt;h&gt;.
  *
- * <p>Not in the spike: the session lock (it will be taken by {@code --serve} for the interface),
- * FIDO2 keys, the first run, and every page but «Estado».
+ * <p>ZFSMGR_GUI_DEBUG=1: timings, every request's time, and a watchdog of the Swing thread, on
+ * stderr; the CLI services' stderr always goes to zfsmgr-gui-cli.log in the temporary directory.
  */
 public final class Main {
     private Main() {}
@@ -72,8 +72,10 @@ public final class Main {
             }
             fromFd = first == null ? new char[0] : first.toCharArray();
         }
-        final char[] given = fromFd;
-        SwingUtilities.invokeLater(() -> attempt(cliPath, given));
+        // Empty unless --password-fd: the service's answer says whether a password is needed
+        // (or a touch of a key, or a first master password). See Starter.
+        final char[] given = fromFd != null ? fromFd : new char[0];
+        SwingUtilities.invokeLater(() -> new Starter(cliPath).attempt(given));
     }
 
     /** zfsmgr-cli: in the PATH, or where each installer puts it. */
@@ -99,121 +101,7 @@ public final class Main {
         return null;
     }
 
-    private static char[] askPassword(String why) {
-        JPasswordField field = new JPasswordField(24);
-        Object[] msg = why == null ? new Object[] {L("Master password", "Contraseña maestra"), field}
-                                   : new Object[] {why, L("Master password", "Contraseña maestra"), field};
-        Timing.mark("password_dialog");
-        int r = JOptionPane.showConfirmDialog(null, msg, "ZFSMgr", JOptionPane.OK_CANCEL_OPTION,
-                JOptionPane.PLAIN_MESSAGE);
-        if (r != JOptionPane.OK_OPTION) {
-            System.exit(0);
-        }
-        // From here the times are the program's again, not the person typing.
-        Timing.mark("password_given");
-        return field.getPassword();
-    }
-
-    private static void attempt(String cli, char[] given) {
-        char[] master = given != null ? given : askPassword(null);
-        if (master.length == 0) {
-            // With FIDO2 keys an empty line waits for a touch, which the spike does not handle.
-            attempt(cli, askPassword(L("The spike needs the master password.",
-                    "La prueba necesita la contraseña maestra.")));
-            return;
-        }
-        final MainWindow[] window = new MainWindow[1];
-        // Something on screen while the service starts: on Windows it can take a few seconds,
-        // and with no window at all it looked as if the program had closed.
-        javax.swing.JWindow opening = new javax.swing.JWindow();
-        javax.swing.JLabel openingText = new javax.swing.JLabel(L("Opening ZFSMgr…", "Abriendo ZFSMgr…"));
-        openingText.setBorder(javax.swing.BorderFactory.createCompoundBorder(
-                javax.swing.BorderFactory.createLineBorder(java.awt.Color.GRAY),
-                javax.swing.BorderFactory.createEmptyBorder(16, 28, 16, 28)));
-        opening.getContentPane().add(openingText);
-        opening.pack();
-        opening.setLocationRelativeTo(null);
-        opening.setVisible(true);
-        CliService.Listener listener = new CliService.Listener() {
-            @Override
-            public void ready(java.util.Map<String, Object> ev) {}
-
-            @Override
-            public void failed(String reason, boolean wrongPassword) {
-                opening.dispose();
-                if (window[0] == null) {
-                    if (wrongPassword) {
-                        SwingUtilities.invokeLater(() -> attempt(cli, askPassword(
-                                L("That is not the master password.", "Esa no es la contraseña maestra."))));
-                    } else {
-                        JOptionPane.showMessageDialog(null, reason);
-                        System.exit(1);
-                    }
-                }
-            }
-
-            @Override
-            public void confirm(CliService service, CliService.Question q) {
-                int r = JOptionPane.showConfirmDialog(window[0], q.text(), q.title(), JOptionPane.YES_NO_OPTION);
-                service.answerConfirm(q.id(), r == JOptionPane.YES_OPTION, null);
-            }
-
-            @Override
-            public void secret(CliService service, int id, String text) {
-                JPasswordField f = new JPasswordField(24);
-                int r = JOptionPane.showConfirmDialog(window[0], new Object[] {text, f}, "ZFSMgr",
-                        JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
-                service.answerSecret(id, r == JOptionPane.OK_OPTION ? f.getPassword() : null);
-            }
-
-            @Override
-            public void closeAsked(String host, String user) {
-                JOptionPane.showMessageDialog(window[0], L("%1 on %2 asked this session to close.",
-                        "%1 en %2 ha pedido que esta sesión se cierre.", user, host));
-                if (window[0] != null) {
-                    window[0].close();
-                }
-            }
-        };
-        CliService general = new CliService(cli, Text.lang(), SwingUtilities::invokeLater, new CliService.Listener() {
-            @Override
-            public void ready(java.util.Map<String, Object> ev) {
-                Timing.mark("service_ready");
-                CliService self = generalRef[0];
-                MainWindow w = new MainWindow(cli, self, listener);
-                window[0] = w;
-                showWindow(w);
-                opening.dispose();
-            }
-
-            @Override
-            public void failed(String reason, boolean wrongPassword) {
-                listener.failed(reason, wrongPassword);
-            }
-
-            @Override
-            public void confirm(CliService service, CliService.Question q) {
-                listener.confirm(service, q);
-            }
-
-            @Override
-            public void secret(CliService service, int id, String text) {
-                listener.secret(service, id, text);
-            }
-
-            @Override
-            public void closeAsked(String host, String user) {
-                listener.closeAsked(host, user);
-            }
-        });
-        generalRef[0] = general;
-        general.setPresence(true);
-        general.start(master, false);
-    }
-
-    private static final CliService[] generalRef = new CliService[1];
-
-    private static void showWindow(MainWindow w) {
+    static void showWindow(MainWindow w) {
         String size = System.getenv("ZFSMGR_GUI_CAPTURE_SIZE");
         if (size != null && size.matches("\\d+x\\d+")) {
             String[] wh = size.split("x");
@@ -232,6 +120,11 @@ public final class Main {
         });
         w.setVisible(true);
         Timing.mark("window_shown");
+        if (!Timing.on()) {
+            w.store().refresh();
+            startCapture(w);
+            return;
+        }
         System.err.println("[log] stderr of the CLI services: " + Timing.cliLog());
         // Every 5 s, from a thread of its own: whether the Swing thread still answers —if it is
         // stuck, where— and what each service is still waiting for. The spike's diagnosis of
@@ -267,6 +160,11 @@ public final class Main {
         watch.start();
         Timing.memory("window_shown");
         w.store().refresh();
+        startCapture(w);
+    }
+
+    /** ZFSMGR_GUI_CAPTURE: the window saved as an image after a while, and the end. */
+    private static void startCapture(MainWindow w) {
         String capture = System.getenv("ZFSMGR_GUI_CAPTURE");
         if (capture != null && !capture.isEmpty()) {
             int ms = 8000;

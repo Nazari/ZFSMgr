@@ -52,7 +52,27 @@ public final class CliService {
         }
 
         default void closeAsked(String host, String user) {}
+
+        /**
+         * The machine's session is someone else's ({@code --session}): {@code text} says whose,
+         * already written. {@code couldNotClose}: it was asked to close it
+         * ({@code --take-session}) and it could not.
+         */
+        default void sessionBusy(String text, boolean couldNotClose) {}
+
+        /** FIDO2 keys are registered and the first line was empty: it waits for a touch or the password. */
+        default void locked(boolean keyPresent) {}
+
+        default void touchWaiting() {}
+
+        default void keyPresence(boolean present) {}
+
+        /** {@code reason} «password» or «key»; {@code code} for a key: not_registered, pin_required… */
+        default void unlockFailed(String reason, String code) {}
     }
+
+    /** What the service does with the machine's session lock (docs/protocolo_serve.md). */
+    public enum Session { NONE, TAKE, TAKE_BY_FORCE }
 
     private static final class Pending {
         final int id;
@@ -103,9 +123,20 @@ public final class CliService {
         this.listener = listener == null ? new Listener() {} : listener;
     }
 
-    /** This one announces the interface's session to the daemons (--presence gui:<pid>). */
+    /**
+     * This one announces the interface's session to the daemons, with ITS OWN PID
+     * ({@code --presence gui}): a forced close from another machine ends this service, and the
+     * interface, which lives on it, closes.
+     */
     public void setPresence(boolean on) {
         presence = on;
+    }
+
+    private Session session = Session.NONE;
+
+    /** This one holds the machine's session lock for the interface ({@code --session}). */
+    public void setSession(Session s) {
+        session = s;
     }
 
     public String dataKey() {
@@ -132,7 +163,12 @@ public final class CliService {
         }
         if (presence) {
             args.add("--presence");
-            args.add("gui:" + ProcessHandle.current().pid());
+            args.add("gui");
+        }
+        if (session == Session.TAKE) {
+            args.add("--session");
+        } else if (session == Session.TAKE_BY_FORCE) {
+            args.add("--take-session");
         }
         try {
             // What the services write on stderr, to a file everybody can find: without it a
@@ -180,6 +216,13 @@ public final class CliService {
     public void request(String line, String format, boolean confirmed, Consumer<Result> done) {
         queue.add(new Pending(nextId++, line, format, confirmed, done));
         sendNext();
+    }
+
+    /** The master password to a LOCKED service, which also waits for a touch of a key. */
+    public void unlockWithPassword(char[] password) {
+        String p = new String(password);
+        Arrays.fill(password, '\0');
+        write(Json.write("unlock", "password", "password", p));
     }
 
     public void answerConfirm(int id, boolean yes, String typed) {
@@ -308,10 +351,20 @@ public final class CliService {
             }
             case "error" -> {
                 String text = Json.str(ev, "text");
+                String code = Json.str(ev, "code");
                 failedSaid = true;
-                listener.failed(text, text.contains("wrong master password")
-                        || text.contains("wrong data key"));
+                if (code.equals("session_busy") || code.equals("session_not_closed")) {
+                    listener.sessionBusy(text, code.equals("session_not_closed"));
+                } else {
+                    listener.failed(text, text.contains("wrong master password")
+                            || text.contains("wrong data key"));
+                }
             }
+            case "locked" -> listener.locked(Json.bool(ev, "key_present", false));
+            case "touch" -> listener.touchWaiting();
+            case "key_present" -> listener.keyPresence(true);
+            case "key_absent" -> listener.keyPresence(false);
+            case "unlock_failed" -> listener.unlockFailed(Json.str(ev, "reason"), Json.str(ev, "code"));
             case "result" -> {
                 Pending p = current;
                 current = null;
@@ -338,7 +391,7 @@ public final class CliService {
             case "secret" -> listener.secret(this, (int) Json.num(ev, "id", 0), Json.str(ev, "text"));
             case "close_asked" -> listener.closeAsked(Json.str(ev, "host"), Json.str(ev, "user"));
             default -> {
-                // locked/touch/key events: not in the spike
+                // an event this version does not know: skipped
             }
         }
     }
