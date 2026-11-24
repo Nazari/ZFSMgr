@@ -109,6 +109,8 @@ public final class Main {
         if (r != JOptionPane.OK_OPTION) {
             System.exit(0);
         }
+        // From here the times are the program's again, not the person typing.
+        Timing.mark("password_given");
         return field.getPassword();
     }
 

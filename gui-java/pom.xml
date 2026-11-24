@@ -59,6 +59,11 @@
             <manifest>
               <mainClass>org.zfsmgr.gui.Main</mainClass>
             </manifest>
+            <!-- FlatLaf loads a native library on macOS and Windows: without this, Java 24+
+                 warns about a restricted method at every start. -->
+            <manifestEntries>
+              <Enable-Native-Access>ALL-UNNAMED</Enable-Native-Access>
+            </manifestEntries>
           </archive>
         </configuration>
       </plugin>
