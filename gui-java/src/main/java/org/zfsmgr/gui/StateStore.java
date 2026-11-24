@@ -75,6 +75,18 @@ public final class StateStore {
             }
             listFailed = false;
             List<StatusModel.MachineView> fresh = StatusModel.machinesFromLs(r.out());
+            // The spike's diagnosis: which machines it read, and what came if none.
+            StringBuilder seen = new StringBuilder();
+            for (StatusModel.MachineView m : fresh) {
+                seen.append(' ').append(m.id).append(m.connected ? "" : "(disconnected)");
+            }
+            System.err.println("[ls] " + fresh.size() + " machines:" + seen);
+            if (fresh.isEmpty()) {
+                String o = r.out();
+                System.err.println("[ls] stdout (" + o.length() + " chars): "
+                        + o.substring(0, Math.min(400, o.length())).replace("\n", " "));
+                System.err.println("[ls] stderr: " + r.err().trim());
+            }
             for (StatusModel.MachineView m : fresh) {
                 for (StatusModel.MachineView old : machines) {
                     if (old.id.equals(m.id)) {

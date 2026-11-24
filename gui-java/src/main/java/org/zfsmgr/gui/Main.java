@@ -233,8 +233,38 @@ public final class Main {
         w.setVisible(true);
         Timing.mark("window_shown");
         System.err.println("[log] stderr of the CLI services: " + Timing.cliLog());
-        // Every 10 s, what each service is still waiting for: the spike's diagnosis of a hang.
-        new Timer(10_000, e -> w.waitingReport()).start();
+        // Every 5 s, from a thread of its own: whether the Swing thread still answers —if it is
+        // stuck, where— and what each service is still waiting for. The spike's diagnosis of
+        // a hang (a1278: «Updating…» forever after `ls`).
+        Thread watch = new Thread(() -> {
+            final long[] beat = {0};
+            while (true) {
+                final long posted = System.currentTimeMillis();
+                SwingUtilities.invokeLater(() -> beat[0] = System.currentTimeMillis());
+                try {
+                    Thread.sleep(5000);
+                } catch (InterruptedException ex) {
+                    return;
+                }
+                // Stuck only if what was posted 5 s ago has not run yet.
+                long late = beat[0] >= posted ? 0 : System.currentTimeMillis() - posted;
+                if (late > 4000) {
+                    System.err.println("[watch] the Swing thread has not answered for " + late + " ms:");
+                    Thread.getAllStackTraces().forEach((t, st) -> {
+                        if (t.getName().startsWith("AWT-EventQueue") || t.getName().startsWith("zfsmgr")) {
+                            System.err.println("  thread " + t.getName() + " " + t.getState());
+                            for (int i = 0; i < Math.min(25, st.length); i++) {
+                                System.err.println("    at " + st[i]);
+                            }
+                        }
+                    });
+                } else {
+                    w.waitingReport();
+                }
+            }
+        }, "zfsmgr-watch");
+        watch.setDaemon(true);
+        watch.start();
         Timing.memory("window_shown");
         w.store().refresh();
         String capture = System.getenv("ZFSMGR_GUI_CAPTURE");
