@@ -275,6 +275,9 @@ Dry run de release GitHub
   tag local existente: ${LOCAL_TAG_EXISTS}
   tag remoto existente: ${REMOTE_TAG_EXISTS}
   release existente: ${RELEASE_EXISTS}
+  pre-release: ${PRERELEASE}
+  se publica: zfsmgr-cli-${VERSION}.zip$([[ "${MAJOR}" -ge 2 ]] && printf ' y zfsmgr-%s.zip' "${VERSION}") (+ .sha256)
+  notas: $([[ -f "${PROJECT_ROOT}/docs/notas/${VERSION}.md" ]] && echo "docs/notas/${VERSION}.md" || echo "NO HAY docs/notas/${VERSION}.md")
 
 Fases previstas:
   1. Actualizar resources/CMakeLists.txt a ${VERSION}
