@@ -27,7 +27,8 @@ import javax.swing.Timer;
  *
  * <p>For tests without a screen (under Xvfb): ZFSMGR_GUI_CAPTURE=&lt;file.png&gt; saves the window
  * after ZFSMGR_GUI_CAPTURE_MS (8000) and ends; ZFSMGR_GUI_CAPTURE_SIZE=&lt;w&gt;x&lt;h&gt;;
- * ZFSMGR_GUI_PAGE=&lt;n&gt; opens on page n (0 Status … 4 Administration).
+ * ZFSMGR_GUI_PAGE=&lt;n&gt; opens on page n (0 Status … 4 Administration);
+ * ZFSMGR_GUI_OPEN=newcopy opens the new-copy wizard, and the capture is the dialog on top.
  *
  * <p>ZFSMGR_GUI_DEBUG=1: timings, every request's time, and a watchdog of the Swing thread, on
  * stderr; the CLI services' stderr always goes to zfsmgr-gui-cli.log in the temporary directory.
@@ -174,14 +175,29 @@ public final class Main {
             } catch (NumberFormatException ignored) {
                 // default
             }
+            // ZFSMGR_GUI_OPEN=newcopy: the wizard opened over the window, a while after the
+            // machines start answering; the capture is then the dialog.
+            if ("newcopy".equals(System.getenv("ZFSMGR_GUI_OPEN"))) {
+                Timer open = new Timer(Math.max(1000, ms / 2), e -> w.newCopy("", ""));
+                open.setRepeats(false);
+                open.start();
+            }
             Timer t = new Timer(ms, e -> {
+                // The dialog on top, if there is one; otherwise the window.
+                java.awt.Window shot = w;
+                for (java.awt.Window x : java.awt.Window.getWindows()) {
+                    if (x != w && x.isShowing() && x instanceof javax.swing.RootPaneContainer) {
+                        shot = x;
+                    }
+                }
+                javax.swing.JRootPane root = ((javax.swing.RootPaneContainer) shot).getRootPane();
                 // At the screen's scale, as the person sees it (HiDPI: 2x the logical size).
                 double scale = w.getGraphicsConfiguration().getDefaultTransform().getScaleX();
-                BufferedImage img = new BufferedImage((int) Math.round(w.getWidth() * scale),
-                        (int) Math.round(w.getHeight() * scale), BufferedImage.TYPE_INT_RGB);
+                BufferedImage img = new BufferedImage((int) Math.round(shot.getWidth() * scale),
+                        (int) Math.round(shot.getHeight() * scale), BufferedImage.TYPE_INT_RGB);
                 Graphics2D g = img.createGraphics();
                 g.scale(scale, scale);
-                w.getRootPane().paintAll(g);
+                root.paintAll(g);
                 g.dispose();
                 try {
                     ImageIO.write(img, "png", new File(capture));

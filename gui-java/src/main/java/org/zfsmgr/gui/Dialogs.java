@@ -195,4 +195,44 @@ public final class Dialogs {
             Arrays.fill(b, '\0');
         }
     }
+    /**
+     * How many snapshots of each class to keep; {@code null} if cancelled, otherwise the
+     * {@code schedule} options («--hourly 0 --daily 7 …»). (uikit.cpp askKeep.)
+     */
+    public static String askKeep(Component parent, String title, String note, java.util.Map<String, Object> keep) {
+        String[][] classes = {{"hourly", L("Hourly", "Por hora")}, {"daily", L("Daily", "Diarias")},
+                              {"weekly", L("Weekly", "Semanales")}, {"monthly", L("Monthly", "Mensuales")},
+                              {"yearly", L("Yearly", "Anuales")}};
+        JPanel p = new JPanel(new java.awt.GridBagLayout());
+        java.awt.GridBagConstraints c = new java.awt.GridBagConstraints();
+        c.anchor = java.awt.GridBagConstraints.WEST;
+        c.insets = new java.awt.Insets(3, 0, 3, 10);
+        int row = 0;
+        if (note != null && !note.isEmpty()) {
+            c.gridx = 0;
+            c.gridy = row++;
+            c.gridwidth = 2;
+            p.add(Ui.paragraph(note), c);
+            c.gridwidth = 1;
+        }
+        javax.swing.JSpinner[] spins = new javax.swing.JSpinner[classes.length];
+        for (int i = 0; i < classes.length; i++) {
+            spins[i] = new javax.swing.JSpinner(new javax.swing.SpinnerNumberModel(
+                    (int) Json.num(keep, classes[i][0], 0), 0, 999, 1));
+            c.gridy = row++;
+            c.gridx = 0;
+            p.add(new javax.swing.JLabel(classes[i][1]), c);
+            c.gridx = 1;
+            p.add(spins[i], c);
+        }
+        if (javax.swing.JOptionPane.showConfirmDialog(parent, p, title, javax.swing.JOptionPane.OK_CANCEL_OPTION,
+                javax.swing.JOptionPane.PLAIN_MESSAGE) != javax.swing.JOptionPane.OK_OPTION) {
+            return null;
+        }
+        List<String> flags = new java.util.ArrayList<>();
+        for (int i = 0; i < classes.length; i++) {
+            flags.add("--" + classes[i][0] + " " + spins[i].getValue());
+        }
+        return String.join(" ", flags);
+    }
 }

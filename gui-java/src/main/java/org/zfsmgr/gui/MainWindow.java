@@ -77,9 +77,10 @@ public final class MainWindow extends JFrame {
         CardLayout cards = new CardLayout();
         JPanel content = new JPanel(cards);
         content.add(new StatusPage(store), pages[0]);
+        content.add(new CopiesPage(store, this::say, () -> newCopy("", "")), pages[1]);
         content.add(new JobsPage(store, this::say), pages[3]);
         for (int i = 1; i < pages.length; i++) {
-            if (i == 3) {
+            if (i == 1 || i == 3) {
                 continue;
             }
             JPanel p = new JPanel(new BorderLayout());
@@ -110,6 +111,15 @@ public final class MainWindow extends JFrame {
         getContentPane().add(statusLine, BorderLayout.SOUTH);
         setSize(1100, 760);
         setLocationByPlatform(true);
+    }
+
+    /** The new-copy wizard, with this dataset chosen when both are given. */
+    public void newCopy(String machine, String dataset) {
+        NewCopyWizard w = new NewCopyWizard(this, store, store::refresh);
+        if (!dataset.isEmpty()) {
+            w.preselect(machine, dataset);
+        }
+        w.setVisible(true);
     }
 
     public StateStore store() {
