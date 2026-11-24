@@ -238,6 +238,8 @@ void recarga(Estado& e);
 // The network's configuration (network_sync.h): at start, catch up and publish what is pending;
 // after each command, publish what it wrote. Nothing outside a network.
 void redAlArrancar(Estado& e);
+// The id of THIS computer's connection (type LOCAL), or empty if it has none (a client only).
+std::string idDeEsteOrdenador(const Estado& e);
 void redTrasOrden(Estado& e);
 bool sshClaveFalta(const B::ConnectionProfile& p, std::string& ruta);
 bool estaApartada(const Estado& e, const std::string& id);

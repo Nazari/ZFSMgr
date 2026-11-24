@@ -23,6 +23,10 @@ bool tieneRed(const std::string& dirConfig);
 // `dir` IS a network's directory (it holds network.json).
 bool esDirDeRed(const std::string& dir);
 
+// For each machine with several addresses, the first that answers from here becomes this
+// computer's preferred one (local.json), and the files are rematerialised. True if any changed.
+bool eligeDirecciones(const std::string& dir);
+
 // At start, with the secrets open: asks the daemons for a newer revision and adopts it if its
 // HMAC verifies. True when the files changed (the connections must be loaded again). `aviso`:
 // a daemon served something that does not verify, or similar, for the person.

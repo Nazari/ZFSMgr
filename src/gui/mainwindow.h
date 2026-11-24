@@ -58,7 +58,7 @@ private:
     void askSecret(CliService* s, int id, const QString& text);
     void firstRunStep();
     // The step's check of this computer, when it has a Local connection.
-    void probeHere();
+    void probeHere(const QString& id);
     void firstRunDone(const QString& note);
     void choose(const QString& text, const QString& yes, const QString& no,
                 std::function<void(bool)> done);

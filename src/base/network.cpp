@@ -306,6 +306,11 @@ void toClientConfig(const Document& d, const LocalSettings& local, const std::st
             host = p->second;
         }
         c.set("host", J::Value(here ? std::string("localhost") : host));
+        J::Array addrs;
+        for (const std::string& a : m.addresses) {
+            addrs.push_back(J::Value(a));
+        }
+        c.set("addresses", J::Value(addrs));
         c.set("port", J::Value(here ? 0 : m.sshPort));
         c.set("machine_uid", J::Value(m.uid));
         c.set("username", J::Value(m.sshUser));
@@ -374,6 +379,16 @@ Document fromMaterialized(const Document& base, const J::Value& config, const J:
         m.name = c["name"].toString(id).empty() ? id : c["name"].toString(id);
         m.os = c["os_type"].toString();
         const bool isLocal = toUpperAscii(c["conn_type"].toString()) == "LOCAL";
+        // The whole list, edited here (`edit --addresses`): it replaces the network's.
+        std::vector<std::string> lista;
+        for (const J::Value& a : c["addresses"].toArray()) {
+            if (!trim(a.toString()).empty()) {
+                lista.push_back(trim(a.toString()));
+            }
+        }
+        if (!lista.empty()) {
+            m.addresses = lista;
+        }
         const std::string host = trim(c["host"].toString());
         const auto pref = local.preferredAddress.find(uid);
         const bool onlyPreferred = pref != local.preferredAddress.end() && pref->second == host;

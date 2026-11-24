@@ -591,7 +591,9 @@ void detail::redAlArrancar(Estado& e) {
         return;
     }
     std::string aviso;
-    if (sincronizaRed(*e.ses, e.conns, aviso)) {
+    bool cambio = sincronizaRed(*e.ses, e.conns, aviso);
+    cambio = eligeDirecciones(e.ses->dirConfig) || cambio;
+    if (cambio) {
         recarga(e);
     }
     if (!aviso.empty()) {
@@ -605,6 +607,15 @@ void detail::redAlArrancar(Estado& e) {
         std::fprintf(stderr, "%s\n", aviso.c_str());
     }
     e.generacionVista = B::store::writeGeneration();
+}
+
+std::string detail::idDeEsteOrdenador(const Estado& e) {
+    for (const auto& p : e.conns.perfiles) {
+        if (B::toUpperAscii(p.connType) == "LOCAL") {
+            return p.id.empty() ? p.name : p.id;
+        }
+    }
+    return {};
 }
 
 void detail::redTrasOrden(Estado& e) {

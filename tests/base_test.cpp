@@ -1083,7 +1083,8 @@ void caso29() {
         std::vector<zfsmgr::base::ConnectionProfile> sinLocal;
         CJ::ensureLocalProfile(sinLocal, "uid-de-esta-maquina");
         comprobar(sinLocal.size() == 1, "local: se sintetiza cuando no hay ninguno");
-        igual(sinLocal.at(0).id, "local", "local: con el identificador reservado");
+        igual(sinLocal.at(0).id, zfsmgr::base::session::hostName(),
+              "local: llamada como este ordenador, no «local» (red única)");
         igual(sinLocal.at(0).connType, "LOCAL", "local: y su tipo");
         igual(sinLocal.at(0).machineUid, "uid-de-esta-maquina", "local: con el uid que le dan");
         comprobar(!sinLocal.at(0).osType.empty(), "local: y el sistema de ESTA maquina");
@@ -1095,7 +1096,7 @@ void caso29() {
         remota.id = "unibody"; remota.name = "Unibody"; remota.connType = "SSH";
         conOtra.push_back(remota);
         CJ::ensureLocalProfile(conOtra, "uid");
-        igual(conOtra.at(0).id, "local", "local: se pone la primera");
+        igual(conOtra.at(0).id, zfsmgr::base::session::hostName(), "local: se pone la primera");
         comprobar(conOtra.size() == 2, "local: sin tocar las demas");
 
         // Y si YA esta, se le corrigen los datos de la maquina en vez de duplicarlo: un

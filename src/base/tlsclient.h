@@ -96,6 +96,10 @@ bool tlsRequestLine(const TlsClientConfig& cfg,
 // Checked BEFORE anything is built. Finding out inside the TLS handshake would cost the whole
 // tunnel —almost a second— and, worse, the failure would read as a network problem when what
 // is going on is that the stored material is unusable.
+// Whether something answers TCP at host:port within `timeoutMs`, name resolution included: which
+// of a machine's addresses is reachable from here (network_sync.h).
+bool tcpReachable(const std::string& host, unsigned short port, int timeoutMs);
+
 bool pemCertificateIsValid(const std::string& pem);
 bool pemPrivateKeyIsValid(const std::string& pem);
 

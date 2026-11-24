@@ -596,7 +596,7 @@ void MachinesPage::showMachine(const QString& id) {
 
     // Its address can change —a machine moved to another network, or reached through Tailscale
     // now—. Removing it and adding it again was the only way, and lost its stored password.
-    if (id.compare(QStringLiteral("local"), Qt::CaseInsensitive) != 0) {
+    {
         auto* where = button(L("Change its address…", "Cambiar su dirección…"), w);
         where->setToolTip(
             L("Where ZFSMgr finds it: host, SSH port and user. Nothing on the "
@@ -1500,6 +1500,19 @@ void MachinesPage::changeAddress(const QString& id) {
             Q_EMIT message(r.ok() ? L("That machine is no longer configured.",
                                       "Esa máquina ya no está en la configuración.")
                                   : r.err.trimmed());
+            return;
+        }
+        // This computer is reached at its addresses by the OTHERS: they are changed from one of
+        // them (or with `edit --addresses` in the CLI).
+        if (conn.value(QStringLiteral("type"))
+                .toString()
+                .compare(QStringLiteral("LOCAL"), Qt::CaseInsensitive)
+            == 0) {
+            Q_EMIT message(
+                L("This computer's address is changed from another computer of the "
+                  "network.",
+                  "La dirección de este ordenador se cambia desde otro ordenador de la "
+                  "red."));
             return;
         }
         auto* d = new QDialog(this);

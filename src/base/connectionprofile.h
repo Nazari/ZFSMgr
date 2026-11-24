@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 // The data of one connection, without Qt.
 //
@@ -20,6 +21,9 @@ struct ConnectionProfile {
     std::string connType;
     std::string osType;
     std::string host;
+    // Every address the machine is reached at, in order (network.h); `host` is the one used
+    // from this computer. Empty outside a network: only `host`.
+    std::vector<std::string> addresses;
     int port{0};
     std::string sshAddressFamily;
     std::string username;

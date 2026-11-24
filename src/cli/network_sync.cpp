@@ -8,6 +8,7 @@
 #include "sessionlock.h"
 #include "storefiles.h"
 #include "strutil.h"
+#include "tlsclient.h"
 #include "tr.h"
 
 #include <cstdio>
@@ -15,6 +16,7 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <thread>
 
 namespace zfsmgr::cli {
 
@@ -160,6 +162,60 @@ bool esDirDeRed(const std::string& dir) {
 
 bool tieneRed(const std::string& dirConfig) {
     return esDirDeRed(dirDeRed(dirConfig));
+}
+
+bool eligeDirecciones(const std::string& dir) {
+    NW::Document d;
+    if (!leeDoc(dir, d)) {
+        return false;
+    }
+    NW::LocalSettings local = leeLocal(dir);
+    const std::string yo = B::osinfo::machineUuid();
+    // Each machine with more than one address, in parallel: the first, in order, that answers
+    // on its SSH port. A machine that answers nowhere keeps what it had.
+    std::vector<std::string> elegida(d.machines.size());
+    std::vector<std::thread> hilos;
+    for (std::size_t i = 0; i < d.machines.size(); ++i) {
+        const NW::Machine& m = d.machines[i];
+        if (m.uid == yo || m.addresses.size() < 2) {
+            continue;
+        }
+        hilos.emplace_back([&elegida, &m, i] {
+            for (const std::string& a : m.addresses) {
+                if (B::tcpReachable(a, static_cast<unsigned short>(m.sshPort), 1500)) {
+                    elegida[i] = a;
+                    return;
+                }
+            }
+        });
+    }
+    for (auto& h : hilos) {
+        h.join();
+    }
+    bool cambia = false;
+    for (std::size_t i = 0; i < d.machines.size(); ++i) {
+        const NW::Machine& m = d.machines[i];
+        if (elegida[i].empty()) {
+            continue;
+        }
+        const auto p = local.preferredAddress.find(m.uid);
+        const std::string ahora =
+            p != local.preferredAddress.end() ? p->second : m.addresses.front();
+        if (ahora == elegida[i]) {
+            continue;
+        }
+        if (elegida[i] == m.addresses.front()) {
+            local.preferredAddress.erase(m.uid);
+        } else {
+            local.preferredAddress[m.uid] = elegida[i];
+        }
+        cambia = true;
+    }
+    if (cambia) {
+        guardaLocal(dir, local);
+        materializa(dir, d, local);
+    }
+    return cambia;
 }
 
 bool sincronizaRed(Sesion& ses, const Conexiones& conns, std::string& aviso) {

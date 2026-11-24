@@ -52,7 +52,7 @@ bool cmdCp(Estado& e, const LineaAnalizada& linea) {
             }
         }
         const CS::Reading r =
-            CS::readEnd(texto, u, idLocal.empty() ? std::string("local") : idLocal);
+            CS::readEnd(texto, u, idLocal.empty() ? idDeEsteOrdenador(e) : idLocal);
         if (!r.ok()) {
             std::fprintf(stderr, "%s: %s\n", cual, CS::labelOf(r.failure).c_str());
             return false;

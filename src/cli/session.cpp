@@ -695,20 +695,23 @@ std::string motivoSinTlsLocal(const B::ConnectionProfile& p, const B::transport:
               "contraseña (en macOS, un certificado PIV asociado a la cuenta, como el de una "
               "YubiKey): desconéctala mientras ZFSMgr use sudo allí, o desasocia el certificado "
               "de la cuenta con «sc_auth unpair»"),
-            {std::string("local")});
+            {p.id.empty() ? p.name : p.id});
     }
     const bool sinSudo = a.warning == A::LocalTlsNeedsSudo
                          || (a.warning == A::LocalTlsCannotBeRead && B::trim(p.password).empty());
     if (sinSudo) {
-        return T("t_tls_local_sin_sudo",
-                 "falta la contraseña de sudo de este ordenador, y sin ella no se puede hablar "
-                 "con su daemon: «edit zfsm://local --sudo» la guarda (en la ventana: "
-                 "Máquinas → Local → «Dar la contraseña de sudo…»)");
+        return B::format(
+            T("t_tls_local_sin_sudo2",
+              "falta la contraseña de sudo de este ordenador, y sin ella no se puede hablar con "
+              "su daemon: «edit zfsm://%1 --sudo» la guarda (en la ventana: Máquinas → %1 → «Dar "
+              "la contraseña de sudo…»)"),
+            {p.id.empty() ? p.name : p.id});
     }
     if (a.warning == A::LocalTlsIncomplete || a.warning == A::LocalTlsUnreadable) {
-        return T("t_tls_local_sin_daemon",
-                 "este ordenador no tiene el daemon de ZFSMgr instalado, o le falta su "
-                 "material TLS: «install-daemon --on zfsm://local» lo instala");
+        return B::format(T("t_tls_local_sin_daemon2",
+                           "este ordenador no tiene el daemon de ZFSMgr instalado, o le falta su "
+                           "material TLS: «install-daemon --on zfsm://%1» lo instala"),
+                         {p.id.empty() ? p.name : p.id});
     }
     if (!a.empty()) {
         return textoDeAviso(a);

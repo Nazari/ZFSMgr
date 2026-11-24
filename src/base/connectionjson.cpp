@@ -1,5 +1,7 @@
 #include "connectionjson.h"
 
+#include "sessionlock.h"
+
 #include "secretcipher.h"
 #include "strutil.h"
 
@@ -118,6 +120,13 @@ json::Value baseComun(const ConnectionProfile& inProfile, const std::string& uid
     obj.set("conn_type", json::Value(trim(p.connType).empty() ? std::string("SSH") : trim(p.connType)));
     obj.set("os_type", json::Value(trim(p.osType).empty() ? std::string("Linux") : trim(p.osType)));
     obj.set("host", json::Value(trim(p.host)));
+    if (!p.addresses.empty()) {
+        json::Array a;
+        for (const std::string& x : p.addresses) {
+            a.push_back(json::Value(x));
+        }
+        obj.set("addresses", json::Value(a));
+    }
     obj.set("port", json::Value(ensurePort(p.connType, p.port)));
     obj.set("ssh_address_family",
             json::Value((sshFamily == "ipv4" || sshFamily == "ipv6") ? sshFamily
@@ -159,6 +168,11 @@ ConnectionProfile connectionFromJson(const json::Value& obj, const std::string& 
     p.connType = leeCadena(obj, "conn_type");
     p.osType = leeCadena(obj, "os_type");
     p.host = leeCadena(obj, "host");
+    for (const json::Value& a : obj["addresses"].toArray()) {
+        if (!trim(a.toString()).empty()) {
+            p.addresses.push_back(trim(a.toString()));
+        }
+    }
     p.port = static_cast<int>(obj["port"].isNumber() ? obj["port"].toInt() : 22);
     p.sshAddressFamily = toLowerAscii(trim(leeCadena(obj, "ssh_address_family", "auto")));
     p.username = leeCadena(obj, "username");
@@ -388,9 +402,14 @@ void ensureLocalProfile(std::vector<ConnectionProfile>& perfiles, const std::str
         p.useSudo = shouldForceLocalSudo(p);
         return;
     }
+    // Called by THIS computer's name, as every machine is in a network (docs/diseno_red_unica.md):
+    // there is no «local» any more.
     ConnectionProfile local;
-    local.id = "local";
-    local.name = "Local";
+    local.id = zfsmgr::base::session::hostName();
+    if (local.id.empty()) {
+        local.id = "localhost";
+    }
+    local.name = local.id;
     local.machineUid = maquinaUid;
     local.connType = "LOCAL";
     local.port = 0;

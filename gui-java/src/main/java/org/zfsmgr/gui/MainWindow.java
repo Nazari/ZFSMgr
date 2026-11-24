@@ -196,9 +196,11 @@ public final class MainWindow extends JFrame {
     public void startFirstRun() {
         general.request("ls zfsm://", l -> {
             boolean hasLocal = false;
+            String localId = "";
             for (Map<String, Object> c : Json.objects(Json.firstObject(l.out()), "connections")) {
                 if (Json.str(c, "type").equalsIgnoreCase("LOCAL")) {
                     hasLocal = true;
+                    localId = Json.str(c, "id");
                 }
             }
             if (l.ok() && !hasLocal) {
@@ -206,12 +208,14 @@ public final class MainWindow extends JFrame {
                         "Este ordenador no tiene un OpenZFS que ZFSMgr pueda manejar: será el mando de tus otras máquinas."));
                 return;
             }
-            probeHere();
+            final String here = localId;
+            probeHere(here);
         });
     }
 
-    private void probeHere() {
-        general.request("probe zfsm://local", r -> {
+    /** THIS computer's connection, by its name: there is no «local» (docs/diseno_red_unica.md). */
+    private void probeHere(String id) {
+        general.request("probe zfsm://" + id, r -> {
             Map<String, Object> p = Json.firstObject(r.out());
             if (p.isEmpty()) {
                 firstRunDone(r.err().trim());
@@ -244,14 +248,14 @@ public final class MainWindow extends JFrame {
                         "Este ordenador tiene OpenZFS %1. Para manejar sus pools ZFSMgr necesita tu contraseña de sudo de aquí. Se guarda cifrada con la contraseña maestra.",
                         Json.str(p, "openzfs_version")), L("Give the sudo password…", "Dar la contraseña de sudo…"))) {
                     // The CLI asks for it (a secret event): never on a command line.
-                    general.request("edit zfsm://local --sudo", e -> {
+                    general.request("edit zfsm://" + id + " --sudo", e -> {
                         if (!e.ok()) {
                             say(e.err().trim());
                         }
-                        probeHere();
+                        probeHere(id);
                     });
                 } else {
-                    probeHere();
+                    probeHere(id);
                 }
                 return;
             }
@@ -260,14 +264,14 @@ public final class MainWindow extends JFrame {
                 if (yes(L("This computer has no ZFSMgr daemon, or it does not answer. It is the service that does the ZFS work here, and what lets other machines copy to and from it. Install it now?",
                         "Este ordenador no tiene el daemon de ZFSMgr, o no responde. Es el servicio que hace aquí el trabajo con ZFS, y el que deja a otras máquinas copiar hacia y desde él. ¿Instalarlo ahora?"),
                         L("Install it", "Instalarlo"))) {
-                    general.request("install-daemon --on zfsm://local", e -> {
+                    general.request("install-daemon --on zfsm://" + id, e -> {
                         if (!e.ok()) {
                             say(e.err().trim());
                         }
-                        probeHere();
+                        probeHere(id);
                     });
                 } else {
-                    probeHere();
+                    probeHere(id);
                 }
                 return;
             }

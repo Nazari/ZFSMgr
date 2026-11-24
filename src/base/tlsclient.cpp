@@ -234,6 +234,16 @@ EVP_PKEY* leeClave(const std::string& pem) {
 
 }  // namespace
 
+bool tcpReachable(const std::string& host, unsigned short port, int timeoutMs) {
+    std::string error;
+    const SockT s = conecta(host, port, timeoutMs, error);
+    if (s == kSockInvalido) {
+        return false;
+    }
+    cierra(s);
+    return true;
+}
+
 bool pemCertificateIsValid(const std::string& pem) {
     X509* c = leeCertificado(pem);
     if (!c) {

@@ -586,6 +586,18 @@ bool cmdEditarConexion(Estado& e, const Peticion& pet, const ZfsmUrl& destino) {
     if (B::toLowerAscii(p.connType) != "local") {
         if (!toma("host", p.host, "Host"))
             return false;
+        // Every address, in order (network.h): each computer uses the first that answers.
+        if (const std::string lista = pet.valor("addresses"); !lista.empty()) {
+            p.addresses.clear();
+            for (const std::string& x : B::split(lista, ",", true)) {
+                if (!B::trim(x).empty()) {
+                    p.addresses.push_back(B::trim(x));
+                }
+            }
+            if (!p.addresses.empty()) {
+                p.host = p.addresses.front();
+            }
+        }
         if (!toma("user", p.username, "Usuario"))
             return false;
         if (!toma("key", p.keyPath, "Ruta de clave SSH"))

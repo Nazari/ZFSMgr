@@ -146,6 +146,7 @@ void MainWindow::firstRunStep() {
     m_general->request(QStringLiteral("ls zfsm://"), this, [this](const CliResult& l) {
         const qsizetype at = l.out.indexOf(QLatin1Char('{'));
         bool hasLocal = false;
+        QString localId;
         for (const QJsonValue& v :
              (at < 0 ? QJsonObject() : QJsonDocument::fromJson(l.out.mid(at).toUtf8()).object())
                  .value(QStringLiteral("connections"))
@@ -156,6 +157,7 @@ void MainWindow::firstRunStep() {
                     .compare(QStringLiteral("LOCAL"), Qt::CaseInsensitive)
                 == 0) {
                 hasLocal = true;
+                localId = v.toObject().value(QStringLiteral("id")).toString();
             }
         }
         if (l.ok() && !hasLocal) {
@@ -166,12 +168,13 @@ void MainWindow::firstRunStep() {
                   "el mando de tus otras máquinas. Añade la primera con «+ Añadir»."));
             return;
         }
-        probeHere();
+        probeHere(localId);
     });
 }
 
-void MainWindow::probeHere() {
-    m_general->request(QStringLiteral("probe zfsm://local"), this, [this](const CliResult& r) {
+// THIS computer's connection, by its name: there is no «local» (docs/diseno_red_unica.md).
+void MainWindow::probeHere(const QString& id) {
+    m_general->request(QStringLiteral("probe zfsm://") + id, this, [this, id](const CliResult& r) {
         const qsizetype at = r.out.indexOf(QLatin1Char('{'));
         const QJsonObject p =
             at < 0 ? QJsonObject() : QJsonDocument::fromJson(r.out.mid(at).toUtf8()).object();
@@ -199,20 +202,21 @@ void MainWindow::probeHere() {
                      "maestra.")
                        .arg(p.value(QStringLiteral("openzfs_version")).toString()),
                    L("Give the sudo password…", "Dar la contraseña de sudo…"),
-                   L("Not now", "Ahora no"), [this](bool yes) {
+                   L("Not now", "Ahora no"), [this, id](bool yes) {
                        if (!yes) {
                            firstRunStep();
                            return;
                        }
                        // The CLI asks for it (a secret event): the password never goes on a
                        // command line.
-                       m_general->request(QStringLiteral("edit zfsm://local --sudo"), this,
-                                          [this](const CliResult& e) {
-                                              if (!e.ok()) {
-                                                  statusBar()->showMessage(e.err.trimmed(), 15000);
-                                              }
-                                              firstRunStep();
-                                          });
+                       m_general->request(
+                           QStringLiteral("edit zfsm://") + id + QStringLiteral(" --sudo"), this,
+                           [this](const CliResult& e) {
+                               if (!e.ok()) {
+                                   statusBar()->showMessage(e.err.trimmed(), 15000);
+                               }
+                               firstRunStep();
+                           });
                    });
             return;
         }
@@ -225,12 +229,12 @@ void MainWindow::probeHere() {
                      "Este ordenador no tiene el daemon de ZFSMgr, o no responde. Es el "
                      "servicio que hace aquí el trabajo con ZFS, y el que deja a otras "
                      "máquinas copiar hacia y desde él. ¿Instalarlo ahora?"),
-                   L("Install it", "Instalarlo"), L("Not now", "Ahora no"), [this](bool yes) {
+                   L("Install it", "Instalarlo"), L("Not now", "Ahora no"), [this, id](bool yes) {
                        if (!yes) {
                            firstRunStep();
                            return;
                        }
-                       m_general->request(QStringLiteral("install-daemon --on zfsm://local"), this,
+                       m_general->request(QStringLiteral("install-daemon --on zfsm://") + id, this,
                                           [this](const CliResult& e) {
                                               if (!e.ok()) {
                                                   statusBar()->showMessage(e.err.trimmed(), 15000);

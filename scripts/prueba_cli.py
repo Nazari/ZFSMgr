@@ -84,6 +84,20 @@ def sh(ctx, orden, en_remoto=False, root=False):
     return p.returncode, (p.stdout + err)
 
 
+# The name of THIS computer's connection. It was «local»; in a network every machine goes by its
+# name (docs/diseno_red_unica.md) and there is no «local». Found at start (main) from `ls zfsm://`;
+# the commands the cases send say «zfsm://local» and «cd local», and `en_esta()` turns them into
+# this computer's name. Outside a network it stays «local» and nothing changes.
+LOC = "local"
+
+
+def en_esta(texto):
+    if LOC == "local":
+        return texto
+    texto = re.sub(r"zfsm://local(?=$|[/#$*\s\"'])", "zfsm://" + LOC, texto)
+    return re.sub(r"(^|\n|\s)cd local(?=$|[/\s\t<])", lambda m: m.group(1) + "cd " + LOC, texto)
+
+
 def cli(ctx, ordenes, timeout=180, idioma=None, frase=None):
     """Manda órdenes al intérprete y devuelve (rc, salida).
 
@@ -93,7 +107,7 @@ def cli(ctx, ordenes, timeout=180, idioma=None, frase=None):
     mutaciones fallaban mientras las lecturas parecían ir bien, que es el peor síntoma
     posible porque no se lee como un fallo de autenticación.
     """
-    guion = "\n".join(ordenes) + "\nexit\n"
+    guion = en_esta("\n".join(ordenes)) + "\nexit\n"
     fichero = os.path.join(ctx.dir_tmp, ".maestra")
     # El IDIOMA, cuando el caso depende de él.
     #
@@ -136,7 +150,7 @@ def caso_argv(ctx, nombre, args, espera=(), no_espera=(), rc=None):
     puesto; como el intérprete nunca llega a arrancar en ese camino, ningún caso de los de
     arriba podía verlo.
     """
-    p = subprocess.run([CLI] + list(args), capture_output=True, text=True, timeout=60)
+    p = subprocess.run([CLI] + [en_esta(a) for a in args], capture_output=True, text=True, timeout=60)
     salida = p.stdout + p.stderr
     problemas = []
     if rc is not None and p.returncode != rc:
@@ -2019,6 +2033,24 @@ def casos_red_cliente(ctx):
             hosts = [c.get("host") for c in json.load(f)["connections"] if c.get("machine_uid") == "u-lejana"]
         comprueba("red: el primer cliente lo encuentra al arrancar",
                   [] if hosts == ["otra.lan"] else [f"hosts={hosts}"], salida)
+        # Several addresses (3e): the list is edited in one client; the other, at start, uses the
+        # first one that answers from here —127.0.0.1, after one that does not exist— without
+        # changing the network.
+        rc, salida = cli_en(clientes["c2"], "B", "\nedit zfsm://lejana --addresses no-existe.invalid,127.0.0.1")
+        fin = time.time() + 8
+        while time.time() < fin and red_de("A").get("revision") != 3:
+            time.sleep(0.3)
+        direcciones = [m.get("addresses") for m in red_de("A").get("machines", []) if m.get("uid") == "u-lejana"]
+        comprueba("red: la lista de direcciones se edita y se publica",
+                  [] if direcciones == [["no-existe.invalid", "127.0.0.1"]] else [f"dir={direcciones}"], salida)
+        rc, salida = cli_en(clientes["c1"], "A", "\nformat json\nls zfsm://")
+        with open(os.path.join(clientes["c1"], "network", "config.json")) as f:
+            hosts = [c.get("host") for c in json.load(f)["connections"] if c.get("machine_uid") == "u-lejana"]
+        with open(os.path.join(clientes["c1"], "network", "local.json")) as f:
+            pref = json.load(f).get("preferred_address", {}).get("u-lejana")
+        comprueba("red: cada ordenador usa la primera dirección que le responde, sin cambiar la red",
+                  [] if hosts == ["127.0.0.1"] and pref == "127.0.0.1" and red_de("A").get("revision") == 3
+                  else [f"hosts={hosts} pref={pref} rev={red_de('A').get('revision')}"], salida)
     finally:
         for p in procesos.values():
             try:
@@ -2279,7 +2311,7 @@ def casos_servicio(ctx):
 
     def pide(i, linea, respuesta=None):
         """Manda una orden; devuelve (resultado, preguntas recibidas)."""
-        p.stdin.write(json.dumps({"id": i, "line": linea}) + "\n")
+        p.stdin.write(json.dumps({"id": i, "line": en_esta(linea)}) + "\n")
         p.stdin.flush()
         preguntas = []
         while True:
@@ -4590,6 +4622,16 @@ def main():
     # The battery's own session lock: the interface somebody has open on this machine would
     # otherwise stop every shell the battery opens on a terminal (casos_sesion_unica).
     os.environ["ZFSMGR_SESSION_LOCK"] = os.path.join(ctx.dir_tmp, "session.lock")
+    # This computer's connection, by its name (see LOC).
+    global LOC
+    try:
+        _, salida = cli(ctx, ["format json", "ls zfsm://"])
+        for c in json_de(salida).get("connections", []):
+            if str(c.get("type", "")).upper() == "LOCAL":
+                LOC = c.get("id") or LOC
+    except Exception:
+        pass
+    print(f"  (la conexión de este ordenador: {LOC})")
 
     if not os.path.exists(CLI):
         raise SystemExit(f"no está {CLI}")

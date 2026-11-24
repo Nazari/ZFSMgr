@@ -366,6 +366,8 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
        {"t_ej_edit_family", "ssh solo por IPv4"}},
       {"edit --no-key",
        {"t_ej_edit_no_key", "sin clave SSH: entra con contraseña"}},
+      {"edit --addresses freeb,192.168.122.119",
+       {"t_ej_edit_addresses", "por su nombre, y si no responde, por la IP"}},
       {"edit --host 100.69.204.24 --keep-password",
        {"t_ej_edit_keep_pw", "otra dirección, sin tocar la contraseña"}},
       {"edit casa --user admin --password",
@@ -1108,6 +1110,8 @@ const std::vector<Orden> kOrdenes = {
       {{"t_edit_no_key", "--no-key"}, {"t_edit_no_key_q", "Quita la clave SSH: se entra con contraseña."}},
       {{"t_password_76e3cd", "--password"}, {"t_pide_una_c_dbc5c6", "Ya no hace falta: la contraseña se pregunta siempre, e Intro conserva la guardada."}},
       {{"t_edit_pfd", "--password-fd <n>"}, {"t_edit_pfd_q", "La contraseña, por descriptor."}},
+      {{"t_edit_addresses", "--addresses <a,b,…>"},
+       {"t_edit_addresses_q", "Todas las direcciones de la máquina, en orden: cada ordenador usa la primera que le responde."}},
       {{"t_edit_keep_pw", "--keep-password"},
        {"t_edit_keep_pw_q", "No pregunta la contraseña: conserva la guardada."}}},
      {{"t_edit_det_local", "Sobre la conexión LOCAL, esto es lo que cambia las credenciales de sudo de "
@@ -1490,7 +1494,7 @@ const std::vector<Orden> kOrdenes = {
        "las copias están verificadas: si algo falla a mitad, lo original sigue intacto. Por "
        "eso conviene dejarlo como TRABAJO —sin --wait— cuando hay volumen: se sigue con "
        "«job <id>» y el intérprete queda libre."},
-      {"t_bd_det4", "Ejemplo, estando en zfsm://local/tank/media:\n"
+      {"t_bd_det5", "Ejemplo, estando en zfsm://fc16/tank/media:\n"
        "  breakdown fotos fotos videos videos\n"
        "deja tank/media/fotos y tank/media/videos donde había dos directorios."},
       {"t_bd_det5", "Con el dataset SIN MONTAR —un sistema arrancable con mountpoint=/, que no se puede "
