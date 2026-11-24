@@ -3,7 +3,9 @@
 // Adding a machine: how to reach it, and then what is there. It runs `create` without --os
 // —the CLI asks the machine which system it is—, and the password, if any, is asked by the
 // CLI as a `secret` event: it never goes on a command line. Then `probe` says whether it
-// works, and if its daemon is missing the dialog offers to install it.
+// works, and if its daemon is missing the dialog offers to install it. Once its daemon
+// answers, it gets the keys of all the others and gives it to all of them (keys.h): a machine
+// is added to work with it.
 
 #include <QDialog>
 
@@ -41,6 +43,7 @@ private:
     QPushButton* m_go{nullptr};
     QPushButton* m_install{nullptr};
     QString m_created;  // the id, once created
+    bool m_keysGiven{false};
 };
 
 // Quotes a value for a command line when it has spaces: «"/home/x/my key"».

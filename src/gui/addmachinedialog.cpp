@@ -1,6 +1,7 @@
 #include "addmachinedialog.h"
 
 #include "cliservice.h"
+#include "keys.h"
 #include "statestore.h"
 #include "text.h"
 #include "uikit.h"
@@ -188,6 +189,27 @@ void AddMachineDialog::probe() {
             m_install->setVisible(
                 p.value(QStringLiteral("reachable")).toBool()
                 && (daemon == QLatin1String("unreachable") || daemon == QLatin1String("outdated")));
+            // Its daemon answers: the keys, both ways, once.
+            const bool answers = daemon == QLatin1String("ok") || daemon == QLatin1String("latest")
+                                 || daemon == QLatin1String("ahead");
+            if (answers && !m_keysGiven) {
+                m_keysGiven = true;
+                m_result->setText(m_result->text() + QLatin1Char('\n')
+                                  + L("Giving it the keys of the others, and its key to them…",
+                                      "Dándole las llaves de las demás, y la suya a ellas…"));
+                giveAllKeys(m_store, this,
+                            [this, before = lines.join(QLatin1Char('\n'))](
+                                const QStringList& given, const QStringList& failed) {
+                                QString keys =
+                                    L("Keys given to %1.", "Llaves entregadas a %1.")
+                                        .arg(given.isEmpty() ? QStringLiteral("-")
+                                                             : given.join(QStringLiteral(", ")));
+                                for (const QString& f : failed) {
+                                    keys += QStringLiteral("\n✕ ") + f;
+                                }
+                                m_result->setText(before + QLatin1Char('\n') + keys);
+                            });
+            }
         });
 }
 

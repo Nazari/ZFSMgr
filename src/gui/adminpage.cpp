@@ -3,6 +3,7 @@
 #include "addmachinedialog.h"
 #include "buildstamp.h"
 #include "cliservice.h"
+#include "keys.h"
 #include "statestore.h"
 #include "text.h"
 #include "uikit.h"
@@ -19,7 +20,6 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QInputDialog>
-#include <QMenu>
 #include <QMessageBox>
 #include <QPointer>
 #include <QPushButton>
@@ -343,20 +343,20 @@ void AdminPage::render() {
         lay->addWidget(muted(
             L("Each square says whether the machine on the left can connect BY ITSELF to the one "
               "on top —what it needs to pull copies from it or to send them to it without going "
-              "through this computer—. It needs two things: a key of the other one, which you "
-              "give it, and the other one listening on the network.",
+              "through this computer—. It needs two things: a key of the other one, and the other "
+              "one listening on the network.",
               "Cada casilla dice si la máquina de la izquierda puede conectarse POR SU CUENTA a la "
               "de arriba: lo que necesita para traer copias de ella o enviárselas sin pasar por "
-              "este ordenador. Le hacen falta dos cosas: una llave de la otra, que se la das tú, "
-              "y que la otra escuche en la red."),
+              "este ordenador. Le hacen falta dos cosas: una llave de la otra, y que la otra "
+              "escuche en la red."),
             body));
         lay->addWidget(muted(
-            L("Keys: «pull only» lets it read and take copies, never delete; «pull and send» also "
-              "lets it write and delete snapshots there, and is what the machine that SENDS "
-              "needs. Giving keys gives them for all the others at once.",
-              "Llaves: «solo traer» deja leer y llevarse copias, nunca borrar; «traer y enviar» "
-              "deja además escribir y borrar snapshots allí, y es la que necesita la máquina que "
-              "ENVÍA. Dar llaves se las da de todas las demás a la vez."),
+            L("Keys are full ones: with them a machine pulls copies from another and sends them "
+              "to it. Adding a machine gives it the keys of all the others and gives it to all "
+              "of them; «Give all the keys» does it again for everybody.",
+              "Las llaves son completas: con ellas una máquina trae copias de otra y se las "
+              "envía. Al añadir una máquina se le dan las de todas las demás y ella se les da a "
+              "todas; «Dar todas las llaves» lo repite para todas."),
             body));
         QStringList ids;
         QHash<QString, QString> names;
@@ -375,19 +375,15 @@ void AdminPage::render() {
         for (int c = 0; c < ids.size(); ++c) {
             g->addWidget(heading(names.value(ids[c]), box), 0, c + 1, Qt::AlignCenter);
         }
+        // Full keys only: a machine handed the pull-only ones (`--role pull`, by hand in the CLI)
+        // is given the full ones on top.
         const auto keyButtons = [this](QWidget* parent, QVBoxLayout* cl, const QString& from,
                                        const QString& text) {
             auto* b = small(text, parent);
-            auto* menu = new QMenu(b);
-            menu->addAction(L("Pull only", "Solo traer"), this, [this, from] {
-                act(QStringLiteral("peers --push --role pull --on ") + url(from),
-                    L("Keys given: pull only.", "Llaves entregadas: solo traer."));
-            });
-            menu->addAction(L("Pull and send", "Traer y enviar"), this, [this, from] {
+            connect(b, &QPushButton::clicked, this, [this, from] {
                 act(QStringLiteral("peers --push --role full --on ") + url(from),
-                    L("Keys given: pull and send.", "Llaves entregadas: traer y enviar."));
+                    L("Keys given.", "Llaves entregadas."));
             });
-            b->setMenu(menu);
             cl->addWidget(b, 0, Qt::AlignLeft);
         };
         for (int r = 0; r < ids.size(); ++r) {
@@ -427,13 +423,13 @@ void AdminPage::render() {
                 const QString detail = chk.value(QStringLiteral("detail")).toString();
                 QString text;
                 QString look;
-                if (state == QLatin1String("ok")) {
+                const bool pullOnly = state == QLatin1String("ok") && role == QLatin1String("pull");
+                if (pullOnly) {
+                    look = QStringLiteral("warning");
+                    text = L("▲ reaches it, but only to pull", "▲ llega, pero solo para traer");
+                } else if (state == QLatin1String("ok")) {
                     look = QStringLiteral("ok");
-                    text = role == QLatin1String("pull")
-                               ? L("● reaches it: pull only", "● llega: solo traer")
-                           : role == QLatin1String("full")
-                               ? L("● reaches it: pull and send", "● llega: traer y enviar")
-                               : L("● reaches it", "● llega");
+                    text = L("● reaches it", "● llega");
                 } else if (state == QLatin1String("no_credentials")) {
                     look = QStringLiteral("pending");
                     text = L("○ has no key", "○ sin llave");
@@ -519,8 +515,10 @@ void AdminPage::render() {
                             /*delayMs=*/8000);
                     });
                     cl->addWidget(b, 0, Qt::AlignLeft);
+                } else if (pullOnly) {
+                    keyButtons(cell, cl, from, L("Give it full keys", "Darle llaves completas"));
                 } else if (state == QLatin1String("ok")) {
-                    keyButtons(cell, cl, from, L("Change keys", "Cambiar llaves"));
+                    // Nothing to do.
                 } else {
                     keyButtons(cell, cl, from,
                                state == QLatin1String("refused")
@@ -552,6 +550,7 @@ void AdminPage::render() {
             g->setColumnStretch(c, 1);
         }
         lay->addWidget(box);
+        auto* row = new QHBoxLayout();
         auto* again = small(L("Check again", "Comprobar de nuevo"), body);
         connect(again, &QPushButton::clicked, this, [this] {
             m_checks.clear();
@@ -559,7 +558,31 @@ void AdminPage::render() {
             render();
             load();
         });
-        lay->addWidget(again, 0, Qt::AlignLeft);
+        row->addWidget(again);
+        auto* all = small(L("Give all the keys", "Dar todas las llaves"), body);
+        all->setToolTip(L("Every machine gets the full keys of all the others.",
+                          "Cada máquina recibe las llaves completas de todas las demás."));
+        connect(all, &QPushButton::clicked, this, [this, all] {
+            all->setEnabled(false);
+            giveAllKeys(m_store, this, [this](const QStringList& given, const QStringList& failed) {
+                Q_EMIT message(failed.isEmpty()
+                                   ? L("Keys given to %1.", "Llaves entregadas a %1.")
+                                         .arg(given.join(QStringLiteral(", ")))
+                                   : L("Keys given to %1. Failed: %2",
+                                       "Llaves entregadas a %1. "
+                                       "Fallaron: %2")
+                                         .arg(given.isEmpty() ? QStringLiteral("-")
+                                                              : given.join(QStringLiteral(", ")),
+                                              failed.join(QStringLiteral("; "))));
+                m_checks.clear();
+                m_checkError.clear();
+                render();
+                load();
+            });
+        });
+        row->addWidget(all);
+        row->addStretch(1);
+        lay->addLayout(row);
     }
 
     // ── Opening ZFSMgr: the master password, and the FIDO2 security keys (any brand) registered to

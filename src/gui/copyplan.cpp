@@ -81,10 +81,14 @@ QStringList copyCommands(const CopyRequest& r) {
             break;
         }
         case CopyMode::Pull: {
+            if (r.destRoleForOrigin != QLatin1String("full")) {
+                // The destination gets the full credentials (the only ones the interface
+                // gives, keys.h).
+                c << QStringLiteral("peers --push --role full --on %1").arg(url(r.destMachine));
+            }
             if (r.destRoleForOrigin.isEmpty()) {
-                // The destination gets pull-only credentials, and the origin listens on the
-                // network so that its daemon can be reached without a tunnel.
-                c << QStringLiteral("peers --push --role pull --on %1").arg(url(r.destMachine));
+                // And the origin listens on the network so that its daemon can be reached
+                // without a tunnel.
                 c << QStringLiteral("peers --listen 0.0.0.0 --on %1").arg(url(r.originMachine));
             }
             if (!r.originHasSchedule) {

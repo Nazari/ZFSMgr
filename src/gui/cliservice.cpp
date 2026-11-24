@@ -124,8 +124,10 @@ void CliService::start(const QByteArray& masterPassword, bool isDataKey) {
     first.fill('\0');
 }
 
-void CliService::request(const QString& line, QObject* owner, Done done, const QString& format) {
+void CliService::request(const QString& line, QObject* owner, Done done, const QString& format,
+                         bool confirmed) {
     m_queue.push_back(Pending{m_nextId++, line, format, owner, std::move(done)});
+    m_queue.back().confirmed = confirmed;
     // Made while a click or a key is handled: the person's, and the cursor says «working»
     // until the answer —or a question— arrives. Without it a slow command looked ignored,
     // and the button got pressed again.
@@ -280,6 +282,11 @@ void CliService::handleEvent(const QJsonObject& ev) {
         q.typeToConfirm = ev.value(QStringLiteral("type_to_confirm")).toString();
         if (q.title.isEmpty()) {
             q.title = q.text;
+        }
+        if (m_current && m_current->id == q.id && m_current->confirmed && !q.irreversible
+            && q.typeToConfirm.isEmpty()) {
+            answerConfirm(q.id, true);
+            return;
         }
         pauseForQuestion();
         Q_EMIT confirmRequested(q);

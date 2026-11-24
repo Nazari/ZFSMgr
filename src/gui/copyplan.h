@@ -14,10 +14,10 @@
 //   keeps exactly what the origin keeps.
 //
 // Credentials and listening addresses are added only when the daemon that has to reach the
-// other one lacks them: re-sending them could narrow a role it already had, and
-// `peers --listen` restarts a daemon. Sending needs FULL credentials: a daemon that only has
-// pull ones for the other gets the full ones (seen 2026-11-22: fc16 knew unib, pull-only, and
-// the levelling failed).
+// other one lacks them: `peers --listen` restarts a daemon. The interface gives FULL
+// credentials only (keys.h), in both directions: a daemon that has none, or only pull ones
+// handed by hand in the CLI, gets the full ones (seen 2026-11-22: fc16 knew unib, pull-only,
+// and the levelling failed).
 
 #include <QString>
 #include <QStringList>
@@ -43,8 +43,8 @@ struct CopyRequest {
     bool originHasSchedule{false};  // the origin already takes snapshots by itself
     // What credentials one daemon has for the other, as `peers` says: empty (none),
     // «pull», «full», or «known» (it has some, from a daemon too old to say which).
-    QString destRoleForOrigin;  // pulling needs any
-    QString originRoleForDest;  // sending needs «full»: pull-only ones cannot send
+    QString destRoleForOrigin;  // anything but «full» gets the full ones
+    QString originRoleForDest;  // the same
     QString stamp;              // «20261122-1905», for the one-off snapshot's name
 };
 

@@ -94,8 +94,12 @@ public:
     // owner, and calling it would write into a widget already deleted (a crash, 2026-11-22:
     // closing «Add a machine» before its check came back). Required on purpose, so no
     // caller can forget it.
+    //
+    // `confirmed`: the person already said yes to this, in the interface —for instance by
+    // adding a machine, which gives it all the keys—, so the CLI's question is answered here.
+    // Never one that is irreversible or asks to type a word: those are always shown.
     void request(const QString& line, QObject* owner, Done done,
-                 const QString& format = QStringLiteral("json"));
+                 const QString& format = QStringLiteral("json"), bool confirmed = false);
 
     void answerConfirm(int id, bool yes, const QString& typed = {});
     void answerSecret(int id, const std::optional<QString>& secret);
@@ -123,6 +127,7 @@ private:
         QString format;
         QPointer<QObject> owner;
         Done done;
+        bool confirmed{false};  // its plain questions are answered «yes» here
         bool busy{false};  // holds one count of the busy cursor
         int token{0};      // BusyHooks::begin's, for the control disabled meanwhile
     };

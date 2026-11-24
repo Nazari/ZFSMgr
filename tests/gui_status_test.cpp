@@ -117,7 +117,7 @@ int main(int argc, char** argv) {
     r.destDataset = QStringLiteral("back/user/srvs");
     r.mode = CopyMode::Pull;
     r.originHasSchedule = true;
-    r.destRoleForOrigin = QStringLiteral("pull");
+    r.destRoleForOrigin = QStringLiteral("full");
     QStringList c = copyCommands(r);
     check(
         c
@@ -127,10 +127,14 @@ int main(int argc, char** argv) {
                                           "zfsm://local/back/user/srvs"),
                            QStringLiteral("schedule run --on zfsm://local/back/user/srvs")},
         "pull between machines that already know each other: no credentials step");
+    r.destRoleForOrigin = QStringLiteral("pull");
+    c = copyCommands(r);
+    check(c.size() == 4 && c[0] == QLatin1String("peers --push --role full --on zfsm://local"),
+          "pull with pull-only credentials (given by hand): the full ones, no --listen");
     r.destRoleForOrigin.clear();
     r.originHasSchedule = false;
     c = copyCommands(r);
-    check(c.size() == 7 && c[0] == QLatin1String("peers --push --role pull --on zfsm://local")
+    check(c.size() == 7 && c[0] == QLatin1String("peers --push --role full --on zfsm://local")
               && c[1] == QLatin1String("peers --listen 0.0.0.0 --on zfsm://unib")
               && c[2].startsWith(QLatin1String("schedule --daily 1 --weekly 1"))
               && c[3] == QLatin1String("schedule run --on zfsm://unib/ppal/user/srvs"),

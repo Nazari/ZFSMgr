@@ -55,6 +55,9 @@ int main(int argc, char** argv) {
             // «ask»: a question first, and the answer line read, as a confirm does.
             "  case \"$line\" in *ask*) echo \"{\\\"type\\\":\\\"confirm\\\",\\\"id\\\":$id,"
             "\\\"title\\\":\\\"q\\\"}\"; read answer;; esac\n"
+            // «hard»: an irreversible question, which a pre-confirmed request still shows.
+            "  case \"$line\" in *hard*) echo \"{\\\"type\\\":\\\"confirm\\\",\\\"id\\\":$id,"
+            "\\\"title\\\":\\\"q\\\",\\\"irreversible\\\":true}\"; read answer;; esac\n"
             // «bye»: another machine asked this session to close, an event between results.
             "  case \"$line\" in *bye*) echo '{\"type\":\"close_asked\",\"host\":\"unib\","
             "\"user\":\"ana\"}';; esac\n"
@@ -166,6 +169,31 @@ int main(int argc, char** argv) {
         BusyHooks::adjust = nullptr;
         BusyHooks::begin = nullptr;
         BusyHooks::end = nullptr;
+    }
+
+    // A request the person already confirmed in the interface: its plain question is answered
+    // here and never shown; an irreversible one still is.
+    {
+        int asked = 0;
+        int qid = 0;
+        auto c = QObject::connect(&s, &CliService::confirmRequested, [&](const CliQuestion& q) {
+            ++asked;
+            qid = q.id;
+        });
+        int done = 0;
+        s.request(
+            QStringLiteral("ask"), &alive, [&done](const CliResult&) { ++done; },
+            QStringLiteral("json"), /*confirmed=*/true);
+        waitFor([&] { return done > 0; });
+        check(done == 1 && asked == 0, "a confirmed request is not asked again");
+        s.request(
+            QStringLiteral("hard"), &alive, [&done](const CliResult&) { ++done; },
+            QStringLiteral("json"), /*confirmed=*/true);
+        waitFor([&] { return asked > 0; });
+        check(asked == 1, "but an irreversible question is still shown");
+        s.answerConfirm(qid, true);
+        waitFor([&] { return done > 1; });
+        QObject::disconnect(c);
     }
 
     if (g_fails == 0) {
