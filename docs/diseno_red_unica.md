@@ -1,6 +1,6 @@
 # Una sola configuración para toda la red
 
-Estado: **diseño**, pendiente de revisión. Decisiones del usuario del 2026-11-24:
+Estado: **implementado** (fases 1–3), pendiente de ponerlo en marcha en la red real. Decisiones del usuario del 2026-11-24:
 
 - La configuración es de la RED, no de cada máquina: la misma visión desde cualquier ordenador.
 - Los secretos, cifrados, se guardan en todos los daemons.
@@ -149,7 +149,7 @@ propia, se llama por su nombre de red.
 - **3a (hecha, 4381137)**: `network::toClientConfig` da el documento con la forma de
   `config.json` + `trust-store.json`; la máquina cuyo `uid` es el de este ordenador
   (`osinfo::machineUuid`, el mismo código que usa el daemon) es la LOCAL, con su nombre de red.
-- **3b**: en modo red, el directorio que leen y escriben `storefiles`/`session` es una
+- **3b (hecha, c76e19b)**: en modo red, el directorio que leen y escriben `storefiles`/`session` es una
   **materialización** del documento en `~/.config/ZFSMgr/network/` (`config.json`,
   `trust-store.json`, el documento firmado `network.json` y `local.json`). Leer no cambia.
   Escribir (crear/editar/quitar máquina, TLS negociado, uid, maestra, llaves) escribe ahí como
@@ -160,11 +160,12 @@ propia, se llama por su nombre de red.
   pregunta a los daemons por una revisión mayor (`judge`) y se rematerializa.
   - Una máquina recién creada sin `uid` (sin daemon todavía) queda en `local.json` como
     pendiente hasta que su daemon dé el `uid`.
-- **3c**: `network seed` (fc16 sube su configuración) y `network join` (los demás descargan,
+- **3c (hecha, c76e19b)**: `network seed` (fc16 sube su configuración) y `network join` (los demás descargan,
   abren con la maestra de la red y conservan solo `local.json`: rutas de claves por `uid`).
-- **3d**: quitar `local` del CLI, la ayuda, la batería y las dos interfaces.
-- **3e**: varias direcciones por máquina (`edit --address`), probar la siguiente si la primera
-  no responde.
+- **3d (hecha, 37fec34)**: sin `local`: la conexión de este ordenador se llama como él también
+  fuera de la red; las interfaces la buscan por su tipo; la batería averigua su nombre al empezar.
+- **3e (hecha, 37fec34)**: `edit --addresses a,b,…`; al arrancar, cada ordenador prueba las
+  direcciones de cada máquina en orden y guarda en `local.json` la primera que le responde.
 
 ## Riesgos y preguntas abiertas
 

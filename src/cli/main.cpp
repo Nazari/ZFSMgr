@@ -73,7 +73,7 @@ constexpr const char* kNombre = "zfsmgr-cli";
 // stderr con estado distinto de 0, para que un guion pueda separar una cosa de la otra.
 void uso(std::FILE* salida) {
     std::fprintf(salida,
-                 TC("t_uso_s_opci_010447",
+                 TC("t_uso_s_opci_red",
                     "Uso: %s [opciones] <orden>\n"
                     "\n"
                     "Sin ninguna orden entra en MODO INTERACTIVO: un intérprete donde la\n"
@@ -84,6 +84,10 @@ void uso(std::FILE* salida) {
                     "Órdenes:\n"
                     "  (ninguna)             Modo interactivo, empezando en la raíz (zfsm://)\n"
                     "  connections list      Lista las conexiones configuradas\n"
+                    "  network seed          Hace de la configuración de este ordenador la de\n"
+                    "                        toda la red, en los daemons de sus máquinas\n"
+                    "  network join          Une este ordenador a la red que tienen sus daemons\n"
+                    "                        (con la contraseña maestra de la red)\n"
                     "  url parse <zfsm://…>  Analiza una URL y enseña qué nombra\n"
                     "  version               Versión de esta herramienta\n"
                     "\n"
