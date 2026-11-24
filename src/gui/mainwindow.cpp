@@ -16,6 +16,7 @@
 
 #include <QCheckBox>
 #include <QHBoxLayout>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QMessageBox>
@@ -140,6 +141,36 @@ void MainWindow::startFirstRun() {
 // One step each time: ask `probe` how this computer is, offer the first thing missing, and
 // come back. What the person declines is not offered again.
 void MainWindow::firstRunStep() {
+    // No Local connection: this computer has neither the agent nor OpenZFS, and the CLI leaves
+    // it out (connjson::localMachineServes). It is only the control for the others.
+    m_general->request(QStringLiteral("ls zfsm://"), this, [this](const CliResult& l) {
+        const qsizetype at = l.out.indexOf(QLatin1Char('{'));
+        bool hasLocal = false;
+        for (const QJsonValue& v :
+             (at < 0 ? QJsonObject() : QJsonDocument::fromJson(l.out.mid(at).toUtf8()).object())
+                 .value(QStringLiteral("connections"))
+                 .toArray()) {
+            if (v.toObject()
+                    .value(QStringLiteral("type"))
+                    .toString()
+                    .compare(QStringLiteral("LOCAL"), Qt::CaseInsensitive)
+                == 0) {
+                hasLocal = true;
+            }
+        }
+        if (l.ok() && !hasLocal) {
+            firstRunDone(
+                L("This computer has no OpenZFS ZFSMgr can manage: it will be the "
+                  "control for your other machines. Add the first one with «+ Add».",
+                  "Este ordenador no tiene un OpenZFS que ZFSMgr pueda manejar: será "
+                  "el mando de tus otras máquinas. Añade la primera con «+ Añadir»."));
+            return;
+        }
+        probeHere();
+    });
+}
+
+void MainWindow::probeHere() {
     m_general->request(QStringLiteral("probe zfsm://local"), this, [this](const CliResult& r) {
         const qsizetype at = r.out.indexOf(QLatin1Char('{'));
         const QJsonObject p =

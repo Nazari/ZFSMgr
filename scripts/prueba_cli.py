@@ -1665,6 +1665,64 @@ def casos_editor_ancho(ctx):
         print(f"  ok     {nombre}")
 
 
+def casos_modo_cliente(ctx):
+    """A machine with neither the agent nor OpenZFS is only the control for the others: no Local
+    connection, and the rest work as before. Forced with ZFSMGR_LOCAL_CONNECTION, on a COPY of
+    the configuration."""
+    cfg = os.path.join(ctx.dir_tmp, "cfg-cliente")
+    if os.path.isdir(cfg):
+        shutil.rmtree(cfg)
+    shutil.copytree(os.path.expanduser("~/.config/ZFSMgr"), cfg)
+    fichero = os.path.join(ctx.dir_tmp, ".maestra")
+
+    def corre(guion, sirve):
+        orden = (f"exec 9<{fichero}; exec {CLI!r} --password-fd 9 --config-dir {shlex.quote(cfg)} "
+                 f"--lang es --format text -y")
+        entorno = dict(os.environ, ZFSMGR_LOCAL_CONNECTION=sirve)
+        p = subprocess.run(["bash", "-c", orden], input=guion + "\nexit\n", capture_output=True,
+                           text=True, timeout=120, env=entorno)
+        return p.returncode, p.stdout + p.stderr
+
+    def comprueba(nombre, problemas, salida):
+        if problemas:
+            ctx.fallos.append((nombre, problemas, salida))
+            print(f"  FALLO  {nombre}")
+            for x in problemas:
+                print(f"         {x}")
+        else:
+            ctx.pasados.append(nombre)
+            print(f"  ok     {nombre}")
+
+    def tipos(salida):
+        try:
+            return [c.get("type") for c in json_de(salida).get("connections", [])]
+        except ValueError:
+            return None
+
+    rc, salida = corre("format json\nls zfsm://", "0")
+    t = tipos(salida)
+    comprueba("modo cliente: sin agente ni ZFS no hay conexión Local",
+              [] if rc == 0 and t is not None and "LOCAL" not in t and len(t) > 0
+              else [f"rc={rc} tipos={t}"], salida)
+    rc, salida = corre("format json\nls zfsm://", "1")
+    t = tipos(salida)
+    comprueba("modo cliente: con agente o ZFS sí la hay",
+              [] if rc == 0 and t is not None and "LOCAL" in t else [f"rc={rc} tipos={t}"], salida)
+    rc, salida = corre("format json\noverview -a", "0")
+    try:
+        maquinas = [m.get("connection") for m in json_de(salida).get("machines", [])]
+    except ValueError:
+        maquinas = None
+    comprueba("modo cliente: overview llega a las demás y no a Local",
+              [] if maquinas and "local" not in [str(x).lower() for x in maquinas]
+              and "unib" in maquinas else [f"rc={rc} maquinas={maquinas}"], salida)
+    rc, salida = corre("cd zfsm://local", "0")
+    comprueba("modo cliente: zfsm://local no existe",
+              [] if "local" in salida.lower() and rc != 0 or "no existe" in salida.lower()
+              or "unknown" in salida.lower() else [f"rc={rc}"], salida)
+    shutil.rmtree(cfg, ignore_errors=True)
+
+
 def casos_sesion_unica(ctx):
     """One interactive session per machine: a second shell on a terminal finds the first, says
     whose it is and offers to close it; a script feeding the shell through a pipe is not a
@@ -3883,7 +3941,7 @@ def casos_arranque(ctx):
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
 LOCALES = [casos_arranque, casos_identidad, casos_devices, casos_ayuda, casos_version_openzfs, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
-           casos_volumenes, casos_dedup, casos_overview, casos_json_gui, casos_sudo_sin_argv, casos_probe, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_send_level, casos_recepcion_a_medias, casos_send_fichero, casos_send_comprimido, casos_gsa, casos_sin_montar, casos_cp_destino, casos_load_key, casos_editor_ancho, casos_sesion_unica, casos_tab_continua, casos_pantalla, casos_ctrl_c, casos_monitor_conexiones, casos_path, casos_info_labelclear, casos_servicio, casos_primera_maestra, casos_servicio_llave, casos_servicio_conexiones, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
+           casos_volumenes, casos_dedup, casos_overview, casos_json_gui, casos_sudo_sin_argv, casos_probe, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_send_level, casos_recepcion_a_medias, casos_send_fichero, casos_send_comprimido, casos_gsa, casos_sin_montar, casos_cp_destino, casos_load_key, casos_editor_ancho, casos_sesion_unica, casos_modo_cliente, casos_tab_continua, casos_pantalla, casos_ctrl_c, casos_monitor_conexiones, casos_path, casos_info_labelclear, casos_servicio, casos_primera_maestra, casos_servicio_llave, casos_servicio_conexiones, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
 def rpc_directo(ctx, entrada, cmd, args):

@@ -152,7 +152,10 @@ Conexiones cargarConexiones(const std::string& dirConfig, const std::string& mae
     //
     // El identificador de máquina se deja vacío: averiguarlo es leer el registro en Windows
     // o `ioreg` en macOS, y el intérprete no lo necesita para nada de lo que hace.
-    CJ::ensureLocalProfile(c.perfiles, std::string());
+    //
+    // Only if this machine serves —it has the agent or OpenZFS—: a laptop without ZFS is the
+    // control for the others, and a Local that can never answer only got in the way.
+    CJ::ensureLocalProfile(c.perfiles, std::string(), CJ::localMachineServes());
     for (const auto& p : c.perfiles) {
         if (CJ::profileHasDaemonTls(p)) {
             c.conTls.insert(B::toLowerAscii(p.id.empty() ? p.name : p.id));

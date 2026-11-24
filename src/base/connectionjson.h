@@ -47,7 +47,18 @@ bool openSecrets(ConnectionProfile& p, const std::string& master, store::Warning
 // `machineUid` is supplied by the caller: finding it out means reading the registry on
 // Windows or running `ioreg` on macOS, and that does not come down here. Empty = whatever
 // was there is kept.
-void ensureLocalProfile(std::vector<ConnectionProfile>& profiles, const std::string& machineUid);
+//
+// `serves` false —THIS machine has neither the agent nor OpenZFS (localMachineServes)—: there
+// is no Local profile at all, and one that was there is removed. Such a machine is only the
+// control for the others; a Local that can never answer was a machine in red, a «not checked»
+// at every start and a sudo prompt for TLS material that does not exist.
+void ensureLocalProfile(std::vector<ConnectionProfile>& profiles, const std::string& machineUid,
+                        bool serves = true);
+
+// Whether THIS machine can be one of the managed ones: the ZFSMgr agent is installed here, or
+// OpenZFS is (then the agent can be installed). Only files are looked at, nothing is run.
+// ZFSMGR_LOCAL_CONNECTION=1 or 0 forces the answer (the tests).
+bool localMachineServes();
 
 // Merges into each profile whatever TLS material lives in the trust store, indexing by id.
 //

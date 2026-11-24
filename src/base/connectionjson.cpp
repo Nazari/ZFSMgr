@@ -3,7 +3,9 @@
 #include "secretcipher.h"
 #include "strutil.h"
 
+#include <algorithm>
 #include <cstdlib>
+#include <filesystem>
 #include <map>
 #include <regex>
 
@@ -296,7 +298,75 @@ void mergeTrustStore(std::vector<ConnectionProfile>& perfiles, const json::Value
     }
 }
 
-void ensureLocalProfile(std::vector<ConnectionProfile>& perfiles, const std::string& maquinaUid) {
+bool localMachineServes() {
+    if (const char* forced = std::getenv("ZFSMGR_LOCAL_CONNECTION"); forced && *forced) {
+        return std::string(forced) != "0";
+    }
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    const auto exists = [&ec](const fs::path& p) { return fs::exists(p, ec); };
+    // The agent: where install-daemon puts it (daemonpayload.cpp).
+#if defined(_WIN32)
+    if (exists("C:\\ProgramData\\ZFSMgr\\agent\\zfsmgr-agent.exe")) {
+        return true;
+    }
+#else
+    if (exists("/usr/local/libexec/zfsmgr-agent") || exists("/etc/zfsmgr/agent.conf")) {
+        return true;
+    }
+#endif
+    // OpenZFS: in PATH, or where each platform's packages put it.
+#if defined(_WIN32)
+    const char* nombre = "zfs.exe";
+    const char sep = ';';
+    std::vector<fs::path> sitios;
+    if (const char* pf = std::getenv("ProgramFiles"); pf && *pf) {
+        sitios.emplace_back(fs::path(pf) / "OpenZFS On Windows" / nombre);
+        sitios.emplace_back(fs::path(pf) / "OpenZFS On Windows" / "bin" / nombre);
+    }
+#else
+    const char* nombre = "zfs";
+    const char sep = ':';
+    std::vector<fs::path> sitios = {"/sbin/zfs",
+                                    "/usr/sbin/zfs",
+                                    "/usr/local/sbin/zfs",
+                                    "/usr/local/zfs/bin/zfs",
+                                    "/usr/local/bin/zfs",
+                                    "/usr/bin/zfs",
+                                    "/bin/zfs"};
+#endif
+    if (const char* path = std::getenv("PATH"); path && *path) {
+        std::string resto = path;
+        std::size_t desde = 0;
+        while (desde <= resto.size()) {
+            const std::size_t fin = resto.find(sep, desde);
+            const std::string dir =
+                resto.substr(desde, fin == std::string::npos ? std::string::npos : fin - desde);
+            if (!dir.empty()) {
+                sitios.emplace_back(fs::path(dir) / nombre);
+            }
+            if (fin == std::string::npos) {
+                break;
+            }
+            desde = fin + 1;
+        }
+    }
+    for (const fs::path& p : sitios) {
+        if (exists(p)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void ensureLocalProfile(std::vector<ConnectionProfile>& perfiles, const std::string& maquinaUid,
+                        bool serves) {
+    if (!serves) {
+        perfiles.erase(std::remove_if(perfiles.begin(), perfiles.end(),
+                                      [](const ConnectionProfile& p) { return isLocalProfile(p); }),
+                       perfiles.end());
+        return;
+    }
     const std::string soDeAqui =
 #if defined(_WIN32)
         "Windows";

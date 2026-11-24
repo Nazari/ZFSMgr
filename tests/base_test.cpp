@@ -1091,6 +1091,22 @@ void caso29() {
         igual(conLocalRancio.at(0).machineUid, "uid-de-esta", "local: con el uid corregido");
         comprobar(conLocalRancio.at(0).osType != "Windows" || sinLocal.at(0).osType == "Windows",
                   "local: y el sistema corregido al de esta maquina");
+
+        // Una maquina que no sirve —ni agente ni OpenZFS— no tiene Local: se quita la que hubiera
+        // y las demas se quedan.
+        std::vector<zfsmgr::base::ConnectionProfile> mando = conOtra;
+        CJ::ensureLocalProfile(mando, "uid", /*serves=*/false);
+        comprobar(mando.size() == 1 && mando.at(0).id == "unibody",
+                  "local: en un cliente sin agente ni ZFS no hay conexion Local");
+        std::vector<zfsmgr::base::ConnectionProfile> vacio;
+        CJ::ensureLocalProfile(vacio, "uid", /*serves=*/false);
+        comprobar(vacio.empty(), "local: ni se sintetiza");
+        // Y la deteccion se puede forzar, que es como lo prueba la bateria.
+        setenv("ZFSMGR_LOCAL_CONNECTION", "0", 1);
+        comprobar(!CJ::localMachineServes(), "local: ZFSMGR_LOCAL_CONNECTION=0 dice que no sirve");
+        setenv("ZFSMGR_LOCAL_CONNECTION", "1", 1);
+        comprobar(CJ::localMachineServes(), "local: y =1 que si");
+        unsetenv("ZFSMGR_LOCAL_CONNECTION");
     }
 }
 
