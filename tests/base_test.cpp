@@ -5303,6 +5303,17 @@ void caso61() {
         comprobar(NW::judge(x, clave, 0, "") == NW::Verdict::BadMac,
                   "red: tocada después de firmar: se rechaza");
     }
+    // --- What the daemons, which cannot verify, keep when a peer offers one.
+    comprobar(NW::offeredWins(1, "a", 2, "a") && !NW::offeredWins(2, "a", 1, "z"),
+              "red: entre daemons gana la revisión mayor");
+    comprobar(NW::offeredWins(3, "b", 3, "c") && !NW::offeredWins(3, "c", 3, "b")
+                  && !NW::offeredWins(3, "c", 3, "c"),
+              "red: con la misma revisión gana siempre la misma, para que todos acaben igual");
+    // The pull-only credential cannot read nor write the network's configuration.
+    comprobar(!zfsmgr::base::peers::pullerMayCall("--net-get", {})
+                  && !zfsmgr::base::peers::pullerMayCall("--net-put", {"0", "x"})
+                  && !zfsmgr::base::peers::pullerMayCall("--net-offer", {"x"}),
+              "red: la credencial de traer no toca la red");
 }
 
 struct Caso {

@@ -21,6 +21,10 @@ const Mensaje kMensajes[] = {
     {"unknown_command", "el daemon no conoce la orden %1: es anterior a esta versión",
      "unknown command: %1"},
     {"usage", "llamada mal formada al daemon: %1", "usage: %1"},
+    // La configuración de la red (netconfig.cpp)
+    {"net_conflict", "otro cambio de la configuración de la red llegó antes (revisión %1): se vuelve a leer y se aplica encima",
+     "another change of the network's configuration got there first (revision %1): read it again and apply on top"},
+    {"net_invalid", "el documento de la red no es válido: %1", "the network document is not valid: %1"},
     // Sesiones abiertas en otras máquinas (presencia)
     {"session_unknown", "esa sesión ya no está: se cerró, o hace más de 90 s que no da señales",
      "that session is gone: it closed, or has not been heard of for over 90 s"},

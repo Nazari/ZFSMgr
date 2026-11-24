@@ -1719,6 +1719,160 @@ def casos_sesion_del_servicio(ctx):
             p.kill()
 
 
+def casos_red_entre_daemons(ctx):
+    """The network's configuration kept by the daemons (docs/diseno_red_unica.md, phase 2): two
+    PRIVATE agents built here —no root, their own ports, certificates and peers.json pointing at
+    each other— and a TLS client speaking their protocol. A write is accepted only on top of the
+    revision kept, spreads to the peer, an older offer is not adopted, a daemon that was off
+    catches up, and the versions replaced are kept."""
+    import ssl, socket, base64, signal as sig
+    agente = os.path.join(RAIZ, "builds", "linux", "zfsmgr_agent")
+    raiz = os.path.join(ctx.dir_tmp, "red-daemons")
+    shutil.rmtree(raiz, ignore_errors=True)
+    os.makedirs(raiz)
+
+    def comprueba(nombre, problemas, vista=""):
+        if problemas:
+            ctx.fallos.append((nombre, problemas, vista[-600:]))
+            print(f"  FALLO  {nombre}")
+            for x in problemas:
+                print(f"         {x}")
+        else:
+            ctx.pasados.append(nombre)
+            print(f"  ok     {nombre}")
+
+    san = "subjectAltName=DNS:zfsmgr-agent-server,DNS:zfsmgr-agent,DNS:localhost,IP:127.0.0.1"
+    uso = "keyUsage=critical,digitalSignature,keyEncipherment,keyCertSign"
+
+    def par(d, nombre, eku):
+        subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-sha256", "-nodes",
+                        "-days", "30", "-subj", f"/CN=zfsmgr-agent-{nombre}", "-addext", san,
+                        "-addext", uso, "-addext", f"extendedKeyUsage={eku}",
+                        "-keyout", os.path.join(d, nombre + ".key"),
+                        "-out", os.path.join(d, nombre + ".crt")],
+                       check=True, capture_output=True)
+
+    puertos = {"A": 47991, "B": 47992}
+    for n in puertos:
+        d = os.path.join(raiz, n)
+        os.makedirs(d)
+        par(d, "server", "serverAuth")
+        par(d, "client", "clientAuth")
+        with open(os.path.join(d, "agent.conf"), "w") as f:
+            f.write(f"AGENT_BIND=127.0.0.1\nAGENT_PORT={puertos[n]}\n"
+                    f"TLS_CERT={d}/server.crt\nTLS_KEY={d}/server.key\nTLS_CLIENT_CERT={d}/client.crt\n")
+
+    def lee(n, f):
+        with open(os.path.join(raiz, n, f)) as h:
+            return h.read()
+
+    for n, otro in (("A", "B"), ("B", "A")):
+        with open(os.path.join(raiz, n, "peers.json"), "w") as f:
+            json.dump({"self": n, "peers": [{"id": otro, "host": "127.0.0.1", "port": puertos[otro],
+                                             "server_cert_pem": lee(otro, "server.crt"),
+                                             "client_cert_pem": lee(otro, "client.crt"),
+                                             "client_key_pem": lee(otro, "client.key")}]}, f)
+
+    procesos = {}
+
+    def arranca(n):
+        d = os.path.join(raiz, n)
+        entorno = dict(os.environ, ZFSMGR_AGENT_CONFIG=f"{d}/agent.conf",
+                       ZFSMGR_NETWORK_FILE=f"{d}/network.json", ZFSMGR_PEERS_FILE=f"{d}/peers.json")
+        procesos[n] = subprocess.Popen([agente, "--serve"], env=entorno, stdout=subprocess.DEVNULL,
+                                       stderr=subprocess.DEVNULL, start_new_session=True)
+        fin = time.time() + 10
+        while time.time() < fin:
+            try:
+                socket.create_connection(("127.0.0.1", puertos[n]), timeout=0.5).close()
+                return
+            except OSError:
+                time.sleep(0.2)
+
+    def para(n):
+        p = procesos.pop(n, None)
+        if p:
+            os.killpg(p.pid, sig.SIGTERM)
+            try:
+                p.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                os.killpg(p.pid, sig.SIGKILL)
+
+    def rpc(n, cmd, args):
+        d = os.path.join(raiz, n)
+        c = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        c.check_hostname = False
+        c.load_verify_locations(f"{d}/server.crt")
+        c.load_cert_chain(f"{d}/client.crt", f"{d}/client.key")
+        with socket.create_connection(("127.0.0.1", puertos[n]), timeout=10) as s:
+            with c.wrap_socket(s) as t:
+                t.sendall((json.dumps({"cmd": cmd, "args": args}) + "\n").encode())
+                datos = b""
+                while not datos.endswith(b"\n"):
+                    trozo = t.recv(65536)
+                    if not trozo:
+                        break
+                    datos += trozo
+        return json.loads(datos)
+
+    def revision(n):
+        out = rpc(n, "--net-get", [])["stdout"]
+        return int(dict(l.split("=", 1) for l in out.splitlines() if "=" in l).get("REVISION", "-1"))
+
+    def doc(rev, mac):
+        d = {"schema": 1, "revision": rev, "written_by": "u-prueba", "written_at": 1, "master": {},
+             "machines": [{"uid": "u1", "name": "m1", "os": "Linux", "addresses": ["m1"],
+                           "ssh": {"user": "x", "port": 22, "family": "auto"}, "sudo": False,
+                           "secrets": {"password": ""},
+                           "tls": {"port": 47653, "server_cert": "", "client_cert": "", "client_key": ""}}],
+             "mac": mac}
+        return base64.b64encode(json.dumps(d).encode()).decode()
+
+    def espera(cond, t=8):
+        fin = time.time() + t
+        while time.time() < fin:
+            if cond():
+                return True
+            time.sleep(0.3)
+        return cond()
+
+    try:
+        arranca("A")
+        arranca("B")
+        comprueba("red: daemons sin red, revisión 0", [] if revision("A") == 0 and revision("B") == 0
+                  else [f"A={revision('A')} B={revision('B')}"])
+        r = rpc("A", "--net-put", ["0", doc(1, "mac1")])
+        comprueba("red: un cliente escribe la revisión 1 en A",
+                  [] if r["rc"] == 0 and "REVISION=1" in r["stdout"] else [str(r)])
+        comprueba("red: A se la pasa a B", [] if espera(lambda: revision("B") == 1) else [f"B={revision('B')}"])
+        r = rpc("B", "--net-put", ["0", doc(1, "otra")])
+        comprueba("red: escribir sobre una revisión superada es un conflicto",
+                  [] if r["rc"] != 0 and r.get("code") == "net_conflict" and r.get("args") == ["1"] else [str(r)])
+        r = rpc("B", "--net-put", ["1", doc(2, "mac2")])
+        comprueba("red: sobre la revisión que hay, sí; y llega a A",
+                  [] if r["rc"] == 0 and espera(lambda: revision("A") == 2) else [str(r), f"A={revision('A')}"])
+        r = rpc("A", "--net-offer", [doc(1, "zzz")])
+        comprueba("red: una oferta más vieja no se adopta",
+                  [] if r["rc"] == 0 and "ADOPTED=0" in r["stdout"] and revision("A") == 2 else [str(r)])
+        r = rpc("A", "--net-put", ["2", "no-es-base64!"])
+        comprueba("red: un documento que no lo es se rechaza",
+                  [] if r["rc"] != 0 and r.get("code") == "net_invalid" else [str(r)])
+        para("B")
+        rpc("A", "--net-put", ["2", doc(3, "mac3")])
+        arranca("B")
+        comprueba("red: B, apagado mientras cambiaba, se pone al día al volver",
+                  [] if espera(lambda: revision("B") == 3, t=40) else [f"B={revision('B')}"])
+        versiones = sorted(os.listdir(os.path.join(raiz, "A", "network.d")))
+        comprueba("red: se guardan las versiones sustituidas",
+                  [] if versiones == ["rev-1.json", "rev-2.json"] else [str(versiones)])
+        modo = oct(os.stat(os.path.join(raiz, "A", "network.json")).st_mode & 0o777)
+        comprueba("red: el fichero solo lo lee su dueño", [] if modo == "0o600" else [modo])
+    finally:
+        para("A")
+        para("B")
+        shutil.rmtree(raiz, ignore_errors=True)
+
+
 def casos_modo_cliente(ctx):
     """A machine with neither the agent nor OpenZFS is only the control for the others: no Local
     connection, and the rest work as before. Forced with ZFSMGR_LOCAL_CONNECTION, on a COPY of
@@ -3995,7 +4149,7 @@ def casos_arranque(ctx):
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
 LOCALES = [casos_arranque, casos_identidad, casos_devices, casos_ayuda, casos_version_openzfs, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
-           casos_volumenes, casos_dedup, casos_overview, casos_json_gui, casos_sudo_sin_argv, casos_probe, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_send_level, casos_recepcion_a_medias, casos_send_fichero, casos_send_comprimido, casos_gsa, casos_sin_montar, casos_cp_destino, casos_load_key, casos_editor_ancho, casos_sesion_unica, casos_sesion_del_servicio, casos_modo_cliente, casos_tab_continua, casos_pantalla, casos_ctrl_c, casos_monitor_conexiones, casos_path, casos_info_labelclear, casos_servicio, casos_primera_maestra, casos_servicio_llave, casos_servicio_conexiones, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
+           casos_volumenes, casos_dedup, casos_overview, casos_json_gui, casos_sudo_sin_argv, casos_probe, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_send_level, casos_recepcion_a_medias, casos_send_fichero, casos_send_comprimido, casos_gsa, casos_sin_montar, casos_cp_destino, casos_load_key, casos_editor_ancho, casos_sesion_unica, casos_sesion_del_servicio, casos_red_entre_daemons, casos_modo_cliente, casos_tab_continua, casos_pantalla, casos_ctrl_c, casos_monitor_conexiones, casos_path, casos_info_labelclear, casos_servicio, casos_primera_maestra, casos_servicio_llave, casos_servicio_conexiones, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
 def rpc_directo(ctx, entrada, cmd, args):

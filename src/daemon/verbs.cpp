@@ -862,7 +862,7 @@ const TablaDeVerbos& tablaDeVerbos() {
                 ponFallo(r, 2, "peers_bad_json", {errJson});
                 return r;
             }
-            const std::string tmp = std::string(kPeersPath) + ".tmp";
+            const std::string tmp = peersPath() + ".tmp";
             {
                 std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
                 if (!f.is_open()) {
@@ -875,14 +875,14 @@ const TablaDeVerbos& tablaDeVerbos() {
             ::chmod(tmp.c_str(), 0600);
 #endif
             std::error_code ec;
-            std::filesystem::rename(tmp, kPeersPath, ec);
+            std::filesystem::rename(tmp, peersPath(), ec);
             if (ec) {
                 std::filesystem::remove(tmp, ec);
-                ponFallo(r, 1, "cannot_put_in_place", {kPeersPath});
+                ponFallo(r, 1, "cannot_put_in_place", {peersPath()});
                 return r;
             }
             r.rc = 0;
-            r.out = std::string("PEERS=") + kPeersPath + "\n";
+            r.out = std::string("PEERS=") + peersPath() + "\n";
             daemonLog("INFO", "peers updated by the client");
             return r;
         });
@@ -1026,7 +1026,7 @@ const TablaDeVerbos& tablaDeVerbos() {
             ExecResult r;
             // SOLO los nombres y a donde apuntan: los certificados y la clave privada no salen
             // de la maquina ni para mirarlos.
-            std::ifstream f(kPeersPath);
+            std::ifstream f(peersPath());
             if (!f.is_open()) {
                 r.rc = 0;
                 return r;

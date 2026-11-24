@@ -196,6 +196,14 @@ Verdict judge(const Document& incoming, const std::string& dataKey, long long ca
     return sameInConstantTime(incoming.mac, cachedMac) ? Verdict::Same : Verdict::Diverged;
 }
 
+bool offeredWins(long long keptRevision, const std::string& keptMac, long long offeredRevision,
+                 const std::string& offeredMac) {
+    if (offeredRevision != keptRevision) {
+        return offeredRevision > keptRevision;
+    }
+    return offeredMac > keptMac;
+}
+
 bool fromClientConfig(const J::Value& config, const J::Value& trustStore,
                       const std::string& thisHost, const std::string& thisUid, long long now,
                       Document& d, LocalSettings& local, std::string& error) {

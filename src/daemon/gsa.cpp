@@ -984,7 +984,7 @@ bool gsaDestinoSoyYo(const std::string& connId, const std::string& selfPorNombre
     zfsmgr::base::peers::SelfMatch m;
     m.selfName = selfPorNombre;
     m.realUid = trim(detectMachineUuid());
-    std::ifstream f(kPeersPath);
+    std::ifstream f(peersPath());
     if (f.is_open()) {
         std::ostringstream ss;
         ss << f.rdbuf();
@@ -1007,7 +1007,7 @@ bool gsaDestinoSoyYo(const std::string& connId, const std::string& selfPorNombre
 }
 
 std::string gsaYoMismo() {
-    std::ifstream f(kPeersPath);
+    std::ifstream f(peersPath());
     if (!f.is_open()) {
         return {};
     }
@@ -1021,8 +1021,30 @@ std::string gsaYoMismo() {
     return trim(raiz["self"].toString());
 }
 
+std::vector<std::string> gsaIdsDePares() {
+    std::vector<std::string> ids;
+    std::ifstream f(peersPath());
+    if (!f.is_open()) {
+        return ids;
+    }
+    std::ostringstream ss;
+    ss << f.rdbuf();
+    zfsmgr::base::json::Value raiz;
+    if (!zfsmgr::base::json::parse(ss.str(), raiz, nullptr)) {
+        return ids;
+    }
+    const std::string self = toLower(trim(raiz["self"].toString()));
+    for (const auto& v : raiz["peers"].toArray()) {
+        const std::string id = trim(v["id"].toString());
+        if (!id.empty() && toLower(id) != self) {
+            ids.push_back(id);
+        }
+    }
+    return ids;
+}
+
 bool gsaCargaPeer(const std::string& id, GsaPeer& out) {
-    std::ifstream f(kPeersPath);
+    std::ifstream f(peersPath());
     if (!f.is_open()) {
         return false;
     }
@@ -1652,7 +1674,7 @@ GsaNivelado gsaNivela(const std::string& ds, bool recursive, const std::string& 
     GsaPeer peer;
     if (!isLocal && !gsaCargaPeer(conexionDestino, peer)) {
         // Que falte el par NO es «saltarse» esta nivelación: es un fallo, y se dice qué hacer.
-        return falla("gsa_no_peer_credentials", {conexionDestino, std::string(kPeersPath)});
+        return falla("gsa_no_peer_credentials", {conexionDestino, peersPath()});
     }
 
     // ── Lo que quedó A MEDIAS en el destino, primero.
@@ -2087,7 +2109,7 @@ ExecResult runPeerCheckCapture(const std::string& id) {
     ExecResult r;
     GsaPeer par;
     if (!gsaCargaPeer(trim(id), par)) {
-        return fallo(1, "gsa_no_peer_credentials", {trim(id), std::string(kPeersPath)});
+        return fallo(1, "gsa_no_peer_credentials", {trim(id), peersPath()});
     }
     std::string salida;
     std::string err;
@@ -2158,7 +2180,7 @@ GsaNivelado gsaTrae(const std::string& ds, const GsaProgramacion& p, bool soloMi
     }
     GsaPeer par;
     if (!gsaCargaPeer(conexion, par)) {
-        return falla("gsa_no_peer_credentials", {conexion, std::string(kPeersPath)});
+        return falla("gsa_no_peer_credentials", {conexion, peersPath()});
     }
     // The origin's tree, through its daemon: dataset -> its snapshots, oldest first.
     std::string salida;

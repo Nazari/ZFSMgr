@@ -85,6 +85,13 @@ enum class Verdict {
 Verdict judge(const Document& incoming, const std::string& dataKey, long long cachedRevision,
               const std::string& cachedMac);
 
+// For the DAEMONS, which cannot verify the HMAC: whether a document offered by a peer replaces
+// the one kept. A higher revision wins; on the same revision with another content —two writers
+// met—, the greater mac, so that every daemon ends up with the same one whatever the order the
+// offers arrive in. The clients, which can verify, judge() what the daemons serve.
+bool offeredWins(long long keptRevision, const std::string& keptMac, long long offeredRevision,
+                 const std::string& offeredMac);
+
 // The network built from a client's configuration —config.json and trust-store.json, as they
 // are on disk, without opening anything: the secrets are already under the data key and go as
 // they are—. The LOCAL connection becomes the machine called `thisHost`, reached at

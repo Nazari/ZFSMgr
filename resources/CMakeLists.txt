@@ -456,7 +456,7 @@ endif()
 # include que en la compilación normal funciona.
 
 if(ZFSMGR_AGENT_ONLY)
-    add_executable(zfsmgr_agent ../src/daemon/main.cpp ../src/daemon/core.cpp ../src/daemon/advanced.cpp ../src/daemon/tls.cpp ../src/daemon/gsa.cpp ../src/daemon/transfer.cpp ../src/daemon/verbs.cpp ../src/daemon/serve.cpp
+    add_executable(zfsmgr_agent ../src/daemon/main.cpp ../src/daemon/core.cpp ../src/daemon/advanced.cpp ../src/daemon/tls.cpp ../src/daemon/gsa.cpp ../src/daemon/transfer.cpp ../src/daemon/verbs.cpp ../src/daemon/serve.cpp ../src/daemon/netconfig.cpp
                              ../src/commands/copytree.cpp
                              ../src/commands/remotetree.cpp ../src/commands/fsmeta.cpp)
     target_include_directories(zfsmgr_agent PRIVATE ../src ../src/base ../src/commands)
@@ -640,6 +640,7 @@ add_executable(zfsmgr_agent
     ../src/daemon/transfer.cpp
     ../src/daemon/verbs.cpp
     ../src/daemon/serve.cpp
+    ../src/daemon/netconfig.cpp
     ../src/commands/copytree.cpp
     ../src/commands/remotetree.cpp
     ../src/commands/fsmeta.cpp

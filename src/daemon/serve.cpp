@@ -1548,6 +1548,13 @@ ExecResult handleRpcRequest(ServerState& st, const AgentRuntimeConfig& cfg,
         {"--session-list", rpcSessionList},
         {"--session-ask-close", rpcSessionAskClose},
         {"--session-kill", rpcSessionKill},
+        // The network's configuration (netconfig.cpp).
+        {"--net-get", [](ServerState&, const std::string&,
+                         const std::vector<std::string>& a) { return rpcNetGet(a); }},
+        {"--net-put", [](ServerState&, const std::string&,
+                         const std::vector<std::string>& a) { return rpcNetPut(a); }},
+        {"--net-offer", [](ServerState&, const std::string&,
+                           const std::vector<std::string>& a) { return rpcNetOffer(a); }},
     };
     if (const auto it = kDaemonVerbs.find(cmd); it != kDaemonVerbs.end()) {
         return it->second(st, cmd, rpcArgs);
@@ -1904,6 +1911,8 @@ int runServeLoop() {
     std::thread zedThread([&st]() { watchZedEvents(st); });
 
     std::thread gsaThread(runGsaSchedulerThread);
+    // The network's configuration, caught up with the peers: detached, it only sleeps and asks.
+    std::thread(runNetworkSyncThread).detach();
 
     while (!g_stop.load()) {
         const auto now = std::chrono::steady_clock::now();

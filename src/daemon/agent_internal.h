@@ -846,13 +846,10 @@ GsaPaso gsaHazSnapshot(const std::string& ds, const std::string& klass, bool rec
 GsaPaso gsaPoda(const std::string& ds, const std::string& klass, int keep, bool recursive,
                 const std::string& guidProtegido, int& borrados, bool& baseConservada,
                 const GsaLog& log);
-#ifdef _WIN32
-const char* const kPeersPath = "C:\\ProgramData\\ZFSMgr\\agent\\peers.json";
-
-#else
-const char* const kPeersPath = "/etc/zfsmgr/peers.json";
-
-#endif
+// peers.json and network.json. ZFSMGR_PEERS_FILE / ZFSMGR_NETWORK_FILE move them, for tests
+// that run two private daemons talking to each other (the battery): never in a real install.
+const std::string& peersPath();
+const std::string& networkPath();
 // Definido más abajo, junto al resto del transporte: aquí solo se anuncia para poder
 // usarlo desde el nivelado sin mover cuatrocientas líneas de sitio.
 using TransferProgressFn =
@@ -873,6 +870,8 @@ struct GsaPeer {
 bool gsaDestinoSoyYo(const std::string& connId, const std::string& selfPorNombre);
 std::string gsaYoMismo();
 bool gsaCargaPeer(const std::string& id, GsaPeer& out);
+// The ids of the peers in peers.json, without this machine's own (`self`).
+std::vector<std::string> gsaIdsDePares();
 // Una petición al daemon de un par, por el mismo protocolo que usa la aplicación:
 // `{"cmd":…,"args":[…]}` y respuesta con `rc`, `stdout` y `stderr`.
 //
@@ -941,6 +940,14 @@ struct GsaProgramacion {
 };
 
 GsaProgramacion gsaLeeProgramacion(const std::string& ds);
+// The network's configuration (netconfig.cpp, docs/diseno_red_unica.md): kept here, readable
+// by no daemon, passed on to the peers.
+ExecResult rpcNetGet(const std::vector<std::string>& args);
+ExecResult rpcNetPut(const std::vector<std::string>& args);
+ExecResult rpcNetOffer(const std::vector<std::string>& args);
+// At start and every few minutes: catch up with the peers, both ways.
+void runNetworkSyncThread();
+
 // `--peer-check <connection>` and `--dump-gsa-pullers <dataset>` (see gsa.cpp).
 ExecResult runPeerCheckCapture(const std::string& id);
 ExecResult runGsaPullersCapture(const std::string& ds);
