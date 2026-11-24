@@ -72,7 +72,12 @@ public final class MainWindow extends JFrame {
 
         String[] pages = {L("Status", "Estado"), L("Copies", "Copias"), L("Machines", "Máquinas"),
                           L("Jobs", "Trabajos"), L("Administration", "Administración")};
-        JList<String> nav = new JList<>(pages);
+        // Administration only in advanced mode, as in the Qt window.
+        javax.swing.DefaultListModel<String> navModel = new javax.swing.DefaultListModel<>();
+        for (String p : pages) {
+            navModel.addElement(p);
+        }
+        JList<String> nav = new JList<>(navModel);
         nav.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         nav.setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
         CardLayout cards = new CardLayout();
@@ -102,16 +107,8 @@ public final class MainWindow extends JFrame {
         });
         content.add(machines, pages[2]);
         content.add(new JobsPage(store, this::say), pages[3]);
-        for (int i = 1; i < pages.length; i++) {
-            if (i <= 3) {
-                continue;
-            }
-            JPanel p = new JPanel(new BorderLayout());
-            p.setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
-            p.add(Ui.muted(L("Not in the Java interface yet.", "Todavía no está en la interfaz en Java.")),
-                    BorderLayout.NORTH);
-            content.add(p, pages[i]);
-        }
+        content.add(new AdminPage(store, this::say,
+                () -> new AddMachineDialog(this, store, store::refresh).setVisible(true)), pages[4]);
         nav.addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting() && nav.getSelectedValue() != null) {
                 cards.show(content, nav.getSelectedValue());
@@ -140,11 +137,23 @@ public final class MainWindow extends JFrame {
         javax.swing.JCheckBox advanced = new javax.swing.JCheckBox(L("Advanced mode", "Modo avanzado"),
                 prefs.getBoolean("advanced", false) || "1".equals(System.getenv("ZFSMGR_GUI_ADVANCED")));
         advanced.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
+        Runnable applyAdvanced = () -> {
+            boolean on = advanced.isSelected();
+            machines.setAdvanced(on);
+            if (on && navModel.size() < pages.length) {
+                navModel.addElement(pages[4]);
+            } else if (!on && navModel.size() == pages.length) {
+                if (nav.getSelectedIndex() == 4) {
+                    nav.setSelectedIndex(0);
+                }
+                navModel.removeElementAt(4);
+            }
+        };
         advanced.addItemListener(e -> {
             prefs.putBoolean("advanced", advanced.isSelected());
-            machines.setAdvanced(advanced.isSelected());
+            applyAdvanced.run();
         });
-        machines.setAdvanced(advanced.isSelected());
+        applyAdvanced.run();
         JPanel side = new JPanel(new BorderLayout());
         side.add(navScroll, BorderLayout.CENTER);
         side.add(advanced, BorderLayout.SOUTH);

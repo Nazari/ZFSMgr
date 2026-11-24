@@ -40,6 +40,11 @@ public final class Main {
         Timing.mark("main");
         String cli = null;
         Integer passwordFd = null;
+        // The language chosen in Administration, unless --lang says another; empty: the system's.
+        String chosen = java.util.prefs.Preferences.userNodeForPackage(MainWindow.class).get("lang", "");
+        if (!chosen.isEmpty()) {
+            Text.setLang(chosen);
+        }
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
                 case "--cli" -> cli = args[++i];
