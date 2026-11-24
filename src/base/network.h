@@ -111,4 +111,26 @@ bool fromClientConfig(const json::Value& config, const json::Value& trustStore,
 void toClientConfig(const Document& d, const LocalSettings& local, const std::string& thisUid,
                     json::Value& config, json::Value& trustStore);
 
+// --- What a client has on disk, back into the network (the publication, phase 3b).
+
+// The network as this client's materialised files say it now, on top of `base` —the document
+// they were materialised from—: machines by uid; a machine's addresses are kept, and an address
+// edited here goes first unless it is only this computer's preferred one; SSH key paths go to
+// `local`. A connection without a uid (no daemon yet) cannot be in the network: its id goes to
+// `withoutUid`. Same revision as `base`.
+Document fromMaterialized(const Document& base, const json::Value& config,
+                          const json::Value& trustStore, LocalSettings& local,
+                          std::vector<std::string>& withoutUid);
+
+// The same machines and master block, whatever the revision, the writer and the mac.
+bool sameContent(const Document& a, const Document& b);
+
+// What this client changed (`mine` against `base`, the copy it started from), applied on top of
+// what the network has now (`theirs`): per machine —changed, added or removed here: mine;
+// otherwise: theirs— and the master block alike. The revision, writer and mac are the caller's.
+Document threeWay(const Document& base, const Document& mine, const Document& theirs);
+
+json::Value localToJson(const LocalSettings& l);
+LocalSettings localFromJson(const json::Value& v);
+
 }  // namespace zfsmgr::base::network

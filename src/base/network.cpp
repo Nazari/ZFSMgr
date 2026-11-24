@@ -331,4 +331,143 @@ void toClientConfig(const Document& d, const LocalSettings& local, const std::st
     trustStore.set("connections", J::Value(trust));
 }
 
+namespace {
+
+const Machine* byUid(const std::vector<Machine>& ms, const std::string& uid) {
+    for (const Machine& m : ms) {
+        if (m.uid == uid) {
+            return &m;
+        }
+    }
+    return nullptr;
+}
+
+std::string machineText(const Machine* m) {
+    return m ? canonical(machineToJson(*m)) : std::string();
+}
+
+}  // namespace
+
+Document fromMaterialized(const Document& base, const J::Value& config, const J::Value& trustStore,
+                          LocalSettings& local, std::vector<std::string>& withoutUid) {
+    Document d = base;
+    d.machines.clear();
+    J::Value master = config["master"];
+    if (config.contains("master_check")) {
+        master.set("check", config["master_check"]);
+    }
+    d.master = master;
+    std::map<std::string, J::Value> trustById;
+    for (const J::Value& t : trustStore["connections"].toArray()) {
+        trustById[t["id"].toString()] = t;
+    }
+    for (const J::Value& c : config["connections"].toArray()) {
+        const std::string id = c["id"].toString();
+        const std::string uid = c["machine_uid"].toString();
+        if (uid.empty()) {
+            withoutUid.push_back(id);
+            continue;
+        }
+        const Machine* was = byUid(base.machines, uid);
+        Machine m = was ? *was : Machine{};
+        m.uid = uid;
+        m.name = c["name"].toString(id).empty() ? id : c["name"].toString(id);
+        m.os = c["os_type"].toString();
+        const bool isLocal = toUpperAscii(c["conn_type"].toString()) == "LOCAL";
+        const std::string host = trim(c["host"].toString());
+        const auto pref = local.preferredAddress.find(uid);
+        const bool onlyPreferred = pref != local.preferredAddress.end() && pref->second == host;
+        if (!isLocal && !host.empty() && !onlyPreferred
+            && (m.addresses.empty() || m.addresses.front() != host)) {
+            m.addresses.erase(std::remove(m.addresses.begin(), m.addresses.end(), host),
+                              m.addresses.end());
+            m.addresses.insert(m.addresses.begin(), host);
+        }
+        m.sshUser = c["username"].toString();
+        if (!isLocal) {
+            m.sshPort = static_cast<int>(c["port"].toInt(22));
+        }
+        m.sshFamily = c["ssh_address_family"].toString("auto");
+        m.sudo = c["use_sudo"].toBool(false);
+        m.password = c["password"].toString();
+        if (const auto t = trustById.find(id); t != trustById.end()) {
+            m.tlsPort = static_cast<int>(t->second["daemon_tls_port"].toInt(47653));
+            m.tlsServerCert = t->second["daemon_tls_server_cert_pem"].toString();
+            m.tlsClientCert = t->second["daemon_tls_client_cert_pem"].toString();
+            m.tlsClientKey = t->second["daemon_tls_client_key_pem"].toString();
+        }
+        if (const std::string k = c["key_path"].toString(); !k.empty()) {
+            local.keyPaths[uid] = k;
+        } else {
+            local.keyPaths.erase(uid);
+        }
+        d.machines.push_back(std::move(m));
+    }
+    return d;
+}
+
+bool sameContent(const Document& a, const Document& b) {
+    if (canonical(a.master) != canonical(b.master) || a.machines.size() != b.machines.size()) {
+        return false;
+    }
+    for (std::size_t i = 0; i < a.machines.size(); ++i) {
+        if (machineText(&a.machines[i]) != machineText(&b.machines[i])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+Document threeWay(const Document& base, const Document& mine, const Document& theirs) {
+    Document r = theirs;
+    if (canonical(mine.master) != canonical(base.master)) {
+        r.master = mine.master;
+    }
+    r.machines.clear();
+    // Theirs in their order, each one replaced or dropped if this client changed it…
+    for (const Machine& t : theirs.machines) {
+        const Machine* b = byUid(base.machines, t.uid);
+        const Machine* m = byUid(mine.machines, t.uid);
+        const bool changedHere = machineText(b) != machineText(m);
+        if (!changedHere) {
+            r.machines.push_back(t);
+        } else if (m) {
+            r.machines.push_back(*m);
+        }  // removed here: dropped
+    }
+    // …and what this client added, which they do not have.
+    for (const Machine& m : mine.machines) {
+        if (!byUid(theirs.machines, m.uid) && !byUid(base.machines, m.uid)) {
+            r.machines.push_back(m);
+        }
+    }
+    return r;
+}
+
+J::Value localToJson(const LocalSettings& l) {
+    J::Value o;
+    J::Value keys;
+    for (const auto& [uid, path] : l.keyPaths) {
+        keys.set(uid, J::Value(path));
+    }
+    J::Value pref;
+    for (const auto& [uid, addr] : l.preferredAddress) {
+        pref.set(uid, J::Value(addr));
+    }
+    o.set("key_paths", keys);
+    o.set("preferred_address", pref);
+    return o;
+}
+
+LocalSettings localFromJson(const J::Value& v) {
+    LocalSettings l;
+    for (const auto& [uid, path] : v["key_paths"].toObject()) {
+        l.keyPaths[uid] = path.toString();
+    }
+    for (const auto& [uid, addr] : v["preferred_address"].toObject()) {
+        l.preferredAddress[uid] = addr.toString();
+    }
+    return l;
+}
+
 }  // namespace zfsmgr::base::network

@@ -5343,6 +5343,56 @@ void caso61() {
                   "red: desde otro ordenador, fc16 es una máquina más");
     }
 
+    // --- Publication (3b): what this client changed, merged on top of what the network has.
+    {
+        NW::LocalSettings mio;
+        J::Value cfg;
+        J::Value tr;
+        NW::toClientConfig(d, mio, "u-fc16", cfg, tr);
+        std::vector<std::string> sinUid;
+        NW::Document igual = NW::fromMaterialized(d, cfg, tr, mio, sinUid);
+        comprobar(NW::sameContent(igual, d) && sinUid.empty(),
+                  "red: sin cambios en los ficheros, el mismo contenido");
+        // This client edits unib's host and user; meanwhile someone else changed fc16's sudo.
+        J::Value cfg2 = cfg;
+        {
+            std::string t = J::toCompact(cfg);
+            const std::string viejo = R"("host":"unib")";
+            t.replace(t.find(viejo), viejo.size(), R"("host":"unib.lan")");
+            J::parse(t, cfg2, nullptr);
+        }
+        NW::Document mia = NW::fromMaterialized(d, cfg2, tr, mio, sinUid);
+        comprobar(!NW::sameContent(mia, d)
+                      && mia.machines[1].addresses == std::vector<std::string>{"unib.lan", "unib"},
+                  "red: una dirección editada pasa a ser la primera, sin perder las otras");
+        NW::Document suya = d;
+        suya.revision = 5;
+        suya.machines[0].sudo = false;
+        NW::Document fusion = NW::threeWay(d, mia, suya);
+        comprobar(
+            fusion.machines[0].sudo == false && fusion.machines[1].addresses.front() == "unib.lan",
+            "red: la fusión conserva lo de otro y aplica lo de este cliente");
+        // Removed here, kept there if it was not touched here: dropped; added here: added.
+        NW::Document sinUnib = d;
+        sinUnib.machines.pop_back();
+        comprobar(NW::threeWay(d, sinUnib, suya).machines.size() == 1,
+                  "red: una máquina quitada aquí se quita");
+        NW::Document conNueva = d;
+        NW::Machine nueva;
+        nueva.uid = "u-nueva";
+        nueva.name = "nueva";
+        conNueva.machines.push_back(nueva);
+        comprobar(NW::threeWay(d, conNueva, suya).machines.size() == 3,
+                  "red: una máquina añadida aquí se añade");
+        // The preferred address is not a change of the network.
+        mio.preferredAddress["u-unib"] = "10.0.0.9";
+        NW::toClientConfig(d, mio, "u-fc16", cfg, tr);
+        comprobar(NW::sameContent(NW::fromMaterialized(d, cfg, tr, mio, sinUid), d),
+                  "red: la dirección preferida de este ordenador no cambia la red");
+        const NW::LocalSettings l2 = NW::localFromJson(NW::localToJson(mio));
+        comprobar(l2.preferredAddress.at("u-unib") == "10.0.0.9", "red: local.json ida y vuelta");
+    }
+
     // The pull-only credential cannot read nor write the network's configuration.
     comprobar(!zfsmgr::base::peers::pullerMayCall("--net-get", {})
                   && !zfsmgr::base::peers::pullerMayCall("--net-put", {"0", "x"})
