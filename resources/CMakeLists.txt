@@ -192,6 +192,7 @@ add_library(zfsmgr_base STATIC
     ../src/base/processes.cpp
     ../src/base/processes.h
     ../src/base/storefiles.cpp
+    ../src/base/network.cpp
     ../src/base/sessionlock.cpp
     ../src/base/sessionlock.h
     ../src/base/storewarnings.cpp

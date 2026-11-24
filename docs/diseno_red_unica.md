@@ -122,14 +122,11 @@ para más.
 
 ## Migración (una vez; sin compatibilidad hacia atrás)
 
-Un asistente `network merge` que:
-
-1. Lee las configuraciones actuales que se le den (la de este ordenador y las de otros, por SSH).
-2. Une las máquinas por `uid`; donde difieren (dirección, usuario, contraseña), **enseña las
-   diferencias y pregunta** cuál vale.
-3. Elige UNA contraseña maestra para la red (la de este ordenador por omisión) y vuelve a envolver
-   la clave de datos; las llaves FIDO2 registradas se vuelven a registrar una vez.
-4. Escribe el documento en todos los daemons y deja en cada ordenador solo `local.json`.
+Decisión del usuario (2026-11-24): **la configuración válida es la de fc16** para toda la red. No
+hay asistente ni mezcla: el documento de red se construye a partir de `config.json` y
+`trust-store.json` de fc16 —los secretos ya están cifrados con su clave de datos y pasan tal
+cual—, se escribe en todos los daemons, y los demás ordenadores la adoptan con la contraseña
+maestra de fc16 (o sus llaves FIDO2), dejando solo su `local.json`.
 
 ## Fases
 
@@ -142,7 +139,7 @@ Un asistente `network merge` que:
 3. **Cliente**: CLI e interfaz leen la red; la copia local; escribir con reintento por conflicto;
    las direcciones múltiples. `--serve` lo expone a la interfaz sin cambiar lo demás del
    protocolo.
-4. **Migración** de las configuraciones actuales con el asistente.
+4. **Migración**: sembrar la red con la configuración de fc16 y que los demás la adopten.
 
 ## Riesgos y preguntas abiertas
 

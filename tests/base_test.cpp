@@ -42,6 +42,7 @@
 #include "connectionjson.h"
 #include "listings.h"
 #include "secretcipher.h"
+#include "network.h"
 #include "strutil.h"
 #include "tlsclient.h"
 #include "tlsserver.h"
@@ -5171,6 +5172,139 @@ void caso56() {
 
 // The cases, in the order they always ran. `zfsmgr_base_test <text>` runs only those whose
 // name contains <text>; with no argument, all of them.
+
+// ONE configuration for the whole network (src/base/network.h, docs/diseno_red_unica.md):
+// the document, its canonical form and HMAC, the verdict on one received, and building it from
+// a client's configuration.
+void caso61() {
+    namespace NW = zfsmgr::base::network;
+    namespace J = zfsmgr::base::json;
+    using zfsmgr::base::SecretCipher;
+    const std::string clave = "clave-de-datos-de-prueba";
+    const auto cifra = [&clave](const std::string& t) {
+        std::string out;
+        std::string err;
+        SecretCipher::encryptEncv1(t, clave, out, err);
+        return out;
+    };
+    const std::string pw = cifra("rpq");
+    const std::string cert = cifra("CERT");
+
+    // --- From a client's configuration: as fc16's is on disk.
+    J::Value config;
+    {
+        std::string err;
+        const std::string texto =
+            R"({"master":{"version":1,"slots":[{"type":"password","value":"x"}],"fido_salt":"s"},)"
+            R"("master_check":"chk","connections":[)"
+            R"({"id":"local","name":"Local","conn_type":"LOCAL","host":"localhost","port":0,)"
+            R"("machine_uid":"u-fc16","username":"ana","use_sudo":true,"password":")"
+            + pw
+            + R"(",)"
+              R"("os_type":"Linux","ssh_address_family":"auto","key_path":""},)"
+              R"({"id":"unib","name":"unib","conn_type":"SSH","host":"unib","port":22,)"
+              R"("machine_uid":"u-unib","username":"ana","use_sudo":true,"password":")"
+            + pw
+            + R"(",)"
+              R"("os_type":"Linux","ssh_address_family":"auto","key_path":"/home/ana/.ssh/id_rsa"}]})";
+        comprobar(J::parse(texto, config, &err), "red: la configuración de prueba se lee");
+    }
+    J::Value trust;
+    {
+        std::string err;
+        J::parse(
+            R"({"connections":[{"id":"unib","daemon_tls_port":47653,"daemon_tls_server_cert_pem":")"
+                + cert + R"(","daemon_tls_client_cert_pem":")" + cert
+                + R"(","daemon_tls_client_key_pem":")" + cert + R"("}]})",
+            trust, &err);
+    }
+    NW::Document d;
+    NW::LocalSettings local;
+    std::string err;
+    comprobar(NW::fromClientConfig(config, trust, "fc16", "u-fc16", 1000, d, local, err),
+              "red: se construye desde la configuración de un cliente");
+    comprobar(d.machines.size() == 2 && d.revision == 1 && d.writtenBy == "u-fc16",
+              "red: dos máquinas, revisión 1, escrita por esta");
+    comprobar(d.machines[0].name == "fc16"
+                  && d.machines[0].addresses == std::vector<std::string>{"fc16"}
+                  && d.machines[0].sshPort == 22,
+              "red: la conexión Local pasa a ser la máquina con su nombre de red");
+    comprobar(d.machines[1].tlsClientKey == cert && d.machines[1].password == pw,
+              "red: los secretos pasan tal cual, cifrados");
+    comprobar(local.keyPaths.count("u-unib") == 1 && local.keyPaths.count("u-fc16") == 0,
+              "red: la ruta de la clave SSH se queda en el ordenador");
+    comprobar(d.master["check"].toString() == "chk" && d.master["slots"].toArray().size() == 1,
+              "red: el bloque maestro va con su comprobación");
+
+    // Refused: a secret in the clear, a connection without uid, the same machine twice.
+    {
+        std::string t = J::toCompact(config);
+        J::Value claro;
+        J::parse(t.replace(t.find(pw), pw.size(), "en-claro"), claro, nullptr);
+        NW::Document x;
+        NW::LocalSettings y;
+        comprobar(!NW::fromClientConfig(claro, trust, "fc16", "u-fc16", 1, x, y, err)
+                      && err.find("clear") != std::string::npos,
+                  "red: un secreto en claro no entra");
+        std::string t2 = J::toCompact(config);
+        J::Value sinUid;
+        J::parse(t2.replace(t2.find("u-unib"), 6, ""), sinUid, nullptr);
+        comprobar(!NW::fromClientConfig(sinUid, trust, "fc16", "u-fc16", 1, x, y, err),
+                  "red: una conexión sin uid no entra");
+        std::string t3 = J::toCompact(config);
+        J::Value dos;
+        J::parse(t3.replace(t3.find("u-unib"), 6, "u-fc16"), dos, nullptr);
+        comprobar(!NW::fromClientConfig(dos, trust, "fc16", "u-fc16", 1, x, y, err),
+                  "red: la misma máquina dos veces no entra");
+    }
+
+    // --- The canonical form: the same content gives the same bytes, whatever the key order.
+    {
+        J::Value a;
+        J::Value b;
+        J::parse(R"({"b":1,"a":{"y":2,"x":[{"q":1,"p":2}]}})", a, nullptr);
+        J::parse(R"({"a":{"x":[{"p":2,"q":1}],"y":2},"b":1})", b, nullptr);
+        comprobar(NW::canonical(a) == NW::canonical(b), "red: forma canónica sin orden de claves");
+    }
+
+    // --- Integrity: signed with the data key; anything changed, or another key, fails.
+    NW::sign(d, clave);
+    comprobar(NW::verify(d, clave), "red: firmado, verifica");
+    {
+        NW::Document x = d;
+        x.machines[1].addresses = {"atacante"};
+        comprobar(!NW::verify(x, clave), "red: una dirección cambiada no verifica");
+        x = d;
+        x.revision = 99;
+        comprobar(!NW::verify(x, clave), "red: la revisión está cubierta por la firma");
+        comprobar(!NW::verify(d, "otra-clave"), "red: con otra clave no verifica");
+    }
+    // Round trip through JSON: still verifies.
+    {
+        NW::Document x;
+        comprobar(NW::fromJson(J::Value(NW::toJson(d)), x, err) && NW::verify(x, clave),
+                  "red: ida y vuelta por JSON, sigue verificando");
+        J::Value v = NW::toJson(d);
+        v.set("schema", J::Value(2));
+        comprobar(!NW::fromJson(v, x, err), "red: un esquema desconocido no se lee");
+    }
+
+    // --- The verdict on a document received, against the copy.
+    comprobar(NW::judge(d, clave, 0, "") == NW::Verdict::Newer, "red: sin copia, se adopta");
+    comprobar(NW::judge(d, clave, 1, d.mac) == NW::Verdict::Same, "red: la misma, igual");
+    comprobar(NW::judge(d, clave, 2, "otra") == NW::Verdict::Older, "red: una vieja no se adopta");
+    {
+        NW::Document x = d;
+        x.machines[0].sudo = false;
+        NW::sign(x, clave);
+        comprobar(NW::judge(x, clave, 1, d.mac) == NW::Verdict::Diverged,
+                  "red: misma revisión y otro contenido: divergencia");
+        x.machines[0].sudo = true;  // changed after signing
+        comprobar(NW::judge(x, clave, 0, "") == NW::Verdict::BadMac,
+                  "red: tocada después de firmar: se rechaza");
+    }
+}
+
 struct Caso {
     const char* nombre;
     void (*correr)();
@@ -5550,6 +5684,7 @@ const Caso kCasos[] = {
     {"GSA stillToPrune", caso58},
     {"la clave de datos y sus ranuras", caso59},
     {"una sesion por maquina", caso60},
+    {"la configuracion de la red", caso61},
 };
 
 }  // namespace
