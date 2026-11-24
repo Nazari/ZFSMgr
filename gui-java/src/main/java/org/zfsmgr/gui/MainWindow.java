@@ -263,7 +263,7 @@ public final class MainWindow extends JFrame {
 
     private boolean yes(String text, String action) {
         Object[] options = {action, L("Not now", "Ahora no")};
-        return JOptionPane.showOptionDialog(this, Ui.wrapped(text), "ZFSMgr", JOptionPane.DEFAULT_OPTION,
+        return JOptionPane.showOptionDialog(this, Ui.paragraph(text), "ZFSMgr", JOptionPane.DEFAULT_OPTION,
                 JOptionPane.QUESTION_MESSAGE, null, options, options[0]) == 0;
     }
 

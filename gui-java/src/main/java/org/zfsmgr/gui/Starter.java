@@ -112,7 +112,7 @@ public final class Starter {
                 }
                 Object[] options = {L("Close that session and open this one", "Cerrar esa sesión y abrir esta"),
                                     L("Leave", "Salir")};
-                int r = JOptionPane.showOptionDialog(null, Ui.wrapped(text), "ZFSMgr",
+                int r = JOptionPane.showOptionDialog(null, Ui.paragraph(text), "ZFSMgr",
                         JOptionPane.DEFAULT_OPTION, JOptionPane.WARNING_MESSAGE, null, options, options[1]);
                 if (r != 0) {
                     System.exit(0);

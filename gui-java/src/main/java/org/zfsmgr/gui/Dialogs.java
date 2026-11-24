@@ -73,7 +73,7 @@ public final class Dialogs {
         addList(p, q.keep(), L("Kept:", "Se conserva:"));
         for (String n : q.notes()) {
             p.add(Box.createVerticalStrut(6));
-            p.add(left(Ui.wrapped(n)));
+            p.add(left(Ui.paragraph(n)));
         }
         JButton yes = new JButton(q.irreversible() ? L("Do it for good", "Hacerlo para siempre") : L("Continue", "Seguir"));
         JButton no = new JButton(L("Cancel", "Cancelar"));
@@ -122,7 +122,7 @@ public final class Dialogs {
         p.add(Box.createVerticalStrut(6));
         p.add(left(new JLabel(heading)));
         for (String i : items) {
-            p.add(left(Ui.wrapped("  • " + i)));
+            p.add(left(Ui.paragraph("  • " + i)));
         }
     }
 

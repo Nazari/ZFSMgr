@@ -70,6 +70,15 @@ public final class Ui {
         return t;
     }
 
+    /**
+     * A paragraph for a dialog: HTML with a fixed width, so the dialog knows its height before it
+     * is shown. A wrapping text area there reported one line, and the buttons were cut off.
+     */
+    public static JLabel paragraph(String text) {
+        return new JLabel("<html><div style='width:420px'>" + escape(text).replace("\n", "<br>")
+                + "</div></html>");
+    }
+
     public static JPanel card() {
         JPanel p = new JPanel();
         Color line = UIManager.getColor("Component.borderColor");
