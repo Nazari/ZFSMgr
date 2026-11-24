@@ -156,8 +156,10 @@ public final class CliService {
         } finally {
             Arrays.fill(first, (byte) 0);
         }
+        // NOT a daemon thread: while a service starts there may be no window at all, and with
+        // only daemon threads left the JVM ends (a1278: the CLI took long to start, and the
+        // interface closed silently after the password). Closing the window ends the program.
         Thread reader = new Thread(this::readLoop, "zfsmgr-cli-reader");
-        reader.setDaemon(true);
         reader.start();
     }
 

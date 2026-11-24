@@ -123,12 +123,24 @@ public final class Main {
             return;
         }
         final MainWindow[] window = new MainWindow[1];
+        // Something on screen while the service starts: on Windows it can take a few seconds,
+        // and with no window at all it looked as if the program had closed.
+        javax.swing.JWindow opening = new javax.swing.JWindow();
+        javax.swing.JLabel openingText = new javax.swing.JLabel(L("Opening ZFSMgr…", "Abriendo ZFSMgr…"));
+        openingText.setBorder(javax.swing.BorderFactory.createCompoundBorder(
+                javax.swing.BorderFactory.createLineBorder(java.awt.Color.GRAY),
+                javax.swing.BorderFactory.createEmptyBorder(16, 28, 16, 28)));
+        opening.getContentPane().add(openingText);
+        opening.pack();
+        opening.setLocationRelativeTo(null);
+        opening.setVisible(true);
         CliService.Listener listener = new CliService.Listener() {
             @Override
             public void ready(java.util.Map<String, Object> ev) {}
 
             @Override
             public void failed(String reason, boolean wrongPassword) {
+                opening.dispose();
                 if (window[0] == null) {
                     if (wrongPassword) {
                         SwingUtilities.invokeLater(() -> attempt(cli, askPassword(
@@ -171,6 +183,7 @@ public final class Main {
                 MainWindow w = new MainWindow(cli, self, listener);
                 window[0] = w;
                 showWindow(w);
+                opening.dispose();
             }
 
             @Override
