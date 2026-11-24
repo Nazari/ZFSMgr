@@ -13,7 +13,7 @@ es cambiar las dos puntas a la vez: no hay compatibilidad con versiones anterior
 
 ```
 zfsmgr-cli --serve [--lang es|en] [--config-dir <dir>] [--password-fd <n>] [--data-key]
-            [--presence gui:<pid>]
+            [--presence gui[:<pid>]] [--session | --take-session]
 ```
 
 - **Contraseña maestra.** Con `--password-fd`, se lee de ese descriptor. Sin él, es la
@@ -37,6 +37,16 @@ zfsmgr-cli --serve [--lang es|en] [--config-dir <dir>] [--password-fd <n>] [--da
   que está `ready`, y se despide al terminar. La interfaz se lo pasa SOLO a su primer
   servicio, el que vive tanto como su ventana; los de cada máquina no anuncian nada. Ver
   «Presencia» en docs/daemonize.md.
+  `--presence gui`, sin PID, anuncia el del propio servicio: es lo que usa una interfaz que vive
+  sobre su servicio (la de Java). Así un cierre a la fuerza desde otra máquina termina un
+  `zfsmgr-cli`, que es lo único que un daemon acepta terminar, y la interfaz se cierra al perderlo.
+- **`--session`.** El servicio toma el candado de sesión de esta máquina (una sola sesión
+  interactiva por máquina, ver «Una sesión por máquina» en docs/daemonize.md) como la de la
+  interfaz, ANTES de leer la primera línea. Si ya la tiene otra sesión, escribe
+  `{"type":"error","code":"session_busy","text":"…","holder":{"kind","user","pid","since"}}` y
+  termina con código 1; `text` va ya redactado. La interfaz pregunta y vuelve a arrancar el
+  servicio con **`--take-session`**, que cierra esa sesión primero (como ofrece el intérprete):
+  si no puede, `{"type":"error","code":"session_not_closed","text":"…"}`.
 
 ### Cerrado: con llaves FIDO2 registradas
 

@@ -178,6 +178,11 @@ struct Opciones {
     // --presence gui:<pid> (with --serve): this service announces the interface's session to
     // the daemons (presence.h). The interface passes it to its first service only.
     long long presenciaGui{0};
+    // --session (with --serve): this service takes the machine's session lock as the
+    // interface's, for an interface that cannot take it itself (the Java one). --take-session:
+    // and if another session has it, it is closed first.
+    bool tomaSesion{false};
+    bool fuerzaSesion{false};
     std::vector<std::string> orden;
 };
 
@@ -315,6 +320,61 @@ bool tomaLaSesion(B::session::Lock& lock) {
     return false;
 }
 
+// `--serve --session`: the lock taken for the interface, before its first line is read. Busy,
+// it says who has it as an event —the interface offers to close it and starts the service
+// again with --take-session— and the service ends. Nothing is asked here: there is no
+// terminal, the interface asks.
+bool tomaLaSesionDelServicio(B::session::Lock& lock, bool forzar) {
+    namespace J = zfsmgr::base::json;
+    B::session::Holder h;
+    std::string detalle;
+    auto r = lock.acquire("gui", h, detalle);
+    if (r == B::session::Acquire::Busy && forzar && h.pid > 0) {
+        const B::session::Stop parado = B::session::stop(h, detalle);
+        if (parado != B::session::Stop::Stopped) {
+            J::Value ev;
+            ev.set("type", J::Value(std::string("error")));
+            ev.set("code", J::Value(std::string("session_not_closed")));
+            ev.set("text",
+                   J::Value(
+                       parado == B::session::Stop::NotAllowed
+                           ? B::format(T("t_ses_otro_usuario",
+                                         "es de %1, y solo esa persona o un administrador "
+                                         "puede cerrarla: desde su sesión, o con «sudo "
+                                         "kill %2»"),
+                                       {h.user, std::to_string(h.pid)})
+                       : parado == B::session::Stop::StillRunning
+                           ? B::format(T("t_ses_sigue", "el proceso %1 no termina"),
+                                       {std::to_string(h.pid)})
+                           : B::format(T("t_ses_no_cierra2", "no se pudo cerrar: %1"), {detalle})));
+            std::fputs((J::toCompact(ev) + "\n").c_str(), stdout);
+            std::fflush(stdout);
+            return false;
+        }
+        r = lock.acquire("gui", h, detalle);
+    }
+    if (r == B::session::Acquire::Held || r == B::session::Acquire::Failed) {
+        // Failed: not a reason to refuse, as for the shell (only that two could be open).
+        return true;
+    }
+    J::Value quien;
+    quien.set("kind", J::Value(h.kind));
+    quien.set("user", J::Value(h.user));
+    quien.set("pid", J::Value(static_cast<double>(h.pid)));
+    quien.set("since", J::Value(static_cast<double>(h.since)));
+    J::Value ev;
+    ev.set("type", J::Value(std::string("error")));
+    ev.set("code", J::Value(std::string("session_busy")));
+    ev.set("text", J::Value(B::format(T("t_ses_ocupada_gui",
+                                        "ZFSMgr ya está abierto en esta máquina: %1. Solo puede "
+                                        "haber una sesión a la vez en cada máquina."),
+                                      {quienTieneLaSesion(h)})));
+    ev.set("holder", quien);
+    std::fputs((J::toCompact(ev) + "\n").c_str(), stdout);
+    std::fflush(stdout);
+    return false;
+}
+
 // One line of standard input, read byte by byte (see --serve). False at end of input.
 bool leeLineaDeEntrada(std::string& linea) {
     linea.clear();
@@ -446,6 +506,17 @@ int main(int argc, char** argv) {
         }
         if (a == "--presence" && i + 1 < argc) {
             const std::string v = argv[++i];
+            // «gui» alone: this service's own PID. What a daemon is asked to end on a forced
+            // close (`sessions close --force`) must be zfsmgr-cli or the interface, never a
+            // `java`: ending the service ends the Java interface, which lives on it.
+            if (v == "gui") {
+#ifdef _WIN32
+                op.presenciaGui = static_cast<long long>(GetCurrentProcessId());
+#else
+                op.presenciaGui = static_cast<long long>(::getpid());
+#endif
+                continue;
+            }
             if (v.rfind("gui:", 0) != 0 || v.size() < 5
                 || v.find_first_not_of("0123456789", 4) != std::string::npos) {
                 std::fprintf(stderr, TC("t_opcion_desconocida", "%s: opción desconocida: %s\n"),
@@ -453,6 +524,15 @@ int main(int argc, char** argv) {
                 return 2;
             }
             op.presenciaGui = std::atoll(v.c_str() + 4);
+            continue;
+        }
+        if (a == "--session") {
+            op.tomaSesion = true;
+            continue;
+        }
+        if (a == "--take-session") {
+            op.tomaSesion = true;
+            op.fuerzaSesion = true;
             continue;
         }
         if (a == "--data-key") {
@@ -736,6 +816,9 @@ int main(int argc, char** argv) {
 #endif
     } else if (op.servir && op.presenciaGui > 0) {
         zfsmgr::cli::setPresence("gui", op.presenciaGui);
+    }
+    if (op.servir && op.tomaSesion && !tomaLaSesionDelServicio(sesion, op.fuerzaSesion)) {
+        return 1;
     }
 
     // `maestra` ends up holding the DATA KEY, not the password: what is read here —the

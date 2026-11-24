@@ -1665,6 +1665,60 @@ def casos_editor_ancho(ctx):
         print(f"  ok     {nombre}")
 
 
+def casos_sesion_del_servicio(ctx):
+    """`--serve --session`: the service takes the session lock for an interface that cannot take it
+    itself (the Java one). A second one gets `session_busy` with who has it; `--take-session`
+    closes the first and goes ahead. The lock is the battery's (ZFSMGR_SESSION_LOCK)."""
+    def comprueba(nombre, problemas, vista=""):
+        if problemas:
+            ctx.fallos.append((nombre, problemas, vista[-600:]))
+            print(f"  FALLO  {nombre}")
+            for x in problemas:
+                print(f"         {x}")
+        else:
+            ctx.pasados.append(nombre)
+            print(f"  ok     {nombre}")
+
+    def arranca(*extra):
+        p = subprocess.Popen([CLI, "--serve", "--lang", "es", *extra], stdin=subprocess.PIPE,
+                             stdout=subprocess.PIPE, text=True, bufsize=1)
+        p.stdin.write(ctx.maestra + "\n")
+        p.stdin.flush()
+        linea = p.stdout.readline()
+        try:
+            return p, (json.loads(linea) if linea else {})
+        except ValueError:
+            return p, {"raw": linea}
+
+    primero, ev1 = arranca("--session", "--presence", "gui")
+    comprueba("servicio --session: el primero toma la sesión",
+              [] if ev1.get("type") == "ready" else [f"evento {ev1}"])
+    segundo, ev2 = arranca("--session")
+    segundo.wait(timeout=10)
+    h = ev2.get("holder", {})
+    comprueba("servicio --session: el segundo dice que está ocupada y quién la tiene",
+              [] if ev2.get("code") == "session_busy" and h.get("kind") == "gui"
+              and h.get("pid") == primero.pid and segundo.returncode == 1
+              else [f"evento {ev2} rc={segundo.returncode} pid1={primero.pid}"])
+    tercero, ev3 = arranca("--take-session")
+    try:
+        primero.wait(timeout=15)
+    except subprocess.TimeoutExpired:
+        pass
+    comprueba("servicio --take-session: cierra la otra y arranca",
+              [] if ev3.get("type") == "ready" and primero.poll() is not None
+              else [f"evento {ev3} primero_vivo={primero.poll() is None}"])
+    for p in (primero, tercero):
+        try:
+            p.stdin.close()
+        except Exception:
+            pass
+        try:
+            p.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            p.kill()
+
+
 def casos_modo_cliente(ctx):
     """A machine with neither the agent nor OpenZFS is only the control for the others: no Local
     connection, and the rest work as before. Forced with ZFSMGR_LOCAL_CONNECTION, on a COPY of
@@ -3941,7 +3995,7 @@ def casos_arranque(ctx):
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
 LOCALES = [casos_arranque, casos_identidad, casos_devices, casos_ayuda, casos_version_openzfs, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
-           casos_volumenes, casos_dedup, casos_overview, casos_json_gui, casos_sudo_sin_argv, casos_probe, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_send_level, casos_recepcion_a_medias, casos_send_fichero, casos_send_comprimido, casos_gsa, casos_sin_montar, casos_cp_destino, casos_load_key, casos_editor_ancho, casos_sesion_unica, casos_modo_cliente, casos_tab_continua, casos_pantalla, casos_ctrl_c, casos_monitor_conexiones, casos_path, casos_info_labelclear, casos_servicio, casos_primera_maestra, casos_servicio_llave, casos_servicio_conexiones, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
+           casos_volumenes, casos_dedup, casos_overview, casos_json_gui, casos_sudo_sin_argv, casos_probe, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_send_level, casos_recepcion_a_medias, casos_send_fichero, casos_send_comprimido, casos_gsa, casos_sin_montar, casos_cp_destino, casos_load_key, casos_editor_ancho, casos_sesion_unica, casos_sesion_del_servicio, casos_modo_cliente, casos_tab_continua, casos_pantalla, casos_ctrl_c, casos_monitor_conexiones, casos_path, casos_info_labelclear, casos_servicio, casos_primera_maestra, casos_servicio_llave, casos_servicio_conexiones, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
 def rpc_directo(ctx, entrada, cmd, args):

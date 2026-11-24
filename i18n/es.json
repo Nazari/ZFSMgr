@@ -1,6 +1,8 @@
 {
   "language": "es",
   "translations": {
+    "t_ses_no_cierra2": "no se pudo cerrar: %1",
+    "t_ses_ocupada_gui": "ZFSMgr ya está abierto en esta máquina: %1. Solo puede haber una sesión a la vez en cada máquina.",
     "t_serve_sin_temporal": "no se pudo crear un fichero temporal para la salida de la orden",
     "t_ej_edit_keep_pw": "otra dirección, sin tocar la contraseña",
     "t_edit_keep_pw": "--keep-password",

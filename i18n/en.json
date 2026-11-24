@@ -1,6 +1,8 @@
 {
   "language": "en",
   "translations": {
+    "t_ses_no_cierra2": "it could not be closed: %1",
+    "t_ses_ocupada_gui": "ZFSMgr is already open on this machine: %1. There can be only one session at a time on each machine.",
     "t_serve_sin_temporal": "could not create a temporary file for the command's output",
     "t_ej_edit_keep_pw": "another address, leaving the password alone",
     "t_edit_keep_pw": "--keep-password",
