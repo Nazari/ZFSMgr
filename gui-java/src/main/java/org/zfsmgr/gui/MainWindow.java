@@ -149,8 +149,12 @@ public final class MainWindow extends JFrame {
                 navModel.removeElementAt(4);
             }
         };
+        // What a capture switches on by environment is not remembered as the person's choice.
+        boolean forced = "1".equals(System.getenv("ZFSMGR_GUI_ADVANCED"));
         advanced.addItemListener(e -> {
-            prefs.putBoolean("advanced", advanced.isSelected());
+            if (!forced) {
+                prefs.putBoolean("advanced", advanced.isSelected());
+            }
             applyAdvanced.run();
         });
         applyAdvanced.run();

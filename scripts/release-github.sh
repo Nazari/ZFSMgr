@@ -10,6 +10,7 @@ DRY_RUN=0
 RESUME=0
 SKIP_BUILD=0
 ONLY_RELEASE=0
+PRERELEASE=0
 BUILD_PLATFORMS_OVERRIDE=""
 
 log() {
@@ -28,7 +29,7 @@ require_cmd() {
 usage() {
   cat <<'USAGE'
 Uso:
-  release-github.sh [--dry-run] [--resume] [--skip-build] [--only-release] [--platforms linux,windows,freebsd,macos] <version>
+  release-github.sh [--dry-run] [--resume] [--skip-build] [--only-release] [--prerelease] [--platforms linux,windows,freebsd,macos] <version>
 
 Ejemplo:
   release-github.sh 0.10.1rc1
@@ -39,9 +40,12 @@ Variables opcionales:
   OUTPUT_DIR     si se define, se usa como directorio local de artefactos
   RELEASE_LOG_DIR directorio donde guardar logs por fase
 
+--prerelease   la marca como pre-release en GitHub (no pasa a ser «Latest»). Una versión
+               con sufijo —2.0.0rc1— lo es siempre.
+
 Artefactos publicados (los genera scripts/empaqueta.sh, que llama buildall-cross.sh):
-  - zfsmgr-cli-<version>.zip    solo CLI, un instalador por sistema (desde la 1.0.0 es lo
-                                único que se publica; el completo con interfaz no se sube)
+  - zfsmgr-cli-<version>.zip    solo CLI, un instalador por sistema
+  - zfsmgr-<version>.zip        CLI + interfaz en Java (desde la 2.0.0; en la 1.x no se subía)
   - y la suma SHA-256 de cada uno
 
 Resolución de artefactos:
@@ -65,6 +69,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --only-release)
       ONLY_RELEASE=1
+      shift
+      ;;
+    --prerelease)
+      PRERELEASE=1
       shift
       ;;
     --platforms)
@@ -92,6 +100,9 @@ VERSION="$1"
 TAG="v${VERSION}"
 [[ "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([A-Za-z0-9.-]*)?$ ]] || fail "Versión no válida: ${VERSION}"
 BASE_VERSION="$(printf '%s' "${VERSION}" | sed -E 's/^([0-9]+\.[0-9]+\.[0-9]+).*/\1/')"
+# A candidate —anything after the three numbers— is never published as the latest one.
+[[ "${VERSION}" != "${BASE_VERSION}" ]] && PRERELEASE=1
+MAJOR="${BASE_VERSION%%.*}"
 [[ -n "${BASE_VERSION}" ]] || fail "No se pudo resolver la versión base desde ${VERSION}"
 LOG_DIR="${RELEASE_LOG_DIR:-${ARTIFACTS_ROOT}/logs/${VERSION}}"
 STATE_FILE="${ARTIFACTS_ROOT}/state/${VERSION}/release-state.json"
@@ -178,9 +189,13 @@ resolve_release_artifacts() {
   ZIP_CLI="${artifacts_dir}/zfsmgr-cli-${VERSION}.zip"
   RELEASE_FILES=()
   local f
-  # Desde la 1.0.0 se publica SOLO el CLI: la interfaz gráfica no está probada y no se
-  # espera hasta la 2.0.0. El zip completo se sigue generando, pero no se sube.
-  for f in "${ZIP_CLI}" "${ZIP_CLI}.sha256"; do
+  # En la 1.x se publicaba SOLO el CLI: la interfaz gráfica no estaba probada. Desde la 2.0.0,
+  # con la interfaz en Java, también el completo.
+  local publish=("${ZIP_CLI}" "${ZIP_CLI}.sha256")
+  if [[ "${MAJOR}" -ge 2 ]]; then
+    publish+=("${ZIP_COMPLETO}" "${ZIP_COMPLETO}.sha256")
+  fi
+  for f in "${publish[@]}"; do
     # Con `if` y no con `[[ ]] &&`: si el último no existe —lo normal antes de compilar—, la
     # función devolvería 1 y la trampa de ERR abortaría la release sin decir nada.
     if [[ -f "${f}" ]]; then
@@ -405,6 +420,9 @@ GH_RELEASE_CMD=(gh release create "${TAG}"
   --verify-tag
   --generate-notes
 )
+if [[ "${PRERELEASE}" -eq 1 ]]; then
+  GH_RELEASE_CMD+=(--prerelease)
+fi
 # Las notas escritas a mano van DELANTE de las generadas: son las que dicen el alcance.
 NOTAS="${PROJECT_ROOT:-${SCRIPT_DIR}/..}/docs/notas/${VERSION}.md"
 if [[ -f "${NOTAS}" ]]; then

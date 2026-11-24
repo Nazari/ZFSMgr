@@ -1,9 +1,10 @@
 #!/bin/sh
-# Installs the ZFSMgr @VERSION@ CLI on FreeBSD amd64. EXPERIMENTAL.
+# Installs ZFSMgr @VERSION@ on FreeBSD amd64: the CLI and, if the package has it, the Java GUI.
+# EXPERIMENTAL.
 #
 # Cross-compiled from Linux and tested on ONE machine: FreeBSD 15.1 with OpenZFS 2.4.2, CLI and
-# daemon, installing and updating. That is why it still asks for confirmation. The FreeBSD GUI
-# has never been built and is not in the package.
+# daemon, installing and updating. That is why it still asks for confirmation. The GUI is the
+# same Java .jar as everywhere (it needs the openjdk21 port or later).
 set -eu
 ZM_HERE="$(cd "$(dirname "$0")" && pwd)"
 ZM_SCRIPT="install-freebsd.sh"
@@ -47,6 +48,7 @@ zm_elevate_for "${PREFIX}/bin"
 if [ "${UNINSTALL}" -eq 1 ]; then
   zm_log "$(zm_t "desinstalando de ${PREFIX}" "uninstalling from ${PREFIX}")"
   zm_uninstall_daemon "${ZM_BIN}"
+  zm_uninstall_desktop_entry
   zm_uninstall_cli
   zm_done_uninstall
   exit 0
@@ -57,9 +59,13 @@ zm_openzfs
 zm_check_jobs
 zm_install_cli
 zm_test_cli
-if [ -d "${ZM_HERE}/gui" ]; then
-  zm_log "$(zm_t 'la interfaz gráfica no existe para FreeBSD: solo se instala el CLI.' \
-                 'there is no GUI for FreeBSD: only the CLI is installed.')"
+if [ "${CLI_ONLY}" -eq 1 ]; then
+  zm_log "$(zm_t '--cli-only: la interfaz no se instala.' '--cli-only: the GUI is not installed.')"
+elif zm_has_gui; then
+  # The Java GUI runs here too: the same .jar, with the openjdk21 port.
+  zm_install_gui
+  zm_install_desktop_entry
+  zm_test_gui "${ZM_GUI_BIN}"
 fi
 zm_daemon "${ZM_BIN}"
 

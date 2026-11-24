@@ -255,9 +255,67 @@ zm_openzfs() {
   ZM_ZFS=ok
 }
 
-# Does this package carry this machine's GUI? The CLI-only one has no `gui/`.
+# Does this package carry the GUI? The CLI-only one has no `gui/`. Since 2.0 it is one Java
+# program for every system (gui/zfsmgr-gui.jar), started by gui/zfsmgr-gui.sh.
 zm_has_gui() {
-  [ -d "${ZM_HERE}/gui/${ZM_KEY}" ]
+  [ -f "${ZM_HERE}/gui/zfsmgr-gui.jar" ]
+}
+
+# The Java GUI: the .jar in <prefix>/lib/zfsmgr and the launcher in <prefix>/bin/zfsmgr-gui,
+# written with the paths of THIS installation. Java itself is not installed: the launcher
+# looks for one at each start, and here it is only said whether there is one.
+zm_install_gui() {
+  ZM_GUI_JAR="${PREFIX}/lib/zfsmgr/zfsmgr-gui.jar"
+  ZM_GUI_BIN="${PREFIX}/bin/zfsmgr-gui"
+  zm_log "$(zm_t 'interfaz' 'GUI') -> ${ZM_GUI_JAR}"
+  zm_run mkdir -p "${PREFIX}/lib/zfsmgr" "${PREFIX}/bin"
+  zm_run install -m 0644 "${ZM_HERE}/gui/zfsmgr-gui.jar" "${ZM_GUI_JAR}"
+  launcher="$(mktemp)"
+  sed -e "s|%%JAR%%|${ZM_GUI_JAR}|" -e "s|%%CLI%%|${ZM_BIN}|" "${ZM_HERE}/gui/zfsmgr-gui.sh" > "${launcher}"
+  # A LINK there —what the Qt GUI left (to its AppDir)— is removed first: `install` over a
+  # link would write into its target.
+  [ -L "${ZM_GUI_BIN}" ] && zm_run rm -f "${ZM_GUI_BIN}"
+  zm_run install -m 0755 "${launcher}" "${ZM_GUI_BIN}"
+  rm -f "${launcher}"
+}
+
+# The icon and the menu entry, where desktops look for them (Linux and FreeBSD). The .desktop
+# with the FULL path: the desktop launcher does not use the terminal's PATH, and with a prefix
+# like ~/.local a bare `Exec=zfsmgr-gui` is not found.
+zm_install_desktop_entry() {
+  ZM_GUI_BIN="${PREFIX}/bin/zfsmgr-gui"
+  desktop_file="${PREFIX}/share/applications/zfsmgr.desktop"
+  icon="${PREFIX}/share/icons/hicolor/512x512/apps/ZFSMgr.png"
+  zm_run mkdir -p "$(dirname "${desktop_file}")" "$(dirname "${icon}")"
+  zm_run install -m 0644 "${ZM_HERE}/gui/ZFSMgr.png" "${icon}"
+  desktop="$(mktemp)"
+  cat > "${desktop}" <<DESKTOP
+[Desktop Entry]
+Type=Application
+Name=ZFSMgr
+Comment=OpenZFS manager
+Exec=${ZM_GUI_BIN}
+Icon=${icon}
+Categories=System;Utility;
+Terminal=false
+DESKTOP
+  zm_run install -m 0644 "${desktop}" "${desktop_file}"
+  rm -f "${desktop}"
+  if command -v update-desktop-database >/dev/null 2>&1; then
+    zm_run update-desktop-database "$(dirname "${desktop_file}")" >/dev/null 2>&1 || true
+  fi
+}
+
+zm_uninstall_desktop_entry() {
+  ZM_GUI_BIN="${PREFIX}/bin/zfsmgr-gui"
+  desktop_file="${PREFIX}/share/applications/zfsmgr.desktop"
+  zm_run rm -f "${ZM_GUI_BIN}" "${desktop_file}" "${PREFIX}/share/icons/hicolor/512x512/apps/ZFSMgr.png"
+  zm_run rm -rf "${PREFIX}/lib/zfsmgr"
+  # `mimeinfo.cache` is NOT deleted: every application of that prefix shares it. It is
+  # regenerated, so it stops naming a .desktop that is gone.
+  if [ -d "$(dirname "${desktop_file}")" ] && command -v update-desktop-database >/dev/null 2>&1; then
+    zm_run update-desktop-database "$(dirname "${desktop_file}")" >/dev/null 2>&1 || true
+  fi
 }
 
 # The standalone CLI: binary in <prefix>/bin and, beside it, <prefix>/share/zfsmgr/{i18n,agents}.
@@ -328,17 +386,18 @@ zm_test_cli() {
   [ "${in_path}" = 1 ] || zm_log "$(zm_t "aviso: ${PREFIX}/bin no está en su PATH." "warning: ${PREFIX}/bin is not in your PATH.")"
 }
 
-# The GUI really starts: `--version` answers AFTER loading Qt and its platform plugin, which
-# is what fails when a library is missing. Without a display, offscreen.
+# The GUI can start: the launcher finds a Java 21 or later and the .jar is where it says. Without
+# Java it is installed all the same —Java can come later— and it is said loudly.
 zm_test_gui() {
   gui="$1"
   [ "${DRY_RUN}" -eq 1 ] && return 0
-  if ! out="$(QT_QPA_PLATFORM=offscreen "${gui}" --version 2>&1)"; then
-    zm_err "$(zm_t "la interfaz se instaló en ${gui}, pero NO arranca:" "the GUI was installed at ${gui}, but it does NOT start:")"
+  if out="$("${gui}" --check 2>&1)"; then
+    zm_log "$(zm_t 'interfaz con' 'GUI with') ${out}  ->  ${gui}"
+  else
+    zm_err "$(zm_t 'aviso: la interfaz está instalada pero NO arrancará hasta que haya Java 21 o posterior:' \
+                   'warning: the GUI is installed but will NOT start until there is Java 21 or later:')"
     zm_err "${out}"
-    exit 1
   fi
-  zm_log "${out}  ->  ${gui}"
 }
 
 # --- Jobs in progress on the daemon already there, BEFORE touching anything.

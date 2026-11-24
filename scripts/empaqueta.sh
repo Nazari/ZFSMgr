@@ -7,12 +7,13 @@
 # agente de agosto empaquetado con el número de la versión nueva —una vuelta atrás que
 # nadie vio—, y un Setup de Windows y un AppDir del 26 de agosto que se llamaban 0.99.3.
 # El nombre de un fichero no dice de cuándo es; la HUELLA que lleva dentro, sí. Así que se
-# lee la huella de cada binario —clientes, agentes, y lo que va dentro del .app, del AppDir
-# y del Setup— y todas tienen que ser la misma.
+# lee la huella de cada binario —clientes y agentes— y todas tienen que ser la misma.
 #
-# Windows y FreeBSD: el CLI de Windows va solo (enlazado estático) para el zip de solo CLI;
-# FreeBSD entra como EXPERIMENTAL y solo con CLI: se ha probado en una sola máquina (15.1) y
-# su interfaz nunca se ha compilado.
+# La interfaz, desde la 2.0, es la de Java (gui-java/): UN .jar para todos los sistemas, que
+# se compila aquí mismo si es más viejo que su código. La de Qt (src/gui) ya no se empaqueta.
+#
+# Windows y FreeBSD: el CLI de Windows va solo (enlazado estático); FreeBSD entra como
+# EXPERIMENTAL: se ha probado en una sola máquina (15.1).
 set -euo pipefail
 
 RAIZ="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -137,97 +138,42 @@ if command -v x86_64-w64-mingw32-objdump >/dev/null 2>&1 && [[ -f "${RAIZ}/${CLI
   fi
 fi
 
-# --- Las interfaces, mirando DENTRO de cada una.
-APPDIR="${RAIZ}/AppDir"
-declare -A APP=(
-  [macos-amd64]="${RAIZ}/builds/cross-macos-amd64/ZFSMgr.app"
-  [macos-arm64]="${RAIZ}/builds/cross-macos-arm64/ZFSMgr.app"
-)
-SETUP="${RAIZ}/builds/windows-installer/ZFSMgr-Setup-${VERSION}.exe"
-INNO_TMP=""
-limpia() { [[ -n "${INNO_TMP}" ]] && rm -rf "${INNO_TMP}"; [[ -n "${TRABAJO:-}" ]] && rm -rf "${TRABAJO}"; return 0; }
+# --- La interfaz: el .jar de gui-java, compilado aquí si es más viejo que su código.
+JAR="${RAIZ}/gui-java/target/zfsmgr-gui.jar"
+limpia() { [[ -n "${TRABAJO:-}" ]] && rm -rf "${TRABAJO}"; return 0; }
 trap limpia EXIT
 
 if [[ "${SOLO_CLI}" -eq 0 ]]; then
   echo
-  echo "== Interfaz de Linux (AppDir)"
-  exige_huella "AppDir: zfsmgr-gui" "${APPDIR}/usr/bin/zfsmgr-gui"
-  exige_huella "AppDir: zfsmgr-cli" "${APPDIR}/usr/bin/zfsmgr-cli"
-  exige_catalogos "AppDir" "${APPDIR}/usr/share/zfsmgr/i18n"
-  for k in "${CLAVES[@]}"; do
-    exige_huella "AppDir: agente ${k}" "${APPDIR}/usr/share/zfsmgr/agents/${k}/zfsmgr_agent$(ext_de "$k")"
-  done
-
-  for k in macos-arm64 macos-amd64; do
-    echo
-    echo "== Interfaz de macOS ${k}"
-    a="${APP[$k]}"
-    plist_ver="$(grep -A1 'CFBundleShortVersionString' "${a}/Contents/Info.plist" 2>/dev/null \
-                   | sed -n 's/.*<string>\(.*\)<\/string>.*/\1/p' | head -1)"
-    if [[ "${plist_ver}" == "${VERSION}" ]]; then
-      bien "Info.plist: ${plist_ver}"
-    else
-      falla ".app ${k}: Info.plist dice «${plist_ver:-nada}», y la versión es ${VERSION}"
-    fi
-    exige_huella ".app ${k}: ZFSMgr" "${a}/Contents/MacOS/ZFSMgr"
-    exige_huella ".app ${k}: zfsmgr-cli" "${a}/Contents/MacOS/zfsmgr-cli"
-    # Sin agentes dentro, desde la interfaz de un Mac no se puede instalar un daemon en otra
-    # máquina: el .app se veía bien y le faltaba media función.
-    for kk in "${CLAVES[@]}"; do
-      exige_huella ".app ${k}: agente ${kk}" "${a}/Contents/Resources/agents/${kk}/zfsmgr_agent$(ext_de "$kk")"
+  echo "== Interfaz (Java)"
+  viejo=1
+  if [[ -f "${JAR}" ]] && [[ -z "$(find "${RAIZ}/gui-java/src/main" "${RAIZ}/gui-java/pom.xml" -type f -newer "${JAR}" | head -1)" ]]; then
+    viejo=0
+  fi
+  if [[ "${viejo}" -eq 1 ]]; then
+    # Java 21 para compilar: el `java` por omisión de fc16 es el 8.
+    jh="${JAVA_HOME:-}"
+    for c in "${jh}" /usr/lib/jvm/java-21-openjdk-amd64 /usr/lib/jvm/java-21-openjdk /usr/lib/jvm/temurin-21-jdk-amd64; do
+      [[ -n "${c}" && -x "${c}/bin/javac" ]] && { jh="${c}"; break; }
     done
-    # Los de macOS, byte a byte los firmados con el certificado estable: recortados o firmados
-    # otra vez al montar el .app quedan ad hoc, y cada Mac pierde el «Acceso total al disco»
-    # al instalar (mmela, 2026-11-24).
-    for kk in macos-amd64 macos-arm64; do
-      cmp -s "${a}/Contents/Resources/agents/${kk}/zfsmgr_agent" \
-             "${RAIZ}/builds/agents/${kk}/zfsmgr_agent" \
-        || falla ".app ${k}: el agente ${kk} no es el firmado de builds/agents (¿recortado o firmado de nuevo?)"
-    done
-    exige_catalogos ".app ${k}" "${a}/Contents/Resources/i18n"
-  done
-
-  echo
-  echo "== Interfaz de Windows (Setup)"
-  if [[ ! -f "${SETUP}" ]]; then
-    falla "no existe ${SETUP#"${RAIZ}/"}"
-  else
-    # Primero, mirar DENTRO con innoextract. Si no sabe leer este Setup —la 1.9 de Ubuntu no
-    # entiende Inno 6.7—, se mira el directorio del que se compiló: `payload/` queda en
-    # disco. Si sus piezas llevan la huella buena Y el Setup es posterior a todas ellas, el
-    # Setup se hizo con ellas: uno más viejo que su payload saldría aquí.
-    inspeccionado=0
-    if command -v innoextract >/dev/null 2>&1; then
-      INNO_TMP="$(mktemp -d)"
-      if innoextract -q -d "${INNO_TMP}" "${SETUP}" >/dev/null 2>&1; then
-        inspeccionado=1
-        raiz_setup="${INNO_TMP}"
-        echo "  (mirado dentro del Setup con innoextract)"
-      fi
-    fi
-    if [[ "${inspeccionado}" -eq 0 ]]; then
-      raiz_setup="$(dirname "${SETUP}")/payload"
-      echo "  (innoextract no lee este Setup: se mira su payload/ y que el Setup sea posterior)"
-      if [[ ! -d "${raiz_setup}" ]]; then
-        falla "Setup: ni innoextract lo lee ni queda su payload/ para comprobarlo"
-      elif [[ -n "$(find "${raiz_setup}" -type f -newer "${SETUP}" | head -1)" ]]; then
-        falla "Setup: su payload/ tiene ficheros POSTERIORES al Setup: el Setup es viejo"
-      else
-        bien "Setup: posterior a todo su payload/"
-      fi
-    fi
-    if [[ -d "${raiz_setup:-}" ]]; then
-      gui_exe="$(find "${raiz_setup}" -iname 'zfsmgr-gui.exe' -o -iname 'ZFSMgr.exe' | head -1)"
-      cli_exe="$(find "${raiz_setup}" -iname 'zfsmgr-cli.exe' | head -1)"
-      exige_huella "Setup: interfaz" "${gui_exe:-${raiz_setup}/(sin interfaz)}"
-      exige_huella "Setup: zfsmgr-cli" "${cli_exe:-${raiz_setup}/(sin CLI)}"
-      [[ -n "${cli_exe}" ]] && exige_catalogos "Setup" "$(dirname "${cli_exe}")/i18n"
-      for k in "${CLAVES[@]}"; do
-        ag="$(find "${raiz_setup}" -path "*agents/${k}/zfsmgr_agent$(ext_de "$k")" | head -1)"
-        exige_huella "Setup: agente ${k}" "${ag:-${raiz_setup}/(sin agente ${k})}"
-      done
+    echo "  (el .jar es más viejo que su código: se compila con ${jh:-el Java por omisión})"
+    mkdir -p "${RAIZ}/gui-java/target"
+    if ! JAVA_HOME="${jh}" mvn -q -o -f "${RAIZ}/gui-java/pom.xml" package >"${RAIZ}/gui-java/target/build.log" 2>&1; then
+      falla "interfaz: no compila (gui-java/target/build.log)"
     fi
   fi
+  if [[ ! -f "${JAR}" ]]; then
+    falla "interfaz: no existe ${JAR#"${RAIZ}/"}"
+  elif ! unzip -l "${JAR}" 'org/zfsmgr/gui/Main.class' >/dev/null 2>&1; then
+    falla "interfaz: el .jar no trae org/zfsmgr/gui/Main.class"
+  elif [[ -n "$(find "${RAIZ}/gui-java/src/main" -type f -newer "${JAR}" | head -1)" ]]; then
+    falla "interfaz: hay código de gui-java más nuevo que el .jar"
+  else
+    bien "interfaz: ${JAR#"${RAIZ}/"} al día con su código"
+  fi
+  for f in "${PLANTILLAS}/gui/zfsmgr-gui.sh" "${RAIZ}/icons/ZFSMgr-512.png" "${RAIZ}/icons/ZFSMgr.icns" "${RAIZ}/icons/ZFSMgr.ico"; do
+    [[ -f "${f}" ]] || falla "interfaz: falta ${f#"${RAIZ}/"}"
+  done
 fi
 
 if [[ ${#FALLOS[@]} -gt 0 ]]; then
@@ -301,16 +247,15 @@ arma() {
   sed 's/$/\r/' "${TRABAJO}/cmd.tmp" > "${arbol}/install-windows.cmd"
 
   if [[ "${con_gui}" -eq 1 ]]; then
-    # En .tar.gz DENTRO del zip: el .app (frameworks de Qt, `Versions/Current`) y el AppDir
-    # (`AppRun`) llevan enlaces simbólicos, y los descompresores de Finder y de Explorer no
-    # los conservan de forma fiable. `tar` sí, y es lo que usan los instaladores.
-    mkdir -p "${arbol}/gui/linux-x86_64" "${arbol}/gui/macos-arm64" "${arbol}/gui/macos-amd64" \
-             "${arbol}/gui/windows-x86_64"
-    tar -C "${APPDIR}" -czf "${arbol}/gui/linux-x86_64/ZFSMgr-AppDir.tar.gz" .
-    for k in macos-arm64 macos-amd64; do
-      tar -C "$(dirname "${APP[$k]}")" -czf "${arbol}/gui/${k}/ZFSMgr.app.tar.gz" ZFSMgr.app
-    done
-    cp -f "${SETUP}" "${arbol}/gui/windows-x86_64/"
+    # UN .jar para todos los sistemas, su lanzador (los instaladores escriben en él las rutas)
+    # y los iconos de cada escritorio.
+    mkdir -p "${arbol}/gui"
+    cp -f "${JAR}" "${arbol}/gui/zfsmgr-gui.jar"
+    cp -f "${PLANTILLAS}/gui/zfsmgr-gui.sh" "${arbol}/gui/zfsmgr-gui.sh"
+    chmod 0755 "${arbol}/gui/zfsmgr-gui.sh"
+    cp -f "${RAIZ}/icons/ZFSMgr-512.png" "${arbol}/gui/ZFSMgr.png"
+    cp -f "${RAIZ}/icons/ZFSMgr.icns" "${arbol}/gui/ZFSMgr.icns"
+    cp -f "${RAIZ}/icons/ZFSMgr.ico" "${arbol}/gui/ZFSMgr.ico"
   fi
 
   # El manifiesto: los instaladores lo comprueban ANTES de copiar nada.

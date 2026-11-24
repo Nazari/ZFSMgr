@@ -24,14 +24,16 @@ instala igual, como cliente para manejar otras máquinas. Con un OpenZFS válido
 guiones ofrecen instalar también el daemon local (--with-daemon / --no-daemon;
 Windows: -WithDaemon / -NoDaemon).
 
-Linux: la interfaz se ha construido sobre glibc 2.43 y necesita esa versión o posterior.
+Interfaz gráfica (paquete completo): es un programa Java, el mismo en todos los sistemas, y
+necesita Java 21 o posterior (por ejemplo Temurin 21, https://adoptium.net; en FreeBSD, el
+port openjdk21). Se instala aunque no lo haya: «zfsmgr-gui --check» dice si lo encuentra.
 macOS: si instala el daemon, conceda «Acceso total al disco» a
        /usr/local/libexec/zfsmgr-agent (Configuración del Sistema → Privacidad y Seguridad).
 
 La configuración del usuario (~/.config/ZFSMgr, %APPDATA%\ZFSMgr) nunca se toca.
 
-Versión 1.x: SOLO se publica y se prueba el CLI (zfsmgr-cli) y su daemon. La interfaz
-gráfica NO está probada en esta versión y no se espera hasta la 2.0.0.
+Versión 2.0 (candidata): primera con la interfaz gráfica en Java. El CLI y el daemon son
+los de la 1.4; la interfaz es nueva y puede tener fallos: el CLI sigue siendo la referencia.
 
 
 ZFSMgr @VERSION@  (@PAQUETE@) — English
@@ -54,11 +56,13 @@ OpenZFS: if present, it must be @ZFSMIN@ or later. Without it ZFSMgr still insta
 client for managing other machines. With a valid OpenZFS, the scripts offer to install
 the local daemon too (--with-daemon / --no-daemon; Windows: -WithDaemon / -NoDaemon).
 
-Linux: the GUI is built on glibc 2.43 and needs that version or later.
+GUI (full package): a Java program, the same on every system, which needs Java 21 or later
+(for instance Temurin 21, https://adoptium.net; on FreeBSD, the openjdk21 port). It is
+installed even without one: «zfsmgr-gui --check» says whether it finds it.
 macOS: if you install the daemon, grant «Full Disk Access» to
        /usr/local/libexec/zfsmgr-agent (System Settings → Privacy & Security).
 
 Your configuration (~/.config/ZFSMgr, %APPDATA%\ZFSMgr) is never touched.
 
-Version 1.x: ONLY the CLI (zfsmgr-cli) and its daemon are published and tested. The
-graphical interface is NOT tested in this version and is not expected before 2.0.0.
+Version 2.0 (candidate): the first with the Java GUI. The CLI and the daemon are those of 1.4;
+the GUI is new and may have bugs: the CLI is still the reference.

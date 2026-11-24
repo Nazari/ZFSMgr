@@ -1,10 +1,10 @@
 # Installs ZFSMgr @VERSION@ on Windows x64: the CLI, the GUI if the package has it, and the
 # local daemon when OpenZFS is there.
 #
-# With the GUI, it runs the Inno Setup, which already installs GUI + CLI + PATH + the OpenSSH
-# task: repeating that logic here would make two installers that drift apart. Without it —the
-# CLI-only package, or -CliOnly— it copies the CLI to the SAME paths the Setup would use, so a
-# later installation with the GUI finds it and replaces it.
+# The CLI goes to Program Files\ZFSMgr\bin, with its catalogues and agents beside it. The GUI,
+# since 2.0, is a Java 21+ program (one .jar for every system): it goes to ZFSMgr\gui with a
+# zfsmgr-gui.cmd and a Start menu shortcut that runs it with javaw. The Inno Setup of the Qt GUI
+# of 1.x, if it is there, is uninstalled first.
 #
 # The local daemon is offered as on Unix, and the installed CLI sets it up with
 # `install-daemon-local`: the same scheduled task, firewall rule and TLS that `install-daemon`
@@ -31,6 +31,10 @@ $Bin = Join-Path $App 'bin'
 $Cli = Join-Path $Bin 'zfsmgr-cli.exe'
 # Where install-daemon-local puts the agent (daemonpayload.cpp, windowsBinPath).
 $Agent = 'C:\ProgramData\ZFSMgr\agent\zfsmgr-agent.exe'
+$GuiDir = Join-Path $App 'gui'
+$GuiJar = Join-Path $GuiDir 'zfsmgr-gui.jar'
+$GuiCmd = Join-Path $Bin 'zfsmgr-gui.cmd'
+$Shortcut = Join-Path ([Environment]::GetFolderPath('CommonPrograms')) 'ZFSMgr.lnk'
 $Lang = if ((Get-UICulture).TwoLetterISOLanguageName -eq 'es') { 'es' } else { 'en' }
 
 # T <spanish> <english>: the text in the system's language.
@@ -93,6 +97,35 @@ if (-not $isAdmin -and -not $DryRun) {
     exit $proc.ExitCode
 }
 
+# A javaw.exe of Java 21 or later: JAVA_HOME, the PATH, and where Temurin, Oracle and Microsoft
+# install it. $null if none.
+function Find-Javaw {
+    # `java -version` writes on stderr, and with 2>&1 Windows PowerShell 5.1 turns that into an
+    # error that 'Stop' would throw.
+    $ErrorActionPreference = 'Continue'
+    $candidates = @()
+    if ($env:JAVA_HOME) { $candidates += Join-Path $env:JAVA_HOME 'bin\javaw.exe' }
+    $onPath = Get-Command javaw.exe -ErrorAction SilentlyContinue
+    if ($onPath) { $candidates += $onPath.Source }
+    foreach ($root in @("$env:ProgramFiles\Eclipse Adoptium", "$env:ProgramFiles\Java", "$env:ProgramFiles\Microsoft")) {
+        if (Test-Path $root) {
+            $candidates += Get-ChildItem $root -Directory -ErrorAction SilentlyContinue |
+                Sort-Object Name -Descending | ForEach-Object { Join-Path $_.FullName 'bin\javaw.exe' }
+        }
+    }
+    foreach ($j in $candidates) {
+        if (-not (Test-Path $j)) { continue }
+        $java = Join-Path (Split-Path $j) 'java.exe'
+        $line = (& $java -version 2>&1 | Select-Object -First 1) -as [string]
+        if ($line -match '"(\d+)(\.(\d+))?') {
+            $major = [int]$Matches[1]
+            if ($major -eq 1 -and $Matches[3]) { $major = [int]$Matches[3] }
+            if ($major -ge 21) { return $j }
+        }
+    }
+    return $null
+}
+
 function Remove-FromPath([string]$dir) {
     $current = [Environment]::GetEnvironmentVariable('Path', 'Machine')
     $new = ($current -split ';' | Where-Object { $_ -and ($_.TrimEnd('\') -ne $dir.TrimEnd('\')) }) -join ';'
@@ -123,6 +156,7 @@ if ($Uninstall) {
     } elseif (Test-Path $App) {
         Run { Remove-Item -Recurse -Force $App } "delete $App"
     }
+    if (Test-Path $Shortcut) { Run { Remove-Item -Force $Shortcut } "delete $Shortcut" }
     Remove-FromPath $Bin
     Log (T 'hecho. La configuracion de %APPDATA%\ZFSMgr NO se toca.' 'done. The configuration in %APPDATA%\ZFSMgr is NOT touched.')
     exit 0
@@ -158,42 +192,71 @@ if ((Test-Path $Agent) -and -not $NoDaemon -and -not $DryRun -and -not $Force) {
     }
 }
 
-$setup = Join-Path $Here "gui\windows-x86_64\ZFSMgr-Setup-$Version.exe"
-$withGui = (-not $CliOnly) -and (Test-Path $setup)
+$jar = Join-Path $Here 'gui\zfsmgr-gui.jar'
+$withGui = (-not $CliOnly) -and (Test-Path $jar)
 if ($CliOnly) { Log (T '-CliOnly: la interfaz no se instala.' '-CliOnly: the GUI is not installed.') }
-elseif (-not (Test-Path $setup)) { Log (T 'este paquete es el de SOLO CLI: no trae la interfaz grafica.' 'this is the CLI-ONLY package: it has no graphical interface.') }
+elseif (-not (Test-Path $jar)) { Log (T 'este paquete es el de SOLO CLI: no trae la interfaz grafica.' 'this is the CLI-ONLY package: it has no graphical interface.') }
+
+# The Inno Setup of the Qt GUI of 1.x: uninstalled first, so its GUI, shortcuts and CLI do not
+# stay beside the new ones. The agent and the configuration are not its: they stay.
+$oldUnins = Get-ChildItem -Path $App -Filter 'unins*.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($withGui -and $oldUnins) {
+    Log (T 'se desinstala la interfaz anterior (Qt)' 'the previous (Qt) GUI is uninstalled')
+    Run { Start-Process $oldUnins.FullName -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait } "$($oldUnins.FullName) /VERYSILENT"
+}
+
+$source = Join-Path $Here 'cli\zfsmgr-cli-windows-x86_64.exe'
+if (-not (Test-Path $source)) { Die (T 'el paquete no trae el CLI de Windows' 'the package has no Windows CLI') }
+Log "CLI -> $Cli"
+Run { New-Item -ItemType Directory -Force -Path (Join-Path $Bin 'i18n') | Out-Null } "mkdir $Bin\i18n"
+Run { Copy-Item -Force $source $Cli } "copy $Cli"
+Run { Copy-Item -Force (Join-Path $Here 'i18n\*.json') (Join-Path $Bin 'i18n') } "copy the catalogues"
+# The agents in {app}\agents, which is bin\..\agents: where the CLI looks for them.
+Run { Copy-Item -Recurse -Force (Join-Path $Here 'agents') $App } "copy the agents"
+# And the CLIs of every platform in {app}\cli\<platform>: the ones install-daemon sends to
+# another machine to update its zfsmgr-cli.
+foreach ($c in Get-ChildItem (Join-Path $Here 'cli') -Filter 'zfsmgr-cli-*') {
+    $k = $c.BaseName -replace '^zfsmgr-cli-', ''
+    $dirK = Join-Path (Join-Path $App 'cli') $k
+    Run { New-Item -ItemType Directory -Force -Path $dirK | Out-Null } "mkdir $dirK"
+    Run { Copy-Item -Force $c.FullName (Join-Path $dirK ('zfsmgr-cli' + $c.Extension)) } "copy the $k CLI"
+}
+$current = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+if (-not (($current -split ';') | Where-Object { $_.TrimEnd('\') -eq $Bin.TrimEnd('\') })) {
+    Run { [Environment]::SetEnvironmentVariable('Path', "$current;$Bin", 'Machine') } "add $Bin to the PATH"
+}
 
 if ($withGui) {
-    # /TASKS when quiet: without windows there are no boxes to tick, and a CLI without PATH is
-    # half a CLI. Otherwise the user picks in the Setup itself.
-    $setupArgs = if ($Quiet) { @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/TASKS=addtopath') } else { @() }
-    Log "$(T 'lanzando' 'running') $setup"
-    if ($DryRun) {
-        Write-Host "  [dry-run] $setup $($setupArgs -join ' ')"
+    Log "$(T 'interfaz' 'GUI') -> $GuiJar"
+    Run { New-Item -ItemType Directory -Force -Path $GuiDir | Out-Null } "mkdir $GuiDir"
+    Run { Copy-Item -Force $jar $GuiJar } "copy $GuiJar"
+    Run { Copy-Item -Force (Join-Path $Here 'gui\ZFSMgr.ico') (Join-Path $GuiDir 'ZFSMgr.ico') } "copy the icon"
+    # The .cmd looks for Java at each start (it may be installed later, or updated); the
+    # shortcut points at the javaw found now, with no console window.
+    $cmd = @"
+@echo off
+rem Starts the ZFSMgr GUI with a Java 21 or later: ZFSMGR_JAVA, JAVA_HOME, or javaw on the PATH.
+set "ZM_JAVAW=javaw.exe"
+if defined JAVA_HOME if exist "%JAVA_HOME%\bin\javaw.exe" set "ZM_JAVAW=%JAVA_HOME%\bin\javaw.exe"
+if defined ZFSMGR_JAVA set "ZM_JAVAW=%ZFSMGR_JAVA%"
+start "" "%ZM_JAVAW%" -jar "$GuiJar" --cli "$Cli" %*
+"@
+    Run { Set-Content -Path $GuiCmd -Value ($cmd -replace "`r?`n", "`r`n") -Encoding ASCII -NoNewline } "write $GuiCmd"
+    $javaw = Find-Javaw
+    if ($javaw) {
+        Run {
+            $sh = New-Object -ComObject WScript.Shell
+            $lnk = $sh.CreateShortcut($Shortcut)
+            $lnk.TargetPath = $javaw
+            $lnk.Arguments = "-jar `"$GuiJar`" --cli `"$Cli`""
+            $lnk.WorkingDirectory = $GuiDir
+            $lnk.IconLocation = (Join-Path $GuiDir 'ZFSMgr.ico')
+            $lnk.Description = 'ZFSMgr'
+            $lnk.Save()
+        } "shortcut $Shortcut"
+        Log "$(T 'interfaz con' 'GUI with') $javaw"
     } else {
-        $p = Start-Process $setup -ArgumentList $setupArgs -Wait -PassThru
-        if ($p.ExitCode -ne 0) { Die (T "el Setup termino con codigo $($p.ExitCode)" "the Setup ended with code $($p.ExitCode)") }
-    }
-} else {
-    $source = Join-Path $Here 'cli\zfsmgr-cli-windows-x86_64.exe'
-    if (-not (Test-Path $source)) { Die (T 'el paquete no trae el CLI de Windows' 'the package has no Windows CLI') }
-    Log "CLI -> $Cli"
-    Run { New-Item -ItemType Directory -Force -Path (Join-Path $Bin 'i18n') | Out-Null } "mkdir $Bin\i18n"
-    Run { Copy-Item -Force $source $Cli } "copy $Cli"
-    Run { Copy-Item -Force (Join-Path $Here 'i18n\*.json') (Join-Path $Bin 'i18n') } "copy the catalogues"
-    # The agents in {app}\agents, which is bin\..\agents: where the CLI looks for them.
-    Run { Copy-Item -Recurse -Force (Join-Path $Here 'agents') $App } "copy the agents"
-    # And the CLIs of every platform in {app}\cli\<platform>: the ones install-daemon sends to
-    # another machine to update its zfsmgr-cli.
-    foreach ($c in Get-ChildItem (Join-Path $Here 'cli') -Filter 'zfsmgr-cli-*') {
-        $k = $c.BaseName -replace '^zfsmgr-cli-', ''
-        $dirK = Join-Path (Join-Path $App 'cli') $k
-        Run { New-Item -ItemType Directory -Force -Path $dirK | Out-Null } "mkdir $dirK"
-        Run { Copy-Item -Force $c.FullName (Join-Path $dirK ('zfsmgr-cli' + $c.Extension)) } "copy the $k CLI"
-    }
-    $current = [Environment]::GetEnvironmentVariable('Path', 'Machine')
-    if (-not (($current -split ';') | Where-Object { $_.TrimEnd('\') -eq $Bin.TrimEnd('\') })) {
-        Run { [Environment]::SetEnvironmentVariable('Path', "$current;$Bin", 'Machine') } "add $Bin to the PATH"
+        Log (T 'aviso: la interfaz esta instalada pero NO arrancara hasta que haya Java 21 o posterior (por ejemplo Temurin 21, https://adoptium.net). Vuelva a ejecutar este instalador despues para tener el acceso directo.' 'warning: the GUI is installed but will NOT start until there is Java 21 or later (for instance Temurin 21, https://adoptium.net). Run this installer again afterwards to get the shortcut.')
     }
 }
 
@@ -209,8 +272,6 @@ if (Test-Path $Cli) {
     if ($LASTEXITCODE -ne 0) { Die (T "instalado en $Cli, pero NO arranca: $out" "installed at $Cli, but it does NOT start: $out") }
     Log "$out  ->  $Cli"
     Log (T 'abra una consola NUEVA para que coja el PATH.' 'open a NEW console for it to pick up the PATH.')
-} elseif ($withGui) {
-    Log (T 'el CLI no se instalo: en el Setup no se marco la tarea de linea de ordenes.' 'the CLI was not installed: the command line task was not ticked in the Setup.')
 }
 
 # The local daemon, with OpenZFS only: an agent without it answers and sees no pool.
