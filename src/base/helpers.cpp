@@ -505,6 +505,16 @@ namespace {
 // for exactly this prefix to know that the first line of stdin is the password.
 constexpr const char* kSudoFromStdin = "sudo -k -S -p '' sh -c ";
 
+// Before sudo with a password: on macOS, a smart card whose certificate is paired to the account
+// —a YubiKey's PIV, a DNIe— makes sudo ask for its PIN, and the password sent on stdin is taken
+// as the PIN: one of the card's few tries gone each time, until it locks (mmela, 2026-11-24).
+// `sc_auth identities` lists the paired identities of the cards connected, and asks nothing.
+// Elsewhere there is no sc_auth and it costs a `command -v`.
+constexpr const char* kSmartcardGuard =
+    "if command -v sc_auth >/dev/null 2>&1 && sc_auth identities 2>/dev/null | awk "
+    "'/^Paired identities/{p=1;next} p&&/^$/{p=0} p&&NF{f=1} END{exit !f}'; then "
+    "echo 'ZFSMGR_SUDO_SMARTCARD' >&2; exit 97; fi; ";
+
 bool sudoNeedsPassword(const ConnectionProfile& p) {
     return !isWindowsOsType(p.osType) && p.useSudo && !p.password.empty();
 }
@@ -525,7 +535,7 @@ std::string withSudoCommand(const ConnectionProfile& p, const std::string& cmd) 
         // of the remote `sh -c`, readable with `ps` by any user of either machine while it
         // ran. sudo reads its password byte by byte up to the newline, so whatever follows
         // in stdin reaches the command untouched: a binary, a stream to receive.
-        return kSudoFromStdin + shSingleQuote(preparedCmd);
+        return std::string(kSmartcardGuard) + kSudoFromStdin + shSingleQuote(preparedCmd);
     }
     // `sh -c` con la orden entrecomillada. Concatenar `sudo -n ` delante no valía:
     // withUnixSearchPathCommand antepone `PATH="..."; export PATH; `, y los punto y coma
@@ -536,7 +546,9 @@ std::string withSudoCommand(const ConnectionProfile& p, const std::string& cmd) 
 }
 
 bool readsSudoPasswordFromStdin(const std::string& cmd) {
-    return startsWith(trim(cmd), kSudoFromStdin);
+    const std::string c = trim(cmd);
+    return startsWith(c, kSudoFromStdin)
+           || startsWith(c, std::string(kSmartcardGuard) + kSudoFromStdin);
 }
 
 std::string sudoStdin(const ConnectionProfile& p, const std::string& cmd,
@@ -1140,6 +1152,13 @@ bool looksLikeSudoMissing(const std::string& text) {
         }
     }
     return false;
+}
+
+bool looksLikeSudoSmartcardPin(const std::string& text) {
+    // The guard's mark (withSudoCommand: sudo was not even tried), or the prompt of macOS's
+    // pam_smartcard, observed: «Enter PIN for '<certificate>': ».
+    const std::string t = toLowerUtf8(text);
+    return contains(t, "zfsmgr_sudo_smartcard") || contains(t, "enter pin for '");
 }
 
 bool looksLikeSudoAuthFailure(const std::string& text) {

@@ -240,6 +240,12 @@ bool looksLikeSudoAuthFailure(const std::string& text);
 // Is sudo simply NOT INSTALLED there? «sh: sudo: not found» (FreeBSD, Debian's dash),
 // «bash: sudo: command not found»… A fresh FreeBSD has no sudo at all (2026-11-23).
 bool looksLikeSudoMissing(const std::string& text);
+// sudo asked for the PIN of a smart card instead of the password: macOS with a PIV certificate
+// paired to the account (pam_smartcard) does it while the card —a YubiKey, a DNIe— is
+// connected. The password sent on stdin is taken as the PIN, and it ends in «no password was
+// provided». Seen on mmela, 2026-11-24. withSudoCommand does not even run sudo then: it fails
+// with the mark ZFSMGR_SUDO_SMARTCARD, which this recognises.
+bool looksLikeSudoSmartcardPin(const std::string& text);
 
 struct ImportableDevice {
     std::string name;    // as `zpool import` prints it: «sda1», «b9333c91-…», «media-…»

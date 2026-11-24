@@ -77,6 +77,10 @@ QString probeWord(const QString& what, const QString& code) {
             return L("✕ asks for a password the connection does not have",
                      "✕ pide una contraseña que la conexión no tiene");
         }
+        if (code == QLatin1String("smartcard_pin")) {
+            return L("✕ asks for the PIN of a connected smart card",
+                     "✕ pide el PIN de una tarjeta inteligente conectada");
+        }
     }
     if (what == QLatin1String("daemon")) {
         if (code == QLatin1String("outdated")) {

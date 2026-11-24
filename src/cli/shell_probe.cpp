@@ -228,6 +228,9 @@ bool cmdProbe(Estado& e, const LineaAnalizada& linea) {
             } else if (H::looksLikeSudoMissing(err + "\n" + out)) {
                 sudo = "missing";
                 avisos.push_back({"error", "sudo", remedioSinSudo(real)});
+            } else if (H::looksLikeSudoSmartcardPin(err + "\n" + out)) {
+                sudo = "smartcard_pin";
+                avisos.push_back({"error", "sudo", remedioTarjetaSudo(id)});
             } else if (real.password.empty()) {
                 sudo = "needs_password";
                 avisos.push_back({"error", "sudo",
@@ -316,7 +319,8 @@ bool cmdProbe(Estado& e, const LineaAnalizada& linea) {
         doc.set("daemon", J::Value(daemon));
         // With sudo failing, that is the reason and it was said just above; a second warning
         // about the daemon told it again and suggested installing one that may be there.
-        const bool sudoFalla = sudo == "needs_password" || sudo == "wrong_password";
+        const bool sudoFalla =
+            sudo == "needs_password" || sudo == "wrong_password" || sudo == "smartcard_pin";
         if (daemon == "unreachable") {
             // Not «there is none»: without sudo its credentials cannot be read, and a daemon
             // that is stopped looks the same from here.
@@ -390,6 +394,16 @@ bool cmdProbe(Estado& e, const LineaAnalizada& linea) {
         std::printf("%s %s\n", a.nivel == "error" ? "✕" : "▲", a.texto.c_str());
     }
     return estado != "error";
+}
+
+std::string remedioTarjetaSudo(const std::string& id) {
+    return B::format(
+        T("t_sudo_tarjeta",
+          "sudo en %1 pide el PIN de una tarjeta inteligente conectada en lugar de la "
+          "contraseña (en macOS, un certificado PIV asociado a la cuenta, como el de una "
+          "YubiKey): desconéctala mientras ZFSMgr use sudo allí, o desasocia el certificado "
+          "de la cuenta con «sc_auth unpair»"),
+        {id});
 }
 
 std::string remedioSinSudo(const B::ConnectionProfile& p) {

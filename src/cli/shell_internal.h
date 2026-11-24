@@ -446,6 +446,8 @@ bool cmdScheduleStatus(Estado& e, const LineaAnalizada& linea);
 // What to do when a machine has no sudo at all, for a person: install it and let the user use
 // it, or say the connection does not need it. With the system's own commands when known.
 std::string remedioSinSudo(const B::ConnectionProfile& p);
+// sudo there asks for a smart card's PIN instead of the password (H::looksLikeSudoSmartcardPin).
+std::string remedioTarjetaSudo(const std::string& id);
 
 // The other interactive sessions —interfaces and CLI shells on a terminal—, as the daemons of
 // every connected machine say, merged (shell_sessions.cpp). Each machine in its own thread and

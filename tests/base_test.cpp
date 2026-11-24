@@ -449,6 +449,25 @@ void caso19() {
     // Enmascarado: la orden real que construye withSudoCommand con la clave en octal.
     {
         const std::string oct = H::shPrintfOctalEscaped("rpq231");
+        // A smart card paired to the account (macOS): sudo with a password is not even tried,
+        // or the password would be spent as the card's PIN. The guard goes before sudo and the
+        // password still travels on stdin.
+        {
+            zfsmgr::base::ConnectionProfile mac;
+            mac.useSudo = true;
+            mac.password = "x";
+            mac.osType = "macOS";
+            const std::string g = H::withSudoCommand(mac, "true");
+            comprobar(contains(g, "sc_auth identities") && contains(g, "ZFSMGR_SUDO_SMARTCARD")
+                          && g.find("sc_auth") < g.find("sudo -k -S"),
+                      "sudo: la tarjeta se mira ANTES de sudo");
+            comprobar(H::readsSudoPasswordFromStdin(g) && H::sudoStdin(mac, g, "") == "x\n",
+                      "sudo: con la guarda, la contraseña sigue yendo por stdin");
+            comprobar(H::looksLikeSudoSmartcardPin("ZFSMGR_SUDO_SMARTCARD")
+                          && H::looksLikeSudoSmartcardPin("Enter PIN for 'Certificado PIV': ")
+                          && !H::looksLikeSudoSmartcardPin("sudo: a password is required"),
+                      "sudo: se reconoce la tarjeta que pide PIN");
+        }
         const std::string cmd = "printf '%b\\n' '" + oct + "' | sudo -k -S -p '' sh -c 'zfs list'";
         const std::string m = H::maskCommandSecrets(cmd);
         comprobar(!contains(m, oct), "el secreto en octal no sobrevive al enmascarado");

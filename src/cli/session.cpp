@@ -1,6 +1,7 @@
 #include "session.h"
 
 #include "connectionjson.h"
+#include "helpers.h"
 #include "secretcipher.h"
 #include "secretinput.h"
 #include "storefiles.h"
@@ -687,6 +688,15 @@ namespace {
 // material is root's: without sudo it cannot be read, and with no daemon it is not there.
 std::string motivoSinTlsLocal(const B::ConnectionProfile& p, const B::transport::WarningNote& a) {
     using A = B::transport::Warning;
+    if (zfsmgr::base::helpers::looksLikeSudoSmartcardPin(a.detail)) {
+        return B::format(
+            T("t_sudo_tarjeta",
+              "sudo en %1 pide el PIN de una tarjeta inteligente conectada en lugar de la "
+              "contraseña (en macOS, un certificado PIV asociado a la cuenta, como el de una "
+              "YubiKey): desconéctala mientras ZFSMgr use sudo allí, o desasocia el certificado "
+              "de la cuenta con «sc_auth unpair»"),
+            {std::string("local")});
+    }
     const bool sinSudo = a.warning == A::LocalTlsNeedsSudo
                          || (a.warning == A::LocalTlsCannotBeRead && B::trim(p.password).empty());
     if (sinSudo) {

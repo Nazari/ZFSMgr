@@ -8,6 +8,7 @@ import java.awt.Dimension;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import javax.swing.BorderFactory;
 import javax.swing.JFrame;
@@ -222,6 +223,19 @@ public final class MainWindow extends JFrame {
             if (!zfs.equals("ok")) {
                 firstRunDone(L("This computer has no OpenZFS ZFSMgr can manage: it will be the control for your other machines.",
                         "Este ordenador no tiene un OpenZFS que ZFSMgr pueda manejar: será el mando de tus otras máquinas."));
+                return;
+            }
+            // The sudo password helps only when it is missing or wrong; a smart card asking for
+            // its PIN, or no sudo at all, is said by probe's own warning.
+            if (!sudo.equals("needs_password") && !sudo.equals("wrong_password") && !sudo.equals("ok")
+                    && !sudo.equals("not_used")) {
+                List<String> why = new java.util.ArrayList<>();
+                for (Map<String, Object> w : Json.objects(p, "warnings")) {
+                    if (Json.str(w, "subject").equals("sudo")) {
+                        why.add(Json.str(w, "text"));
+                    }
+                }
+                firstRunDone(why.isEmpty() ? Json.str(p, "sudo_detail") : String.join(" ", why));
                 return;
             }
             if (!sudo.equals("ok") && !sudo.equals("not_used") && !sudoOffered) {

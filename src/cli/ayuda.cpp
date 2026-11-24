@@ -1128,7 +1128,7 @@ const std::vector<Orden> kOrdenes = {
        "contraseña guardada, si falta OpenZFS o es antiguo, y si no se llega al daemon o está "
        "anticuado. Funciona también con una conexión desconectada: es como se decide "
        "conectarla."},
-      {"t_pr_det3", "En JSON cada estado es un código fijo: sudo (ok, wrong_password, "
+      {"t_pr_det4", "En JSON cada estado es un código fijo: sudo (ok, wrong_password, smartcard_pin, "
        "needs_password, missing, could_not_check, not_used), openzfs (ok, too_old, not_loaded, missing, "
        "unknown), daemon (ok, outdated, latest, ahead, unknown, unreachable)."}},
      Objetivo::Cualquiera, {}},

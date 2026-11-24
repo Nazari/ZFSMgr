@@ -1,6 +1,8 @@
 {
   "language": "es",
   "translations": {
+    "t_pr_det4": "En JSON cada estado es un código fijo: sudo (ok, wrong_password, smartcard_pin, needs_password, missing, could_not_check, not_used), openzfs (ok, too_old, not_loaded, missing, unknown), daemon (ok, outdated, latest, ahead, unknown, unreachable).",
+    "t_sudo_tarjeta": "sudo en %1 pide el PIN de una tarjeta inteligente conectada en lugar de la contraseña (en macOS, un certificado PIV asociado a la cuenta, como el de una YubiKey): desconéctala mientras ZFSMgr use sudo allí, o desasocia el certificado de la cuenta con «sc_auth unpair»",
     "t_ses_no_cierra2": "no se pudo cerrar: %1",
     "t_ses_ocupada_gui": "ZFSMgr ya está abierto en esta máquina: %1. Solo puede haber una sesión a la vez en cada máquina.",
     "t_serve_sin_temporal": "no se pudo crear un fichero temporal para la salida de la orden",
@@ -1254,7 +1256,6 @@
     "t_pq_y_mas": " y %1 más",
     "t_pr_det1": "Avisa si el sistema no es el que dice la conexión, si sudo no acepta la contraseña guardada, si falta OpenZFS o es antiguo, y si no se llega al daemon o está anticuado. Funciona también con una conexión desconectada: es como se decide conectarla.",
     "t_pr_det2": "En JSON cada estado es un código fijo: sudo (ok, wrong_password, needs_password, could_not_check, not_used), openzfs (ok, too_old, not_loaded, missing, unknown), daemon (ok, outdated, latest, ahead, unknown, unreachable).",
-    "t_pr_det3": "En JSON cada estado es un código fijo: sudo (ok, wrong_password, needs_password, missing, could_not_check, not_used), openzfs (ok, too_old, not_loaded, missing, unknown), daemon (ok, outdated, latest, ahead, unknown, unreachable).",
     "t_pr_falta_conexion": "hace falta una conexión: probe zfsm://<conexión>\n",
     "t_pr_interrumpida": "interrumpida",
     "t_pr_os_desconocido": "no se reconoce el sistema de %1: %2",

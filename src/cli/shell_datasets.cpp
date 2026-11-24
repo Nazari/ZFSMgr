@@ -738,6 +738,10 @@ bool cmdEditarConexion(Estado& e, const Peticion& pet, const ZfsmUrl& destino) {
                 // `fprintf` se pusiera a leer argumentos que ese texto no pide. Es el mismo
                 // fallo que se quitó de cuatro sitios hace dos días.
                 const std::string detalle = B::trim(H::oneLine(err));
+                if (H::looksLikeSudoSmartcardPin(err)) {
+                    std::fprintf(stderr, "%s\n", remedioTarjetaSudo(id).c_str());
+                    return true;
+                }
                 const std::string cola = detalle.empty() ? std::string() : ": " + detalle;
                 std::fprintf(stderr,
                              TC("t_sudo_mal_en",
