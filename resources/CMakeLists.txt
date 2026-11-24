@@ -543,6 +543,7 @@ add_executable(zfsmgr-cli
     ../src/cli/shell_admin.cpp
     ../src/cli/shell_masterkey.cpp
     ../src/cli/presence.cpp
+    ../src/cli/network_sync.cpp
     ../src/cli/shell_sessions.cpp
     ../src/cli/shell_schedules.cpp
     ../src/cli/shell_overview.cpp

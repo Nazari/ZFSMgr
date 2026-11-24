@@ -346,6 +346,11 @@ bool parseRemoteDaemonTlsBundle(const std::string& text, RemoteTlsBundle& out) {
 }
 
 const char* defaultAgentConfigPath() {
+    // ZFSMGR_AGENT_CONFIG, as the daemon itself reads it: a test points a client at a private
+    // daemon with its own port and TLS (the battery's network cases). Never in a real install.
+    if (const char* e = std::getenv("ZFSMGR_AGENT_CONFIG"); e && *e) {
+        return e;
+    }
 #ifdef _WIN32
     return "C:\\ProgramData\\ZFSMgr\\agent\\agent.conf";
 #else

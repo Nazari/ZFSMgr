@@ -1873,6 +1873,162 @@ def casos_red_entre_daemons(ctx):
         shutil.rmtree(raiz, ignore_errors=True)
 
 
+def casos_red_cliente(ctx):
+    """The network's configuration from the CLIENT (docs/diseno_red_unica.md, phase 3b-c), with no
+    real daemon or configuration touched: two private agents A and B (as casos_red_entre_daemons)
+    and two client configurations, each talking to its own agent as THIS computer's daemon
+    (ZFSMGR_AGENT_CONFIG). One seeds the network, the other joins it, edits a machine and
+    publishes, and the first one finds the change when it starts."""
+    import socket, signal as sig
+    agente = os.path.join(RAIZ, "builds", "linux", "zfsmgr_agent")
+    raiz = os.path.join(ctx.dir_tmp, "red-cliente")
+    shutil.rmtree(raiz, ignore_errors=True)
+    os.makedirs(raiz)
+
+    def comprueba(nombre, problemas, vista=""):
+        if problemas:
+            ctx.fallos.append((nombre, problemas, vista[-800:]))
+            print(f"  FALLO  {nombre}")
+            for x in problemas:
+                print(f"         {x}")
+        else:
+            ctx.pasados.append(nombre)
+            print(f"  ok     {nombre}")
+
+    san = "subjectAltName=DNS:zfsmgr-agent-server,DNS:zfsmgr-agent,DNS:localhost,IP:127.0.0.1"
+    uso = "keyUsage=critical,digitalSignature,keyEncipherment,keyCertSign"
+
+    def par(d, nombre, eku):
+        subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-sha256", "-nodes",
+                        "-days", "30", "-subj", f"/CN=zfsmgr-agent-{nombre}", "-addext", san,
+                        "-addext", uso, "-addext", f"extendedKeyUsage={eku}",
+                        "-keyout", os.path.join(d, nombre + ".key"),
+                        "-out", os.path.join(d, nombre + ".crt")], check=True, capture_output=True)
+
+    puertos = {"A": 47993, "B": 47994}
+    for n in puertos:
+        d = os.path.join(raiz, n)
+        os.makedirs(d)
+        par(d, "server", "serverAuth")
+        par(d, "client", "clientAuth")
+        with open(os.path.join(d, "agent.conf"), "w") as f:
+            f.write(f"AGENT_BIND=127.0.0.1\nAGENT_PORT={puertos[n]}\nTLS_CERT={d}/server.crt\n"
+                    f"TLS_KEY={d}/server.key\nTLS_CLIENT_CERT={d}/client.crt\nTLS_CLIENT_KEY={d}/client.key\n")
+
+    def lee(n, f):
+        with open(os.path.join(raiz, n, f)) as h:
+            return h.read()
+
+    for n, otro in (("A", "B"), ("B", "A")):
+        with open(os.path.join(raiz, n, "peers.json"), "w") as f:
+            json.dump({"self": n, "peers": [{"id": otro, "host": "127.0.0.1", "port": puertos[otro],
+                                             "server_cert_pem": lee(otro, "server.crt"),
+                                             "client_cert_pem": lee(otro, "client.crt"),
+                                             "client_key_pem": lee(otro, "client.key")}]}, f)
+    procesos = {}
+
+    def arranca(n):
+        d = os.path.join(raiz, n)
+        entorno = dict(os.environ, ZFSMGR_AGENT_CONFIG=f"{d}/agent.conf",
+                       ZFSMGR_NETWORK_FILE=f"{d}/network.json", ZFSMGR_PEERS_FILE=f"{d}/peers.json")
+        procesos[n] = subprocess.Popen([agente, "--serve"], env=entorno, stdout=subprocess.DEVNULL,
+                                       stderr=subprocess.DEVNULL, start_new_session=True)
+        fin = time.time() + 10
+        while time.time() < fin:
+            try:
+                socket.create_connection(("127.0.0.1", puertos[n]), timeout=0.5).close()
+                return
+            except OSError:
+                time.sleep(0.2)
+
+    def red_de(n):
+        try:
+            with open(os.path.join(raiz, n, "network.json")) as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            return {}
+
+    # Two client configurations: a master password, THIS computer's connection with its uid, and
+    # a machine that cannot be reached.
+    with open("/etc/machine-id") as f:
+        uid = f.read().strip()
+    fichero = os.path.join(ctx.dir_tmp, ".maestra")
+
+    def cli_en(cfg, n, guion):
+        entorno = dict(os.environ, ZFSMGR_AGENT_CONFIG=os.path.join(raiz, n, "agent.conf"))
+        orden = f"exec 9<{fichero}; exec {CLI!r} --password-fd 9 --config-dir {shlex.quote(cfg)} --lang es -y"
+        p = subprocess.run(["bash", "-c", orden + (" " + guion if not guion.startswith("\n") else "")],
+                           input=(guion[1:] + "\nexit\n") if guion.startswith("\n") else "",
+                           capture_output=True, text=True, timeout=120, env=entorno)
+        return p.returncode, p.stdout + p.stderr
+
+    clientes = {}
+    for c in ("c1", "c2"):
+        cfg = os.path.join(raiz, c)
+        os.makedirs(cfg)
+        cli_en(cfg, "A", "connections list")   # the first master password
+        with open(os.path.join(cfg, "config.json")) as f:
+            conf = json.load(f)
+        conf["connections"] = [
+            {"id": "local", "name": "Local", "conn_type": "LOCAL", "host": "localhost", "port": 0,
+             "machine_uid": uid, "username": os.environ.get("USER", "x"), "use_sudo": False,
+             "password": "", "os_type": "Linux", "ssh_address_family": "auto", "key_path": ""},
+            {"id": "lejana", "name": "lejana", "conn_type": "SSH", "host": "nowhere.invalid", "port": 22,
+             "machine_uid": "u-lejana", "username": "x", "use_sudo": False, "password": "",
+             "os_type": "Linux", "ssh_address_family": "auto", "key_path": ""}]
+        with open(os.path.join(cfg, "config.json"), "w") as f:
+            json.dump(conf, f)
+        clientes[c] = cfg
+    try:
+        arranca("A")
+        arranca("B")
+        rc, salida = cli_en(clientes["c1"], "A", "network seed")
+        comprueba("red: el cliente siembra la red en su daemon",
+                  [] if rc == 0 and red_de("A").get("revision") == 1 else [f"rc={rc}"], salida)
+        fin = time.time() + 8
+        while time.time() < fin and red_de("B").get("revision") != 1:
+            time.sleep(0.3)
+        comprueba("red: y llega al otro daemon", [] if red_de("B").get("revision") == 1 else [str(red_de("B"))[:200]])
+        # c2 has its own configuration, with the same master: it joins through B.
+        shutil.rmtree(clientes["c2"])
+        shutil.copytree(clientes["c1"], clientes["c2"])
+        shutil.rmtree(os.path.join(clientes["c2"], "network"))
+        rc, salida = cli_en(clientes["c2"], "B", "network join")
+        comprueba("red: otro cliente se une a ella",
+                  [] if rc == 0 and os.path.exists(os.path.join(clientes["c2"], "network", "network.json"))
+                  else [f"rc={rc}"], salida)
+        rc, salida = cli_en(clientes["c2"], "B", "\nformat json\nls zfsm://")
+        try:
+            ids = [x.get("id") for x in json_de(salida).get("connections", [])]
+        except ValueError:
+            ids = None
+        maquina = socket.gethostname().split(".")[0]
+        comprueba("red: en la red, este ordenador se llama por su nombre y no hay «local»",
+                  [] if ids and maquina in ids and "local" not in [str(i).lower() for i in ids]
+                  else [f"ids={ids} maquina={maquina}"], salida)
+        rc, salida = cli_en(clientes["c2"], "B", "\nedit zfsm://lejana --host otra.lan")
+        fin = time.time() + 8
+        while time.time() < fin and red_de("A").get("revision") != 2:
+            time.sleep(0.3)
+        direcciones = [m.get("addresses") for m in red_de("A").get("machines", []) if m.get("uid") == "u-lejana"]
+        comprueba("red: un cambio se publica y llega a los dos daemons",
+                  [] if red_de("B").get("revision") == 2 and direcciones == [["otra.lan", "nowhere.invalid"]]
+                  else [f"A={red_de('A').get('revision')} B={red_de('B').get('revision')} dir={direcciones}"], salida)
+        rc, salida = cli_en(clientes["c1"], "A", "\nformat json\nls zfsm://")
+        with open(os.path.join(clientes["c1"], "network", "config.json")) as f:
+            hosts = [c.get("host") for c in json.load(f)["connections"] if c.get("machine_uid") == "u-lejana"]
+        comprueba("red: el primer cliente lo encuentra al arrancar",
+                  [] if hosts == ["otra.lan"] else [f"hosts={hosts}"], salida)
+    finally:
+        for p in procesos.values():
+            try:
+                os.killpg(p.pid, sig.SIGTERM)
+                p.wait(timeout=10)
+            except Exception:
+                pass
+        shutil.rmtree(raiz, ignore_errors=True)
+
+
 def casos_modo_cliente(ctx):
     """A machine with neither the agent nor OpenZFS is only the control for the others: no Local
     connection, and the rest work as before. Forced with ZFSMGR_LOCAL_CONNECTION, on a COPY of
@@ -4149,7 +4305,7 @@ def casos_arranque(ctx):
 # estaba en la lista que sí. Sin `--remoto` no había manera de ejecutarlo, ni siquiera con
 # `--solo`, y eso es justo lo que uno quiere cuando está mirando un defecto de `import`.
 LOCALES = [casos_arranque, casos_identidad, casos_devices, casos_ayuda, casos_version_openzfs, casos_nombres_que_chocan, casos_navegacion, casos_lectura, casos_crear_destruir,
-           casos_volumenes, casos_dedup, casos_overview, casos_json_gui, casos_sudo_sin_argv, casos_probe, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_send_level, casos_recepcion_a_medias, casos_send_fichero, casos_send_comprimido, casos_gsa, casos_sin_montar, casos_cp_destino, casos_load_key, casos_editor_ancho, casos_sesion_unica, casos_sesion_del_servicio, casos_red_entre_daemons, casos_modo_cliente, casos_tab_continua, casos_pantalla, casos_ctrl_c, casos_monitor_conexiones, casos_path, casos_info_labelclear, casos_servicio, casos_primera_maestra, casos_servicio_llave, casos_servicio_conexiones, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
+           casos_volumenes, casos_dedup, casos_overview, casos_json_gui, casos_sudo_sin_argv, casos_probe, casos_patrones, casos_patrones_copia, casos_terminos_openzfs, casos_mensajes_capa_base, casos_clave_ssh, casos_diff_relativo, casos_send_level, casos_recepcion_a_medias, casos_send_fichero, casos_send_comprimido, casos_gsa, casos_sin_montar, casos_cp_destino, casos_load_key, casos_editor_ancho, casos_sesion_unica, casos_sesion_del_servicio, casos_red_entre_daemons, casos_red_cliente, casos_modo_cliente, casos_tab_continua, casos_pantalla, casos_ctrl_c, casos_monitor_conexiones, casos_path, casos_info_labelclear, casos_servicio, casos_primera_maestra, casos_servicio_llave, casos_servicio_conexiones, casos_propiedades, casos_montaje, casos_instantaneas, casos_pool,
            casos_diff_rollback, casos_permisos, casos_programacion,
            casos_acciones, casos_pool_export]
 def rpc_directo(ctx, entrada, cmd, args):

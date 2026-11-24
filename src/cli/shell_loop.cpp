@@ -1,5 +1,6 @@
 // The interpreter itself: running a line (with patterns) and the read-eval loop.
 
+#include "network_sync.h"
 #include "presence.h"
 #include "shell_internal.h"
 
@@ -585,6 +586,41 @@ const std::map<std::string, Manejador>& ordenesDelInterprete() {
 // that failed): going on over a state that is not the expected one is how what nobody wanted
 // to touch gets destroyed. The interactive loop and the service (--serve) both run lines
 // through here.
+void detail::redAlArrancar(Estado& e) {
+    if (!esDirDeRed(e.ses->dirConfig)) {
+        return;
+    }
+    std::string aviso;
+    if (sincronizaRed(*e.ses, e.conns, aviso)) {
+        recarga(e);
+    }
+    if (!aviso.empty()) {
+        std::fprintf(stderr, "%s\n", aviso.c_str());
+    }
+    aviso.clear();
+    if (publicaRed(*e.ses, e.conns, aviso)) {
+        recarga(e);
+    }
+    if (!aviso.empty()) {
+        std::fprintf(stderr, "%s\n", aviso.c_str());
+    }
+    e.generacionVista = B::store::writeGeneration();
+}
+
+void detail::redTrasOrden(Estado& e) {
+    if (!esDirDeRed(e.ses->dirConfig) || B::store::writeGeneration() == e.generacionVista) {
+        return;
+    }
+    std::string aviso;
+    if (publicaRed(*e.ses, e.conns, aviso)) {
+        recarga(e);
+    }
+    if (!aviso.empty()) {
+        std::fprintf(stderr, "%s\n", aviso.c_str());
+    }
+    e.generacionVista = B::store::writeGeneration();
+}
+
 bool ejecutaLinea(Estado& e, const std::string& linea, LectorDeLinea* lector) {
     const std::string recortada = B::trim(linea);
     if (recortada.empty() || recortada.front() == '#') {
@@ -867,6 +903,7 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
     e.formato = formato;
     e.asumirSi = asumirSi;
     recarga(e);
+    redAlArrancar(e);
     if (!e.conns.aviso.empty()) {
         std::fprintf(stderr, "%s\n", e.conns.aviso.c_str());
     }
@@ -995,6 +1032,7 @@ int ejecutarShell(Sesion& ses, Formato formato, const std::string& urlInicial, b
         }
         limpiaInterrupcion();
         const bool bien = ejecutaLinea(e, linea, &lector);
+        redTrasOrden(e);
         if (interrumpido()) {
             // Ctrl-C during the command: what it launched has ended, the interpreter stays.
             limpiaInterrupcion();

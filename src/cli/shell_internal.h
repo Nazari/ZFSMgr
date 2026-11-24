@@ -167,6 +167,8 @@ struct Pregunta {
 
 struct Estado {
     FiltroFilas filtro;
+    // The network (network_sync.h): config writes seen up to the last publication.
+    unsigned long long generacionVista = 0;
     // Las rutas del origen de `rsync` cuando las ha expandido un patrón (`#content/*.log`).
     // Vacío = las que diga la URL. Ver ejecutaConPatrones.
     std::vector<std::string> rsyncRelativas;
@@ -233,6 +235,10 @@ B::ConnectionProfile conSudo(Estado& e, const B::ConnectionProfile& p);
 std::string idDe(const Estado& e, const ZfsmUrl& u);
 bool sshClaveFalta(const B::ConnectionProfile& p, std::string& ruta);
 void recarga(Estado& e);
+// The network's configuration (network_sync.h): at start, catch up and publish what is pending;
+// after each command, publish what it wrote. Nothing outside a network.
+void redAlArrancar(Estado& e);
+void redTrasOrden(Estado& e);
 bool sshClaveFalta(const B::ConnectionProfile& p, std::string& ruta);
 bool estaApartada(const Estado& e, const std::string& id);
 const B::ConnectionProfile* perfilDe(const Estado& e, const ZfsmUrl& u, std::string& error);

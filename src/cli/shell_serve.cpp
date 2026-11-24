@@ -169,6 +169,13 @@ int servirOrdenes(Sesion& ses, bool anunciaClave) {
     e.ses = &ses;
     e.formato = Formato::Json;
     recarga(e);
+    // The network, caught up once per interface: by its general service, the one announcing
+    // its presence; the machine services it starts have nothing to add.
+    if (presenceOn()) {
+        redAlArrancar(e);
+    } else {
+        e.generacionVista = B::store::writeGeneration();
+    }
     HuellaConfig leida = huellaConfig(ses.dirConfig);
 
     double idActual = 0;
@@ -311,6 +318,7 @@ int servirOrdenes(Sesion& ses, bool anunciaClave) {
             CapturaDeOrden captura;
             if (captura.ok()) {
                 ejecutaLinea(e, pet["line"].toString(), nullptr);
+                redTrasOrden(e);
                 captura.termina(out, errTexto);
             } else {
                 e.ultimoRc = 1;

@@ -1,5 +1,7 @@
 #include "storefiles.h"
 
+#include <atomic>
+
 #include "i18n.h"
 #include "secretcipher.h"
 #include "strutil.h"
@@ -283,12 +285,30 @@ json::Value readTrustStore(const std::string& dirConfig, Warning& aviso) {
     return leerFichero(trustStorePath(dirConfig), Reason::TrustCannotBeOpened, Reason::TrustNotValid, aviso);
 }
 
+namespace {
+std::atomic<unsigned long long> g_writeGeneration{0};
+}  // namespace
+
+unsigned long long writeGeneration() {
+    return g_writeGeneration.load();
+}
+
 bool writeConfig(const std::string& dirConfig, const json::Value& root, Warning& aviso) {
-    return escribirFichero(dirConfig, configPath(dirConfig), root, Reason::ConfigCannotBeWritten, aviso);
+    const bool ok = escribirFichero(dirConfig, configPath(dirConfig), root,
+                                    Reason::ConfigCannotBeWritten, aviso);
+    if (ok) {
+        ++g_writeGeneration;
+    }
+    return ok;
 }
 
 bool writeTrustStore(const std::string& dirConfig, const json::Value& root, Warning& aviso) {
-    return escribirFichero(dirConfig, trustStorePath(dirConfig), root, Reason::TrustCannotBeWritten, aviso);
+    const bool ok = escribirFichero(dirConfig, trustStorePath(dirConfig), root,
+                                    Reason::TrustCannotBeWritten, aviso);
+    if (ok) {
+        ++g_writeGeneration;
+    }
+    return ok;
 }
 
 namespace {

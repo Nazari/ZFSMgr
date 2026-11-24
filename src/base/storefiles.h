@@ -59,6 +59,9 @@ json::Value readTrustStore(const std::string& configDir, Warning& warning);
 // master password still opens the file (`Reason::MasterChangedElsewhere` if not): after a
 // rotation in another process, writing with the old one would leave fields under two keys.
 bool writeConfig(const std::string& configDir, const json::Value& root, Warning& warning);
+// How many times this process has written config.json or the trust store: whoever needs to
+// know that something changed —the network's publication, after each command— compares it.
+unsigned long long writeGeneration();
 bool writeTrustStore(const std::string& configDir, const json::Value& root, Warning& warning);
 
 // Changes the MASTER PASSWORD: decrypts with the old one and re-encrypts with the new one

@@ -11,6 +11,7 @@
 
 #include "agentversion.h"
 #include "connectionjson.h"
+#include "network_sync.h"
 #include "presence.h"
 #include "processes.h"
 #include "daemoninstall.h"
@@ -794,7 +795,10 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    if (!op.orden.empty()
+    // `network seed` / `network join`: on THIS computer's own configuration, not the network's.
+    const bool ordenDeRed = op.orden.size() == 2 && op.orden[0] == "network"
+                            && (op.orden[1] == "seed" || op.orden[1] == "join");
+    if (!op.orden.empty() && !ordenDeRed
         && (op.orden.size() < 2 || op.orden[0] != "connections" || op.orden[1] != "list")) {
         std::fprintf(stderr, TC("t_s_orden_de_81e64c", "%s: orden desconocida\n"), kNombre);
         uso(stderr);
@@ -804,6 +808,10 @@ int main(int argc, char** argv) {
     // The shell on a terminal is a SESSION, and there is one per machine: taken before the
     // master password is asked, so nobody types it to be told no. The `--serve` services, a
     // script feeding the shell through a pipe and `connections list` take nothing.
+    // A computer in a network works on the network's materialisation (network_sync.h).
+    if (!ordenDeRed && zfsmgr::cli::tieneRed(op.dirConfig)) {
+        op.dirConfig = zfsmgr::cli::dirDeRed(op.dirConfig);
+    }
     B::session::Lock sesion;
     if (!op.servir && op.orden.empty() && zfsmgr::cli::hayTerminal()) {
         if (!tomaLaSesion(sesion)) {
@@ -922,6 +930,20 @@ int main(int argc, char** argv) {
                 return 1;
             }
         }
+    }
+    if (ordenDeRed) {
+        // join opens the network with the master password just typed: it must be the
+        // network's (the one of the computer that seeded it).
+        const int r = op.orden[1] == "seed"
+                          ? zfsmgr::cli::sembrarRed(op.dirConfig, maestra)
+                          : zfsmgr::cli::unirseARed(op.dirConfig, maestra, contrasena);
+        if (!contrasena.empty()) {
+            volatile char* q2 = &contrasena[0];
+            for (std::size_t i = 0; i < contrasena.size(); ++i) {
+                q2[i] = '\0';
+            }
+        }
+        return r;
     }
     if (!contrasena.empty()) {
         volatile char* q = &contrasena[0];
