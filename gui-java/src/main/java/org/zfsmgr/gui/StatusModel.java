@@ -161,6 +161,44 @@ public final class StatusModel {
         return out;
     }
 
+    /** A job running or queued on a machine, from its overview. */
+    public record JobRow(String machineId, String machine, String id, String description, String state,
+                         long bytes, double rate) {}
+
+    public static List<JobRow> jobRows(List<MachineView> ms) {
+        List<JobRow> out = new ArrayList<>();
+        for (MachineView m : ms) {
+            if (!m.reachable()) {
+                continue;
+            }
+            for (Map<String, Object> j : Json.objects(m.overview, "jobs")) {
+                String d = Json.str(j, "description");
+                out.add(new JobRow(m.id, m.name, Json.str(j, "id"), d.isEmpty() ? Json.str(j, "snap") : d,
+                        Json.str(j, "state"), Json.num(j, "bytes", 0), Json.dbl(j, "rate", 0)));
+            }
+        }
+        return out;
+    }
+
+    /** SI units with one decimal, in the interface's language: «1,5 GB» / «1.5 GB». */
+    public static String bytesText(long bytes) {
+        String[] units = {"B", "kB", "MB", "GB", "TB", "PB", "EB"};
+        if (bytes < 1000) {
+            return bytes + " B";
+        }
+        double v = bytes;
+        int u = 0;
+        while (v >= 1000 && u < units.length - 1) {
+            v /= 1000;
+            u++;
+        }
+        String n = String.format(java.util.Locale.ROOT, "%.1f", v);
+        if (Text.lang().equals("es")) {
+            n = n.replace('.', ',');
+        }
+        return n + " " + units[u];
+    }
+
     /** «hace 2 h» / «2 h ago»; «nunca» / «never» for 0. */
     public static String ago(long t, long now) {
         if (t <= 0) {

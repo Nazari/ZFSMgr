@@ -77,7 +77,11 @@ public final class MainWindow extends JFrame {
         CardLayout cards = new CardLayout();
         JPanel content = new JPanel(cards);
         content.add(new StatusPage(store), pages[0]);
+        content.add(new JobsPage(store, this::say), pages[3]);
         for (int i = 1; i < pages.length; i++) {
+            if (i == 3) {
+                continue;
+            }
             JPanel p = new JPanel(new BorderLayout());
             p.setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
             p.add(Ui.muted(L("Not in the Java interface yet.", "Todavía no está en la interfaz en Java.")),
@@ -89,7 +93,15 @@ public final class MainWindow extends JFrame {
                 cards.show(content, nav.getSelectedValue());
             }
         });
-        nav.setSelectedIndex(0);
+        // ZFSMGR_GUI_PAGE=<n>: opens on that page, for the captures without a screen.
+        int first = 0;
+        try {
+            first = Math.max(0, Math.min(pages.length - 1,
+                    Integer.parseInt(System.getenv().getOrDefault("ZFSMGR_GUI_PAGE", "0"))));
+        } catch (NumberFormatException ignored) {
+            // the first one
+        }
+        nav.setSelectedIndex(first);
         JScrollPane navScroll = new JScrollPane(nav);
         navScroll.setPreferredSize(new Dimension(180, 100));
         getContentPane().add(navScroll, BorderLayout.WEST);

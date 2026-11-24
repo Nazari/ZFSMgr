@@ -26,7 +26,8 @@ import javax.swing.Timer;
  * </pre>
  *
  * <p>For tests without a screen (under Xvfb): ZFSMGR_GUI_CAPTURE=&lt;file.png&gt; saves the window
- * after ZFSMGR_GUI_CAPTURE_MS (8000) and ends; ZFSMGR_GUI_CAPTURE_SIZE=&lt;w&gt;x&lt;h&gt;.
+ * after ZFSMGR_GUI_CAPTURE_MS (8000) and ends; ZFSMGR_GUI_CAPTURE_SIZE=&lt;w&gt;x&lt;h&gt;;
+ * ZFSMGR_GUI_PAGE=&lt;n&gt; opens on page n (0 Status … 4 Administration).
  *
  * <p>ZFSMGR_GUI_DEBUG=1: timings, every request's time, and a watchdog of the Swing thread, on
  * stderr; the CLI services' stderr always goes to zfsmgr-gui-cli.log in the temporary directory.

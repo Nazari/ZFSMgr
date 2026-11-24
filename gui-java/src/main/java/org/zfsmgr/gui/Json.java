@@ -61,9 +61,20 @@ public final class Json {
         return v instanceof Number n ? n.longValue() : def;
     }
 
+    /** A number, or a number written as text («"rate": "159.18"», as `jobs` gives it). */
     public static double dbl(Map<String, Object> o, String key, double def) {
         Object v = o.get(key);
-        return v instanceof Number n ? n.doubleValue() : def;
+        if (v instanceof Number n) {
+            return n.doubleValue();
+        }
+        if (v instanceof String s) {
+            try {
+                return Double.parseDouble(s.trim());
+            } catch (NumberFormatException e) {
+                return def;
+            }
+        }
+        return def;
     }
 
     public static boolean bool(Map<String, Object> o, String key, boolean def) {

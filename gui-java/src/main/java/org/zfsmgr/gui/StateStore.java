@@ -56,6 +56,11 @@ public final class StateStore {
         return listError;
     }
 
+    /** The machine's own service: what is asked about one machine goes through it. */
+    public CliService forMachine(String id) {
+        return forMachine.apply(id);
+    }
+
     public CliService general() {
         return general;
     }
