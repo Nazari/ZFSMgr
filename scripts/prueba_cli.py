@@ -94,8 +94,25 @@ LOC = "local"
 def en_esta(texto):
     if LOC == "local":
         return texto
-    texto = re.sub(r"zfsm://local(?=$|[/#$*\s\"'])", "zfsm://" + LOC, texto)
-    return re.sub(r"(^|\n|\s)cd local(?=$|[/\s\t<])", lambda m: m.group(1) + "cd " + LOC, texto)
+    texto = re.sub(r"zfsm://[Ll]ocal(?=$|[/#$*\s\"'])", "zfsm://" + LOC, texto)
+    texto = re.sub(r"(^|\n|\s)cd [Ll]ocal(?=$|[/\s\t<])", lambda m: m.group(1) + "cd " + LOC, texto)
+    # A relative URL that starts at the connection: «Local/pool/…» (never «/usr/local/…»).
+    return re.sub(r"(?<![\w/.:-])[Ll]ocal(?=/)", LOC, texto)
+
+
+def config_json(cfg):
+    """The config.json the client works on in `cfg`: the network's materialisation when it has
+    joined one (<cfg>/network/), the directory's own otherwise."""
+    red = os.path.join(cfg, "network", "config.json")
+    return red if os.path.exists(red) else os.path.join(cfg, "config.json")
+
+
+def en_esta_patron(patron):
+    """The same for what a case EXPECTS in the output (regular expressions)."""
+    if LOC == "local":
+        return patron
+    patron = re.sub(r"zfsm://local(?![A-Za-z0-9_.-])", "zfsm://" + LOC, patron)
+    return re.sub(r"\^local(?=\\s|\\t|\s|\$)", "^" + LOC, patron)
 
 
 def cli(ctx, ordenes, timeout=180, idioma=None, frase=None):
@@ -152,6 +169,8 @@ def caso_argv(ctx, nombre, args, espera=(), no_espera=(), rc=None):
     """
     p = subprocess.run([CLI] + [en_esta(a) for a in args], capture_output=True, text=True, timeout=60)
     salida = p.stdout + p.stderr
+    espera = [en_esta_patron(x) for x in espera]
+    no_espera = [en_esta_patron(x) for x in no_espera]
     problemas = []
     if rc is not None and p.returncode != rc:
         problemas.append(f"rc={p.returncode}, esperaba {rc}")
@@ -184,6 +203,9 @@ def caso(ctx, nombre, ordenes, espera=(), no_espera=(), estado=(), rc=None, vece
     contado dos veces.
     """
     rc_real, salida = cli(ctx, list(ordenes), idioma=idioma, frase=frase)
+    espera = [en_esta_patron(x) for x in espera]
+    no_espera = [en_esta_patron(x) for x in no_espera]
+    veces = [(en_esta_patron(x), n) for x, n in veces]
     problemas = []
     if rc is not None and rc_real != rc:
         problemas.append(f"rc={rc_real}, esperaba {rc}")
@@ -200,6 +222,7 @@ def caso(ctx, nombre, ordenes, espera=(), no_espera=(), estado=(), rc=None, vece
     # Lo que de verdad decide: el estado de la máquina.
     for descripcion, orden, patron, *resto in estado:
         remoto = bool(resto and resto[0])
+        patron = en_esta_patron(patron)
         _, vista = sh(ctx, orden, en_remoto=remoto, root=True)
         if not re.search(patron, vista, re.M):
             problemas.append(f"la máquina dice que NO: {descripcion} "
@@ -487,7 +510,7 @@ def casos_overview(ctx):
         try:
             doc = json_de(js)
             m = doc["machines"][0]
-            if m.get("connection") != "local" or m.get("reachable") is not True:
+            if m.get("connection") != LOC or m.get("reachable") is not True:
                 problemas.append(f"máquina: {m.get('connection')} reachable={m.get('reachable')}")
             pools = {x["name"]: x for x in m.get("pools", [])}
             if pools.get(P, {}).get("health") != "DEGRADED" or pools.get(P, {}).get("status") != "warning":
@@ -510,10 +533,10 @@ def casos_overview(ctx):
             print("  ok     overview: un espejo con un disco fuera sale degradado y avisado")
         caso(ctx, "overview: en texto, el pool y el aviso al final",
              ["overview zfsm://local"], rc=0, idioma="es",
-             espera=[rf"^\s+{P}\s+DEGRADED", r"^Avisos:", rf"el pool {P} de local funciona con"])
+             espera=[rf"^\s+{P}\s+DEGRADED", r"^Avisos:", rf"el pool {P} de {LOC} funciona con"])
         caso(ctx, "overview: en inglés el aviso cambia y el código no",
              ["format json", "overview zfsm://local"], rc=0, idioma="en",
-             espera=[r'"status": "warning"', rf"pool {P} on local runs with a disk missing"])
+             espera=[r'"status": "warning"', rf"pool {P} on {LOC} runs with a disk missing"])
         caso(ctx, "overview -a: también la máquina remota",
              ["format json", "overview -a"], rc=0, espera=[r'"connection": "unib"'])
         caso(ctx, "overview: en la raíz sin -a se niega y dice cómo",
@@ -544,7 +567,7 @@ def casos_json_gui(ctx):
             print(f"  ok     {nombre}")
 
     d, salida = doc(["ls zfsm://"])
-    local = [c for c in d.get("connections", []) if c.get("id") == "local"]
+    local = [c for c in d.get("connections", []) if c.get("id") == LOC]
     comprueba("json: ls zfsm:// da la identidad de cada máquina",
               [] if local and re.fullmatch(r"[0-9a-f-]{16,}", local[0].get("uid") or "")
               else [f"{local}"], salida)
@@ -579,7 +602,7 @@ def casos_json_gui(ctx):
         comprueba("json: peers --check dice a quién llega, con códigos fijos y su conexión",
                   [] if filas and all(f.get("state") in ("ok", "no_credentials", "unreachable",
                                                          "refused", "unknown") for f in filas)
-                  and any(f.get("connection") == "local" and f.get("state") == "ok"
+                  and any(f.get("connection") == LOC and f.get("state") == "ok"
                           for f in filas)
                   else [f"{filas}"[:300]], salida)
 
@@ -602,7 +625,7 @@ def casos_sudo_sin_argv(ctx):
         os.remove(registro)
     snap = f"{POOL_LOCAL}@sudoargv"
     sh(ctx, f"zfs snapshot {snap}", root=True)
-    objetivos = [("local", f"zfsm://local/{POOL_LOCAL}@sudoargv")]
+    objetivos = [(LOC, f"zfsm://{LOC}/{POOL_LOCAL}@sudoargv")]
     if ctx.remoto:
         rc, ultimo = sh(ctx, "zfs list -t snapshot -H -o name -s creation ppal/user/srvs | tail -1",
                         en_remoto=True)
@@ -656,7 +679,7 @@ def casos_probe(ctx):
     def corre(guion, idioma="es"):
         orden = (f"exec 9<{fichero}; exec {CLI!r} --password-fd 9 --config-dir {shlex.quote(cfg)} "
                  f"--lang {idioma} --format text -y")
-        p = subprocess.run(["bash", "-c", orden], input=guion + "\nexit\n", capture_output=True,
+        p = subprocess.run(["bash", "-c", orden], input=en_esta(guion) + "\nexit\n", capture_output=True,
                            text=True, timeout=120)
         return p.returncode, p.stdout + p.stderr
 
@@ -677,7 +700,7 @@ def casos_probe(ctx):
         except ValueError:
             return rc, {}, salida
 
-    maquinas = ["local"] + (["unib"] if ctx.remoto else [])
+    maquinas = [LOC] + (["unib"] if ctx.remoto else [])
     for m in maquinas:
         rc, d, salida = sonda(m)
         problemas = []
@@ -926,7 +949,7 @@ def casos_patrones(ctx):
     # --- Lecturas con varios destinos: UNA tabla con la columna DESTINO.
     caso(ctx, "patrones: get sobre varios destinos junta una sola tabla",
          [f"get {U}/{{hijoA,hijoB}} compression"], rc=0, idioma="es",
-         espera=[rf"^local/{P}/hijoA\s+compression", rf"^local/{P}/hijoB\s+compression"],
+         espera=[rf"^{LOC}/{P}/hijoA\s+compression", rf"^{LOC}/{P}/hijoB\s+compression"],
          veces=[(r"^DESTINO\s", 1)])
     rc, js = cli(ctx, ["format json", f"get {U}/{{hijoA,hijoB}} compression"])
     nombre = "patrones: en json, varios destinos son UN documento con el campo target"
@@ -935,7 +958,7 @@ def casos_patrones(ctx):
         doc = json_de(js)
         filas = next(iter(doc.values()))
         destinos = sorted({f.get("target") for f in filas})
-        if destinos != [f"local/{P}/hijoA", f"local/{P}/hijoB"]:
+        if destinos != [f"{LOC}/{P}/hijoA", f"{LOC}/{P}/hijoB"]:
             problemas.append(f"los target son {destinos}")
     except Exception as exc:          # noqa: BLE001
         problemas.append(f"no es UN documento json: {exc}")
@@ -1343,7 +1366,7 @@ def casos_send_fichero(ctx):
     caso(ctx, "send a un directorio pide el nombre del fichero",
          [f"send {F} --on {U}/datos@sf1"], rc=2, espera=[r"es un directorio"])
     caso(ctx, "send a un directorio que no existe se niega antes de nada",
-         [f"send {F}/no-existe/s.zfs --on {U}/datos@sf1"], rc=1, espera=[r"no existe en local"])
+         [f"send {F}/no-existe/s.zfs --on {U}/datos@sf1"], rc=1, espera=[rf"no existe en {LOC}"])
     caso(ctx, "send de un fichero a otro es cp",
          [f"send {F}/otro.zfs --from {F}/s.zfs"], rc=2, espera=[r"eso es «cp»"])
     caso(ctx, "send --from un fichero no admite --base ni banderas",
@@ -1646,7 +1669,7 @@ def casos_editor_ancho(ctx):
                     return
 
     lee(3)
-    os.write(fd, ("ls zfsm://local/" + "x" * 180).encode())  # pegada de golpe
+    os.write(fd, (f"ls zfsm://{LOC}/" + "x" * 180).encode())  # pegada de golpe
     lee(2)
     os.write(fd, b"\x01")   # Ctrl-A: el cursor al principio, con la línea desplazada
     lee(0.5)
@@ -2257,7 +2280,7 @@ class Tmux:
         self.espera("zfsm://>", 10)
 
     def teclas(self, *k):
-        subprocess.run(self.t + ["send-keys", "-t", "p"] + list(k), check=True)
+        subprocess.run(self.t + ["send-keys", "-t", "p"] + [en_esta(x) for x in k], check=True)
 
     def pantalla(self):
         return subprocess.run(self.t + ["capture-pane", "-p", "-t", "p"], capture_output=True,
@@ -2266,7 +2289,7 @@ class Tmux:
     def espera(self, patron, segs=8):
         fin = time.time() + segs
         while time.time() < fin:
-            if re.search(patron, self.pantalla(), re.M):
+            if re.search(en_esta_patron(patron), self.pantalla(), re.M):
                 return True
             time.sleep(0.2)
         return False
@@ -2383,7 +2406,7 @@ def casos_servicio(ctx):
         r = evento()
         comprueba("servicio: una petición mal formada da rc 2 y el servicio sigue",
                   [] if r and r.get("rc") == 2 and "bad request" in r.get("stderr", "") else [f"{r}"])
-        p.stdin.write(json.dumps({"id": 8, "line": f"ls zfsm://local/{P}", "format": "text"}) + "\n")
+        p.stdin.write(json.dumps({"id": 8, "line": f"ls zfsm://{LOC}/{P}", "format": "text"}) + "\n")
         p.stdin.flush()
         r = evento()
         comprueba("servicio: «format» de una petición cambia solo esa salida",
@@ -2586,7 +2609,7 @@ def casos_servicio_conexiones(ctx):
             print(f"  ok     {nombre}")
 
     def perfil():
-        with open(os.path.join(cfg, "config.json")) as f:
+        with open(config_json(cfg)) as f:
             datos = json.load(f)
         for c in datos.get("connections", []):
             if c.get("id") == "prueba-srv":
@@ -2702,7 +2725,7 @@ def casos_pantalla(ctx):
         t.espera(r"zfsm://> Zls")
         vista = t.pantalla()
         comprueba("pantalla: el cursor cruza las filas (Ctrl-A y escribir al principio)",
-                  [] if re.search(r"^zfsm://> Zls zfsm://local/x", vista, re.M)
+                  [] if re.search(en_esta_patron(r"^zfsm://> Zls zfsm://local/x"), vista, re.M)
                   else ["la «Z» no está al principio de la orden"], vista)
 
         t.teclas("C-u", "C-k")
@@ -2779,7 +2802,7 @@ def casos_pantalla(ctx):
         t.tamano(170, 40)
         vista = t.pantalla()
         comprueba("pantalla: al ensanchar vuelve a ser tabla",
-                  [] if re.search(r"^├─", vista, re.M) and not re.search(r"^── local", vista, re.M)
+                  [] if re.search(r"^├─", vista, re.M) and not re.search(rf"^── {LOC}", vista, re.M)
                   else ["no ha vuelto a la tabla"], vista)
 
         # La zona de estado: el último error, que se quita tras una que va bien. La posición NO:
@@ -2850,7 +2873,7 @@ def casos_ctrl_c(ctx):
         vivo = t.espera(r"^zfsm://$", 5)
         vista = t.pantalla()
         comprueba("Ctrl-C: en una pregunta la cancela, aunque ya se hubiera escrito «s»",
-                  [] if hay and vivo and "pmuda" in open(os.path.join(cfg, "config.json")).read()
+                  [] if hay and vivo and "pmuda" in open(config_json(cfg)).read()
                   else [f"pregunta={bool(hay)} vivo={bool(vivo)}"], vista)
     finally:
         t.cierra()
@@ -2869,7 +2892,7 @@ def casos_monitor_conexiones(ctx):
     if os.path.isdir(cfg):
         shutil.rmtree(cfg)
     shutil.copytree(os.path.expanduser("~/.config/ZFSMgr"), cfg)
-    with open(os.path.join(cfg, "config.json")) as f:
+    with open(config_json(cfg)) as f:
         ids = [c.get("id") or c.get("name") for c in json.load(f).get("connections", [])]
     # Every connection out but unib, the one with an hourly schedule; and unib too, for now.
     fichero = os.path.join(ctx.dir_tmp, ".maestra")
@@ -2946,19 +2969,19 @@ def casos_tab_continua(ctx):
         return re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", texto)
 
     lee(3)
-    os.write(fd, b"cd local\t")
+    os.write(fd, f"cd {LOC}\t".encode())
     conexion = lee(3)
-    os.write(fd, f"\x15ls {U}\t".encode())
+    os.write(fd, f"\x15ls {en_esta(U)}\t".encode())
     pool = lee(4)
-    os.write(fd, b"\x15cd local#\t")
+    os.write(fd, f"\x15cd {LOC}#\t".encode())
     seccion = lee(3)
-    os.write(fd, b"\x15cd local#path/et\t")
+    os.write(fd, f"\x15cd {LOC}#path/et\t".encode())
     ruta = lee(3)
     # «..» se completa con su barra, como en bash: no ofrecía nada porque ningún hijo se
     # llama así. En una URL de datasets y dentro de `#path`.
-    os.write(fd, b"\x15cd local/..\t")
+    os.write(fd, f"\x15cd {LOC}/..\t".encode())
     subir = lee(3)
-    os.write(fd, b"\x15ls zfsm://local#path/etc/..\t")
+    os.write(fd, f"\x15ls zfsm://{LOC}#path/etc/..\t".encode())
     subir_path = lee(3)
     os.write(fd, b"\x15exit\r")
     lee(1)
@@ -2974,15 +2997,15 @@ def casos_tab_continua(ctx):
         filas = [l.rstrip() for l in texto.replace("\r", "\n").split("\n") if l.startswith("zfsm://> ")]
         return filas[-1] if filas else ""
     # Una máquina sigue con «/» (sus pools) o con `#path/` (sus ficheros): se enseñan las dos.
-    if not re.search(r"^\s+local/\s+local#path/\s*$", conexion.replace("\r", ""), re.M):
-        problemas.append("`cd local<tab>` no enseña «local/  local#path/»")
-    if not enLinea(seccion).endswith("cd local#path/"):
-        problemas.append("`cd local#<tab>` no escribe «local#path/»")
-    if not enLinea(ruta).endswith("cd local#path/etc/"):
-        problemas.append("`cd local#path/et<tab>` no escribe «etc/»")
-    if not enLinea(subir).endswith("cd local/../"):
-        problemas.append("`cd local/..<tab>` no escribe «../»")
-    if not enLinea(subir_path).endswith("ls zfsm://local#path/etc/../"):
+    if not re.search(rf"^\s+{LOC}/\s+{LOC}#path/\s*$", conexion.replace("\r", ""), re.M):
+        problemas.append(f"`cd {LOC}<tab>` no enseña «{LOC}/  {LOC}#path/»")
+    if not enLinea(seccion).endswith(f"cd {LOC}#path/"):
+        problemas.append(f"`cd {LOC}#<tab>` no escribe «{LOC}#path/»")
+    if not enLinea(ruta).endswith(f"cd {LOC}#path/etc/"):
+        problemas.append(f"`cd {LOC}#path/et<tab>` no escribe «etc/»")
+    if not enLinea(subir).endswith(f"cd {LOC}/../"):
+        problemas.append(f"`cd {LOC}/..<tab>` no escribe «../»")
+    if not enLinea(subir_path).endswith(f"ls zfsm://{LOC}#path/etc/../"):
         problemas.append("`ls …#path/etc/..<tab>` no escribe «../»")
     # Y las opciones se enseñan SIN lo que comparten: «ztfc16/  ztfc16#», no la URL entera
     # repetida delante de cada una.
@@ -3368,7 +3391,7 @@ def casos_gsa(ctx):
          espera=[r'"next": \d+', r'"last_snapshot_time": \d+', r'"failed_step": null'])
     caso(ctx, "gsa: schedule status en verde",
          [f"cd Local/{O}", "schedule status"], rc=0, idioma="es",
-         espera=[rf"local\s+{O}\s+GSA-daily-\S+\s+ok .*verde"])
+         espera=[rf"{LOC}\s+{O}\s+GSA-daily-\S+\s+ok .*verde"])
 
     # Sin cambios: el diario de «ayer» se RENOMBRA al de hoy y no se crea otro. En el destino
     # se repite el renombrado (mismo guid) y no viaja nada.
@@ -3423,7 +3446,7 @@ def casos_gsa(ctx):
     sh(ctx, envejece + "20200104", root=True)
     caso(ctx, "gsa: schedule run sin --wait lanza la nivelación como trabajo y lo dice",
          [f"cd Local/{O}", "schedule run"], rc=0, idioma="es",
-         espera=[r"nivelación en marcha como trabajo [0-9a-f]{16} en local", r"siga con «job"])
+         espera=[rf"nivelación en marcha como trabajo [0-9a-f]{{16}} en {LOC}", r"siga con «job"])
     caso(ctx, "gsa: el trabajo sale en jobs como gsa-level",
          ["cd local", "jobs --history"], espera=[rf"\sgsa-level\s+{O}\s"])
     caso(ctx, "gsa: schedule run --wait con nada nuevo no lanza nada y sigue en verde",
@@ -3490,7 +3513,7 @@ def casos_gsa(ctx):
     caso(ctx, "gsa: schedule status sin conexión desde la raíz lo pide",
          ["schedule status"], rc=1, idioma="es", espera=[r"hace falta estar en una conexión"])
     caso(ctx, "gsa: schedule status de una conexión por su nombre",
-         ["schedule status local"], rc=0, espera=[rf"{O}"])
+         [f"schedule status {LOC}"], rc=0, espera=[rf"{O}"])
     caso(ctx, "gsa: una palabra que no es status ni run es un error",
          [f"cd Local/{O}", "schedule otra"], rc=1, idioma="es", espera=[r"sobra"])
     caso(ctx, "gsa: schedule run sin programación lo dice",
@@ -3847,7 +3870,7 @@ def casos_version_openzfs(ctx):
     if os.path.isdir(cfg):
         shutil.rmtree(cfg)
     shutil.copytree(os.path.expanduser("~/.config/ZFSMgr"), cfg)
-    ruta = os.path.join(cfg, "config.json")
+    ruta = config_json(cfg)
     with open(ruta) as f:
         c = json.load(f)
     # La clave es `conn_type`, no `type`: se miró en el fichero en vez de suponerlo, después
@@ -3981,9 +4004,9 @@ def casos_identidad(ctx):
     rc, _ = cli(ctx, ["refresh zfsm://local"])
     nombre = "refresh: guarda el identificador de máquina en la conexión"
     try:
-        with open(os.path.expanduser("~/.config/ZFSMgr/config.json")) as f:
+        with open(config_json(os.path.expanduser("~/.config/ZFSMgr"))) as f:
             conns = json.load(f)["connections"]
-        uid = next((c.get("machine_uid") or "" for c in conns if c.get("id") == "local"), "")
+        uid = next((c.get("machine_uid") or "" for c in conns if c.get("id") == LOC), "")
     except Exception as exc:          # noqa: BLE001
         uid = ""
         print(f"         (no se pudo leer la configuración: {exc})")
@@ -4167,7 +4190,7 @@ def casos_nombres_que_chocan(ctx):
     El pool se crea con el nombre EXACTO de la conexión local para reproducirlo; es sobre
     fichero y se destruye al terminar.
     """
-    choque = "local"          # el identificador de la conexión Local
+    choque = LOC              # the id of THIS computer's connection: «local», or its name in a network
     img = f"{IMG_DIR}/{choque}.img"
     sh(ctx, f"mkdir -p {IMG_DIR}")
     sh(ctx, f"zpool destroy {choque}", root=True)

@@ -27,6 +27,11 @@ bool esDirDeRed(const std::string& dir);
 // computer's preferred one (local.json), and the files are rematerialised. True if any changed.
 bool eligeDirecciones(const std::string& dir);
 
+// The files written again from the copy of the network, when nothing of this computer is waiting
+// to be published: what a newer client materialises differently (this computer's machine as the
+// local one…) takes effect without joining again. True if written.
+bool rematerializaSiAlDia(const std::string& dir);
+
 // At start, with the secrets open: asks the daemons for a newer revision and adopts it if its
 // HMAC verifies. True when the files changed (the connections must be loaded again). `aviso`:
 // a daemon served something that does not verify, or similar, for the person.

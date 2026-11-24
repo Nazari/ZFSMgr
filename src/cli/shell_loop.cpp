@@ -600,7 +600,7 @@ void detail::redAlArrancar(Estado& e) {
         std::fprintf(stderr, "%s\n", aviso.c_str());
     }
     aviso.clear();
-    if (publicaRed(*e.ses, e.conns, aviso)) {
+    if (publicaRed(*e.ses, e.conns, aviso) || rematerializaSiAlDia(e.ses->dirConfig)) {
         recarga(e);
     }
     if (!aviso.empty()) {

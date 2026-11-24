@@ -88,6 +88,10 @@ J::Value machineToJson(const Machine& m) {
 
 }  // namespace
 
+bool sameUid(const std::string& a, const std::string& b) {
+    return !trim(a).empty() && toLowerAscii(trim(a)) == toLowerAscii(trim(b));
+}
+
 std::string canonical(const J::Value& v) {
     return J::toCompact(sorted(v));
 }
@@ -296,7 +300,7 @@ void toClientConfig(const Document& d, const LocalSettings& local, const std::st
     J::Array conns;
     J::Array trust;
     for (const Machine& m : d.machines) {
-        const bool here = !thisUid.empty() && m.uid == thisUid;
+        const bool here = sameUid(m.uid, thisUid);
         J::Value c;
         c.set("id", J::Value(m.name));
         c.set("name", J::Value(m.name));

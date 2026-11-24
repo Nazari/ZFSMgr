@@ -57,6 +57,10 @@ struct LocalSettings {
     std::map<std::string, std::string> preferredAddress;  // uid → the address to try first
 };
 
+// The same machine whatever the case: macOS gives its IOPlatformUUID in capitals and the network
+// keeps it in small letters (MMEla saw itself as another machine, 2026-11-24).
+bool sameUid(const std::string& a, const std::string& b);
+
 json::Value toJson(const Document& d, bool withMac = true);
 // Checks the shape: schema 1, a uid and a name on every machine, both unique, revision ≥ 0,
 // no secret in the clear. `error` says what was wrong.

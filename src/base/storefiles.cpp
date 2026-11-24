@@ -456,6 +456,24 @@ bool cifraSiHace(std::string& valor, const char* campo, const std::string& maest
     return true;
 }
 
+// The same secret as the one already saved: its ciphertext is kept. Encrypting draws a fresh
+// salt and IV every time, so encrypting it again would change the file for nothing —and, in a
+// network, publish a revision to every daemon for a certificate that did not change (every
+// `refresh` did, 2026-11-24)—.
+static bool cifraConservando(std::string& valor, const std::string& anterior, const char* campo,
+                             const std::string& maestra, Warning& aviso) {
+    if (!valor.empty() && !SecretCipher::isEncrypted(valor) && SecretCipher::isEncrypted(anterior)
+        && !maestra.empty()) {
+        std::string claro;
+        std::string err;
+        if (SecretCipher::decryptEncv1(anterior, maestra, claro, err) && claro == valor) {
+            valor = anterior;
+            return true;
+        }
+    }
+    return cifraSiHace(valor, campo, maestra, aviso);
+}
+
 // ¿La maestra de ESTA sesión es la del fichero?
 //
 // Cada proceso guarda la maestra en memoria desde que arranca. Si otro —otro `zfsmgr-cli`, o
@@ -537,12 +555,14 @@ bool saveProfile(const std::string& dirConfig, const ConnectionProfile& p,
     const json::Array actuales = root["connections"].toArray();
     bool habia = false;
     bool mismoSitio = true;
+    std::string passwordAnterior;
     for (const json::Value& v : actuales) {
         const ConnectionProfile existente = connjson::connectionFromJson(v, std::string());
         if (toLowerAscii(trim(existente.id)) != toLowerAscii(trim(guardado.id))) {
             continue;
         }
         habia = true;
+        passwordAnterior = existente.password;
         mismoSitio = mismoExtremo(guardado, existente, maestra);
         break;
     }
@@ -590,10 +610,13 @@ bool saveProfile(const std::string& dirConfig, const ConnectionProfile& p,
         guardado.daemonTlsPort = 47653;
     }
 
-    if (!cifraSiHace(guardado.password, "password", maestra, aviso)
-        || !cifraSiHace(guardado.daemonTlsServerCertPem, "daemon_tls_server_cert_pem", maestra, aviso)
-        || !cifraSiHace(guardado.daemonTlsClientCertPem, "daemon_tls_client_cert_pem", maestra, aviso)
-        || !cifraSiHace(guardado.daemonTlsClientKeyPem, "daemon_tls_client_key_pem", maestra, aviso)) {
+    if (!cifraConservando(guardado.password, passwordAnterior, "password", maestra, aviso)
+        || !cifraConservando(guardado.daemonTlsServerCertPem, enElAlmacen.daemonTlsServerCertPem,
+                             "daemon_tls_server_cert_pem", maestra, aviso)
+        || !cifraConservando(guardado.daemonTlsClientCertPem, enElAlmacen.daemonTlsClientCertPem,
+                             "daemon_tls_client_cert_pem", maestra, aviso)
+        || !cifraConservando(guardado.daemonTlsClientKeyPem, enElAlmacen.daemonTlsClientKeyPem,
+                             "daemon_tls_client_key_pem", maestra, aviso)) {
         aviso.connection = !p.name.empty() ? p.name : p.id;
         return false;
     }
@@ -648,14 +671,25 @@ bool saveTlsToStore(const std::string& dirConfig, const ConnectionProfile& p,
         return false;
     }
     ConnectionProfile guardado = p;
-    if (!cifraSiHace(guardado.daemonTlsServerCertPem, "daemon_tls_server_cert_pem", maestra, aviso)
-        || !cifraSiHace(guardado.daemonTlsClientCertPem, "daemon_tls_client_cert_pem", maestra, aviso)
-        || !cifraSiHace(guardado.daemonTlsClientKeyPem, "daemon_tls_client_key_pem", maestra, aviso)) {
-        aviso.connection = !p.name.empty() ? p.name : p.id;
-        return false;
-    }
     json::Value trust = readTrustStore(dirConfig, aviso);
     if (!aviso.empty()) {
+        return false;
+    }
+    ConnectionProfile antes;
+    for (const json::Value& v : trust["connections"].toArray()) {
+        const ConnectionProfile t = connjson::connectionFromJson(v, std::string());
+        if (toLowerAscii(trim(t.id)) == toLowerAscii(trim(guardado.id))) {
+            antes = t;
+            break;
+        }
+    }
+    if (!cifraConservando(guardado.daemonTlsServerCertPem, antes.daemonTlsServerCertPem,
+                          "daemon_tls_server_cert_pem", maestra, aviso)
+        || !cifraConservando(guardado.daemonTlsClientCertPem, antes.daemonTlsClientCertPem,
+                             "daemon_tls_client_cert_pem", maestra, aviso)
+        || !cifraConservando(guardado.daemonTlsClientKeyPem, antes.daemonTlsClientKeyPem,
+                             "daemon_tls_client_key_pem", maestra, aviso)) {
+        aviso.connection = !p.name.empty() ? p.name : p.id;
         return false;
     }
     json::Array salida;

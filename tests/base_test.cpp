@@ -2392,6 +2392,28 @@ void caso38() {
         igual(tras.daemonTlsServerCertPem, "CERT-DE-UNIB",
               "guardar: mismo extremo, se conserva el TLS que ya habia");
 
+        // The same secrets saved again keep their ciphertext: encrypting draws a new salt, and a
+        // changed file is a new network revision for nothing.
+        {
+            const auto cifrados = [&]() {
+                ST::Warning a2;
+                const auto cfg = ST::readConfig(dirG, a2)["connections"].toArray().at(0);
+                const auto tr = ST::readTrustStore(dirG, a2)["connections"].toArray().at(0);
+                return cfg["password"].toString() + "|"
+                       + tr["daemon_tls_server_cert_pem"].toString();
+            };
+            const std::string antes = cifrados();
+            comprobar(ST::saveProfile(dirG, p, maestra, av), "guardar: lo mismo otra vez");
+            igual(cifrados(), antes, "guardar: lo mismo otra vez no cambia el cifrado");
+            comprobar(ST::saveTlsToStore(dirG, p, maestra, av), "guardar: el mismo TLS otra vez");
+            igual(cifrados(), antes, "guardar: el mismo TLS otra vez no cambia el cifrado");
+            zfsmgr::base::ConnectionProfile otraClave = p;
+            otraClave.password = "otra";
+            comprobar(ST::saveProfile(dirG, otraClave, maestra, av), "guardar: otra contrasena");
+            comprobar(cifrados() != antes, "guardar: otra contrasena si cambia el cifrado");
+            comprobar(ST::saveProfile(dirG, p, maestra, av), "guardar: la de antes otra vez");
+        }
+
         // Y cambiando el HOST: el certificado del sitio anterior NO viaja.
         zfsmgr::base::ConnectionProfile otroHost = p;
         otroHost.host = "otra.local";
@@ -5339,6 +5361,10 @@ void caso61() {
         comprobar(NW::fromClientConfig(cfg, tr, "fc16", "u-fc16", 1000, vuelta, l2, err)
                       && vuelta.machines.size() == 2 && vuelta.machines[1].tlsClientKey == cert,
                   "red: ida y vuelta entre la red y la configuración de un cliente");
+        // macOS gives its uid in capitals; the network keeps it as the daemon reported it.
+        NW::toClientConfig(d, mio, "U-FC16", cfg, tr);
+        comprobar(cfg["connections"].toArray()[0]["conn_type"].toString() == "LOCAL",
+                  "red: la máquina propia se reconoce aunque su uid venga en mayúsculas");
         NW::toClientConfig(d, mio, "u-otro", cfg, tr);
         comprobar(cfg["connections"].toArray()[0]["conn_type"].toString() == "SSH",
                   "red: desde otro ordenador, fc16 es una máquina más");

@@ -1003,6 +1003,23 @@ bool gsaDestinoSoyYo(const std::string& connId, const std::string& selfPorNombre
             }
         }
     }
+    // The network's machines, by name and uid, after the peers: a destination written with this
+    // machine's network name is this machine even when its credentials were pushed under another
+    // one (fc16 kept «local» from before the network, 2026-11-24).
+    std::ifstream fn(networkPath());
+    if (fn.is_open()) {
+        std::ostringstream ss;
+        ss << fn.rdbuf();
+        zfsmgr::base::json::Value raiz;
+        if (zfsmgr::base::json::parse(ss.str(), raiz, nullptr)) {
+            for (const auto& v : raiz["machines"].toArray()) {
+                zfsmgr::base::peers::Peer par;
+                par.id = trim(v["name"].toString());
+                par.uid = trim(v["uid"].toString());
+                m.peers.push_back(par);
+            }
+        }
+    }
     return zfsmgr::base::peers::destinationIsSelf(connId, m);
 }
 

@@ -11,6 +11,7 @@
 #include "tlsclient.h"
 #include "tr.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <ctime>
 #include <filesystem>
@@ -88,7 +89,35 @@ bool materializa(const std::string& dir, const NW::Document& d, const NW::LocalS
     if (!raiz.isObject()) {
         raiz = J::Value(J::Object{});
     }
-    raiz.set("connections", cfg["connections"]);
+    // A connection without a uid (created before its daemon was installed) cannot be in the
+    // network yet: these files are its only copy, and it stays in them until it has one.
+    J::Array conexiones = cfg["connections"].toArray();
+    J::Array confianzas = tr["connections"].toArray();
+    const auto tiene = [](const J::Array& a, const std::string& id) {
+        return std::any_of(a.begin(), a.end(), [&](const J::Value& c) {
+            return B::toLowerAscii(c["id"].toString()) == B::toLowerAscii(id);
+        });
+    };
+    std::vector<std::string> sinUid;
+    for (const J::Value& c : raiz["connections"].toArray()) {
+        const std::string id = c["id"].toString();
+        if (!id.empty() && B::trim(c["machine_uid"].toString()).empty()
+            && c["conn_type"].toString() != "LOCAL" && !tiene(conexiones, id)) {
+            conexiones.push_back(c);
+            sinUid.push_back(id);
+        }
+    }
+    if (!sinUid.empty()) {
+        ST::Warning aviso2;
+        for (const J::Value& c : ST::readTrustStore(dir, aviso2)["connections"].toArray()) {
+            const std::string id = c["id"].toString();
+            if (std::find(sinUid.begin(), sinUid.end(), id) != sinUid.end()
+                && !tiene(confianzas, id)) {
+                confianzas.push_back(c);
+            }
+        }
+    }
+    raiz.set("connections", J::Value(std::move(conexiones)));
     raiz.set("master", cfg["master"]);
     if (cfg.contains("master_check")) {
         raiz.set("master_check", cfg["master_check"]);
@@ -97,7 +126,7 @@ bool materializa(const std::string& dir, const NW::Document& d, const NW::LocalS
     ST::Warning a2;
     J::Value confianza;
     confianza.set("schema", J::Value(1));
-    confianza.set("connections", tr["connections"]);
+    confianza.set("connections", J::Value(std::move(confianzas)));
     return ST::writeConfig(dir, raiz, a1) && ST::writeTrustStore(dir, confianza, a2);
 }
 
@@ -177,7 +206,7 @@ bool eligeDirecciones(const std::string& dir) {
     std::vector<std::thread> hilos;
     for (std::size_t i = 0; i < d.machines.size(); ++i) {
         const NW::Machine& m = d.machines[i];
-        if (m.uid == yo || m.addresses.size() < 2) {
+        if (NW::sameUid(m.uid, yo) || m.addresses.size() < 2) {
             continue;
         }
         hilos.emplace_back([&elegida, &m, i] {
@@ -216,6 +245,24 @@ bool eligeDirecciones(const std::string& dir) {
         materializa(dir, d, local);
     }
     return cambia;
+}
+
+bool rematerializaSiAlDia(const std::string& dir) {
+    NW::Document base;
+    if (!leeDoc(dir, base)) {
+        return false;
+    }
+    NW::LocalSettings local = leeLocal(dir);
+    ST::Warning a1;
+    ST::Warning a2;
+    std::vector<std::string> sinUid;
+    const NW::Document mia = NW::fromMaterialized(base, ST::readConfig(dir, a1),
+                                                  ST::readTrustStore(dir, a2), local, sinUid);
+    // Something of this computer not published yet: the files are its only copy.
+    if (!NW::sameContent(mia, base) || !sinUid.empty()) {
+        return false;
+    }
+    return materializa(dir, base, local);
 }
 
 bool sincronizaRed(Sesion& ses, const Conexiones& conns, std::string& aviso) {
