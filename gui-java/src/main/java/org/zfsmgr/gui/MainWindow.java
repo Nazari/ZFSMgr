@@ -31,6 +31,7 @@ public final class MainWindow extends JFrame {
     private final Map<String, CliService> perMachine = new LinkedHashMap<>();
     private final StateStore store;
     private final JLabel statusLine = Ui.muted(" ");
+    private MachinesPage machines;
     private boolean closing;
     private boolean closeAskedShown;
     private boolean sudoOffered;
@@ -78,9 +79,31 @@ public final class MainWindow extends JFrame {
         JPanel content = new JPanel(cards);
         content.add(new StatusPage(store), pages[0]);
         content.add(new CopiesPage(store, this::say, () -> newCopy("", "")), pages[1]);
+        machines = new MachinesPage(store, new MachinesPage.Host() {
+            @Override
+            public void say(String text) {
+                MainWindow.this.say(text);
+            }
+
+            @Override
+            public void addMachine() {
+                new AddMachineDialog(MainWindow.this, store, store::refresh).setVisible(true);
+            }
+
+            @Override
+            public void newCopy(String machine, String dataset) {
+                MainWindow.this.newCopy(machine, dataset);
+            }
+
+            @Override
+            public void createPool(String machine) {
+                new CreatePoolDialog(MainWindow.this, store, machine, store::refresh).setVisible(true);
+            }
+        });
+        content.add(machines, pages[2]);
         content.add(new JobsPage(store, this::say), pages[3]);
         for (int i = 1; i < pages.length; i++) {
-            if (i == 1 || i == 3) {
+            if (i <= 3) {
                 continue;
             }
             JPanel p = new JPanel(new BorderLayout());
@@ -103,9 +126,29 @@ public final class MainWindow extends JFrame {
             // the first one
         }
         nav.setSelectedIndex(first);
+        // ZFSMGR_GUI_REVEAL=<machine>[/<dataset>]: Machines opened down to it, for captures.
+        String reveal = System.getenv().getOrDefault("ZFSMGR_GUI_REVEAL", "");
+        if (!reveal.isEmpty()) {
+            int slash = reveal.indexOf('/');
+            machines.reveal(slash < 0 ? reveal : reveal.substring(0, slash), slash < 0 ? "" : reveal.substring(slash + 1));
+        }
         JScrollPane navScroll = new JScrollPane(nav);
         navScroll.setPreferredSize(new Dimension(180, 100));
-        getContentPane().add(navScroll, BorderLayout.WEST);
+        // Advanced mode: what a person who knows ZFS wants and the rest is better without. It is
+        // remembered on this computer. ZFSMGR_GUI_ADVANCED=1 switches it on for captures.
+        java.util.prefs.Preferences prefs = java.util.prefs.Preferences.userNodeForPackage(MainWindow.class);
+        javax.swing.JCheckBox advanced = new javax.swing.JCheckBox(L("Advanced mode", "Modo avanzado"),
+                prefs.getBoolean("advanced", false) || "1".equals(System.getenv("ZFSMGR_GUI_ADVANCED")));
+        advanced.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
+        advanced.addItemListener(e -> {
+            prefs.putBoolean("advanced", advanced.isSelected());
+            machines.setAdvanced(advanced.isSelected());
+        });
+        machines.setAdvanced(advanced.isSelected());
+        JPanel side = new JPanel(new BorderLayout());
+        side.add(navScroll, BorderLayout.CENTER);
+        side.add(advanced, BorderLayout.SOUTH);
+        getContentPane().add(side, BorderLayout.WEST);
         getContentPane().add(content, BorderLayout.CENTER);
         statusLine.setBorder(BorderFactory.createEmptyBorder(3, 8, 3, 8));
         getContentPane().add(statusLine, BorderLayout.SOUTH);

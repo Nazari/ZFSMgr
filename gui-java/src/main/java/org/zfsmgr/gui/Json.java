@@ -61,6 +61,34 @@ public final class Json {
         return v instanceof Number n ? n.longValue() : def;
     }
 
+    /** A string, or a number or boolean written as one: what a table shows. */
+    public static String text(Map<String, Object> o, String key) {
+        Object v = o.get(key);
+        if (v instanceof String s) {
+            return s;
+        }
+        if (v instanceof Double d && d == Math.rint(d) && !d.isInfinite()) {
+            return String.valueOf(d.longValue());
+        }
+        return v == null ? "" : String.valueOf(v);
+    }
+
+    /** A whole number, or one written as text («"creation": "1770200629"»). */
+    public static long lng(Map<String, Object> o, String key, long def) {
+        Object v = o.get(key);
+        if (v instanceof Number n) {
+            return n.longValue();
+        }
+        if (v instanceof String s) {
+            try {
+                return Long.parseLong(s.trim());
+            } catch (NumberFormatException e) {
+                return def;
+            }
+        }
+        return def;
+    }
+
     /** A number, or a number written as text («"rate": "159.18"», as `jobs` gives it). */
     public static double dbl(Map<String, Object> o, String key, double def) {
         Object v = o.get(key);
