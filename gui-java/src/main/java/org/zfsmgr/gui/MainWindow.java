@@ -73,6 +73,19 @@ public final class MainWindow extends JFrame {
         setLocationByPlatform(true);
     }
 
+    void waitingReport() {
+        String g = general.waiting();
+        if (!g.isEmpty()) {
+            System.err.println("[waiting] general: " + g);
+        }
+        perMachine.forEach((id, s) -> {
+            String w = s.waiting();
+            if (!w.isEmpty()) {
+                System.err.println("[waiting] " + id + ": " + w);
+            }
+        });
+    }
+
     public StateStore store() {
         return store;
     }

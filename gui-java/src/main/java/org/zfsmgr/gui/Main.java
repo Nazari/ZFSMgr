@@ -232,6 +232,9 @@ public final class Main {
         });
         w.setVisible(true);
         Timing.mark("window_shown");
+        System.err.println("[log] stderr of the CLI services: " + Timing.cliLog());
+        // Every 10 s, what each service is still waiting for: the spike's diagnosis of a hang.
+        new Timer(10_000, e -> w.waitingReport()).start();
         Timing.memory("window_shown");
         w.store().refresh();
         String capture = System.getenv("ZFSMGR_GUI_CAPTURE");

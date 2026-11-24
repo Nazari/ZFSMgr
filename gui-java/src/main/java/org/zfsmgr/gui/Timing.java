@@ -17,6 +17,15 @@ public final class Timing {
 
     private Timing() {}
 
+    /** Where the CLI services' stderr goes: zfsmgr-gui-cli.log in the temporary directory. */
+    public static java.io.File cliLog() {
+        return new java.io.File(System.getProperty("java.io.tmpdir"), "zfsmgr-gui-cli.log");
+    }
+
+    public static void request(String line, long ms, int rc) {
+        System.err.printf("[request] %6d ms rc=%d  %s%n", ms, rc, line);
+    }
+
     public static void mark(String what) {
         System.err.printf("[timing] %-22s %6d ms%n", what, System.currentTimeMillis() - START);
     }

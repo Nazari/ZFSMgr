@@ -60,6 +60,7 @@ public final class CliService {
         final String format;
         final boolean confirmed;
         final Consumer<Result> done;
+        long sentAt;
 
         Pending(int id, String line, String format, boolean confirmed, Consumer<Result> done) {
             this.id = id;
@@ -134,7 +135,11 @@ public final class CliService {
             args.add("gui:" + ProcessHandle.current().pid());
         }
         try {
-            proc = new ProcessBuilder(args).redirectError(ProcessBuilder.Redirect.DISCARD).start();
+            // What the services write on stderr, to a file everybody can find: without it a
+            // service that hangs (a1278, outside an administrator session) says nothing.
+            proc = new ProcessBuilder(args)
+                    .redirectError(ProcessBuilder.Redirect.appendTo(Timing.cliLog()))
+                    .start();
         } catch (IOException e) {
             deliver.execute(() -> listener.failed(Text.L("cannot start %1: %2",
                     "no se pudo arrancar %1: %2", cli, e.getMessage()), false));
@@ -218,11 +223,18 @@ public final class CliService {
         }
     }
 
+    /** The request that has not answered yet, and for how long (the spike's diagnosis). */
+    public String waiting() {
+        Pending p = current;
+        return p == null ? "" : p.line + " (" + (System.currentTimeMillis() - p.sentAt) + " ms)";
+    }
+
     private void sendNext() {
         if (!ready || current != null || queue.isEmpty()) {
             return;
         }
         current = queue.poll();
+        current.sentAt = System.currentTimeMillis();
         write(Json.write("id", current.id, "line", current.line, "format", current.format));
     }
 
@@ -304,8 +316,9 @@ public final class CliService {
                 Pending p = current;
                 current = null;
                 if (p != null) {
-                    p.done.accept(new Result((int) Json.num(ev, "rc", 1), Json.str(ev, "stdout"),
-                            Json.str(ev, "stderr")));
+                    int rc = (int) Json.num(ev, "rc", 1);
+                    Timing.request(p.line, System.currentTimeMillis() - p.sentAt, rc);
+                    p.done.accept(new Result(rc, Json.str(ev, "stdout"), Json.str(ev, "stderr")));
                 }
                 sendNext();
             }
