@@ -1217,7 +1217,7 @@ class CapturaSalida {
 public:
     CapturaSalida() {
         std::fflush(stdout);
-        tmp_ = std::tmpfile();
+        tmp_ = zfsmgr::base::temporaryFile();
         if (!tmp_) {
             return;
         }

@@ -1,6 +1,7 @@
 {
   "language": "en",
   "translations": {
+    "t_serve_sin_temporal": "could not create a temporary file for the command's output",
     "t_ej_edit_keep_pw": "another address, leaving the password alone",
     "t_edit_keep_pw": "--keep-password",
     "t_edit_keep_pw_q": "Does not ask for the password: keeps the stored one.",

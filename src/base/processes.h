@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cstdio>
 #include <functional>
 #include <string>
 #include <vector>
@@ -198,5 +199,11 @@ void killDescendants(long long root, int graceMs = 300);
 std::string winBuildCommandLine(const std::string& program,
                                 const std::vector<std::string>& args);
 #endif
+
+// A temporary file open for reading and writing, gone when it is closed; null if it cannot be
+// created. On Windows std::tmpfile() of msvcrt creates it in the ROOT of the drive (C:),
+// where only an administrator may write: outside an elevated session it failed, and
+// `--serve` lost the output of every command (a1278, 2026-11-24). Here it goes to %TEMP%.
+std::FILE* temporaryFile();
 
 }  // namespace zfsmgr::base

@@ -1290,4 +1290,26 @@ void killDescendants(long long raiz, int msGracia) {
 #endif
 }
 
+std::FILE* temporaryFile() {
+#ifdef _WIN32
+    wchar_t dir[MAX_PATH + 1];
+    const DWORD n = GetTempPathW(MAX_PATH + 1, dir);
+    if (n == 0 || n > MAX_PATH) {
+        return nullptr;
+    }
+    wchar_t path[MAX_PATH + 1];
+    if (GetTempFileNameW(dir, L"zfm", 0, path) == 0) {
+        return nullptr;
+    }
+    // «T»: kept in memory where it can be; «D»: deleted when closed.
+    std::FILE* f = _wfopen(path, L"w+bTD");
+    if (!f) {
+        DeleteFileW(path);
+    }
+    return f;
+#else
+    return std::tmpfile();
+#endif
+}
+
 }  // namespace zfsmgr::base

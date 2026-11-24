@@ -4,6 +4,7 @@
 #include <mutex>
 
 #include "json.h"
+#include "processes.h"
 #include "storefiles.h"
 
 #include <cstdio>
@@ -89,11 +90,20 @@ public:
     CapturaDeOrden() {
         std::fflush(stdout);
         std::fflush(stderr);
-        out_ = std::tmpfile();
-        err_ = std::tmpfile();
+        out_ = zfsmgr::base::temporaryFile();
+        err_ = zfsmgr::base::temporaryFile();
         if (!out_ || !err_) {
+            if (out_) {
+                std::fclose(out_);
+            }
+            if (err_) {
+                std::fclose(err_);
+            }
+            out_ = nullptr;
+            err_ = nullptr;
             return;
         }
+        ok_ = true;
         copiaOut_ = SV_DUP(SV_FILENO(stdout));
         copiaErr_ = SV_DUP(SV_FILENO(stderr));
         SV_DUP2(SV_FILENO(out_), SV_FILENO(stdout));
@@ -114,6 +124,9 @@ public:
         out_ = nullptr;
         err_ = nullptr;
     }
+    // Without it the command's output would go into the events stream, which the client
+    // skips: the command must not run (it looked like rc 0 with nothing to say).
+    bool ok() const { return ok_; }
     ~CapturaDeOrden() {
         std::string a;
         std::string b;
@@ -133,6 +146,7 @@ private:
         return texto;
     }
     std::FILE* out_{nullptr};
+    bool ok_{false};
     std::FILE* err_{nullptr};
     int copiaOut_{-1};
     int copiaErr_{-1};
@@ -295,8 +309,14 @@ int servirOrdenes(Sesion& ses, bool anunciaClave) {
         }
         {
             CapturaDeOrden captura;
-            ejecutaLinea(e, pet["line"].toString(), nullptr);
-            captura.termina(out, errTexto);
+            if (captura.ok()) {
+                ejecutaLinea(e, pet["line"].toString(), nullptr);
+                captura.termina(out, errTexto);
+            } else {
+                e.ultimoRc = 1;
+                errTexto = T("t_serve_sin_temporal",
+                             "no se pudo crear un fichero temporal para la salida de la orden");
+            }
         }
         e.formato = formatoSesion;
         // Changed while the command ran —by the command itself or by another process—: read it
