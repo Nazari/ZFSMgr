@@ -141,6 +141,31 @@ maestra de fc16 (o sus llaves FIDO2), dejando solo su `local.json`.
    protocolo.
 4. **Migración**: sembrar la red con la configuración de fc16 y que los demás la adopten.
 
+## Cómo se engancha en el cliente (fase 3)
+
+Decisión del usuario (2026-11-24): **`zfsm://local` desaparece**; cada máquina, también la
+propia, se llama por su nombre de red.
+
+- **3a (hecha, 4381137)**: `network::toClientConfig` da el documento con la forma de
+  `config.json` + `trust-store.json`; la máquina cuyo `uid` es el de este ordenador
+  (`osinfo::machineUuid`, el mismo código que usa el daemon) es la LOCAL, con su nombre de red.
+- **3b**: en modo red, el directorio que leen y escriben `storefiles`/`session` es una
+  **materialización** del documento en `~/.config/ZFSMgr/network/` (`config.json`,
+  `trust-store.json`, el documento firmado `network.json` y `local.json`). Leer no cambia.
+  Escribir (crear/editar/quitar máquina, TLS negociado, uid, maestra, llaves) escribe ahí como
+  hoy y después **publica**: se trae la última revisión de un daemon, se **fusiona** lo cambiado
+  —por `uid`; las direcciones de la red se conservan y una dirección editada pasa a ser la
+  primera; la dirección preferida de `local.json` no es un cambio de la red—, se sube la revisión,
+  se firma y `--net-put`; con `net_conflict`, se repite. Al arrancar, tras abrir la maestra, se
+  pregunta a los daemons por una revisión mayor (`judge`) y se rematerializa.
+  - Una máquina recién creada sin `uid` (sin daemon todavía) queda en `local.json` como
+    pendiente hasta que su daemon dé el `uid`.
+- **3c**: `network seed` (fc16 sube su configuración) y `network join` (los demás descargan,
+  abren con la maestra de la red y conservan solo `local.json`: rutas de claves por `uid`).
+- **3d**: quitar `local` del CLI, la ayuda, la batería y las dos interfaces.
+- **3e**: varias direcciones por máquina (`edit --address`), probar la siguiente si la primera
+  no responde.
+
 ## Riesgos y preguntas abiertas
 
 - **Todo depende de una contraseña**: quien la tenga abre la red entera (antes, solo un
