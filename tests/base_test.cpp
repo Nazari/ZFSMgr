@@ -5309,6 +5309,40 @@ void caso61() {
     comprobar(NW::offeredWins(3, "b", 3, "c") && !NW::offeredWins(3, "c", 3, "b")
                   && !NW::offeredWins(3, "c", 3, "c"),
               "red: con la misma revisión gana siempre la misma, para que todos acaben igual");
+    // --- What a client loads from it: the shapes of config.json and trust-store.json. THIS
+    // computer's machine is the LOCAL one, called by its network name; the others go by SSH to
+    // their address, or to this computer's preferred one.
+    {
+        NW::LocalSettings mio;
+        mio.keyPaths["u-unib"] = "/home/ana/.ssh/id_rsa";
+        mio.preferredAddress["u-unib"] = "100.99.1.2";
+        J::Value cfg;
+        J::Value tr;
+        NW::toClientConfig(d, mio, "u-fc16", cfg, tr);
+        const J::Array& cs = cfg["connections"].toArray();
+        comprobar(cs.size() == 2 && cs[0]["id"].toString() == "fc16"
+                      && cs[0]["conn_type"].toString() == "LOCAL",
+                  "red: la máquina propia es la local, con su nombre de red");
+        comprobar(cs[1]["conn_type"].toString() == "SSH" && cs[1]["host"].toString() == "100.99.1.2"
+                      && cs[1]["key_path"].toString() == "/home/ana/.ssh/id_rsa",
+                  "red: las demás, por SSH a la dirección preferida de este ordenador y su clave");
+        comprobar(cfg["master_check"].toString() == "chk" && !cfg["master"].contains("check"),
+                  "red: el bloque maestro vuelve como lo guarda config.json");
+        comprobar(
+            tr["connections"].toArray().size() == 1
+                && tr["connections"].toArray()[0]["daemon_tls_client_key_pem"].toString() == cert,
+            "red: el material TLS, al almacén de confianza");
+        // And back: the same network.
+        NW::Document vuelta;
+        NW::LocalSettings l2;
+        comprobar(NW::fromClientConfig(cfg, tr, "fc16", "u-fc16", 1000, vuelta, l2, err)
+                      && vuelta.machines.size() == 2 && vuelta.machines[1].tlsClientKey == cert,
+                  "red: ida y vuelta entre la red y la configuración de un cliente");
+        NW::toClientConfig(d, mio, "u-otro", cfg, tr);
+        comprobar(cfg["connections"].toArray()[0]["conn_type"].toString() == "SSH",
+                  "red: desde otro ordenador, fc16 es una máquina más");
+    }
+
     // The pull-only credential cannot read nor write the network's configuration.
     comprobar(!zfsmgr::base::peers::pullerMayCall("--net-get", {})
                   && !zfsmgr::base::peers::pullerMayCall("--net-put", {"0", "x"})

@@ -1,5 +1,13 @@
 #include "osinfo.h"
 
+#include "processes.h"
+#include "strutil.h"
+
+#include <fstream>
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 #include <sstream>
 
 #include "strutil.h"
@@ -62,6 +70,61 @@ std::string fromSystemProfiler(const std::string& salida) {
         return trim(linea.substr(pos + marca.size()));
     }
     return {};
+}
+
+namespace {
+
+std::string firstLine(const char* path) {
+    std::ifstream f(path);
+    std::string line;
+    if (f && std::getline(f, line)) {
+        return trim(line);
+    }
+    return {};
+}
+
+}  // namespace
+
+std::string machineUuid() {
+#ifdef _WIN32
+    char buf[128];
+    DWORD sz = sizeof(buf);
+    if (RegGetValueA(HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\Cryptography", "MachineGuid",
+                     RRF_RT_REG_SZ | RRF_SUBKEY_WOW6464KEY, nullptr, buf, &sz)
+        == ERROR_SUCCESS) {
+        return trim(std::string(buf));
+    }
+    return {};
+#else
+    std::string id = firstLine("/etc/machine-id");
+    if (!id.empty()) {
+        return id;
+    }
+    id = firstLine("/var/lib/dbus/machine-id");
+    if (!id.empty()) {
+        return id;
+    }
+    const ExecResult io = runExecCapture("ioreg", {"-rd1", "-c", "IOPlatformExpertDevice"});
+    for (const std::string& line : split(io.out + "\n" + io.err, "\n", true)) {
+        const auto pos = line.find("IOPlatformUUID");
+        if (pos == std::string::npos) {
+            continue;
+        }
+        const auto eq = line.find('=', pos);
+        if (eq == std::string::npos || eq + 1 >= line.size()) {
+            continue;
+        }
+        std::string val = trim(line.substr(eq + 1));
+        if (val.size() >= 2 && val.front() == '"' && val.back() == '"') {
+            val = val.substr(1, val.size() - 2);
+        }
+        val = trim(val);
+        if (!val.empty()) {
+            return val;
+        }
+    }
+    return {};
+#endif
 }
 
 }  // namespace zfsmgr::base::osinfo

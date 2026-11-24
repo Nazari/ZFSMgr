@@ -37,4 +37,10 @@ std::string fromOsRelease(const std::string& contents);
 // a `sed -n "s/^ *System Version: //p" | head -1` inside the remote script.
 std::string fromSystemProfiler(const std::string& output);
 
+// THIS machine's identity: /etc/machine-id (or dbus's), IOPlatformUUID on macOS, the
+// registry's MachineGuid on Windows. The daemon reports it as the machine's uid and the network's
+// configuration keys machines by it (network.h), so the client finds which one is its own with
+// the SAME code: it lives here, and the daemon calls it. Empty if it cannot be read.
+std::string machineUuid();
+
 }  // namespace zfsmgr::base::osinfo

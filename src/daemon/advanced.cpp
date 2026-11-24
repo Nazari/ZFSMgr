@@ -4,6 +4,8 @@
 
 #include "agent_internal.h"
 
+#include "base/osinfo.h"
+
 namespace zfsmgr::agent {
 
 // Cuenta los ficheros que a rsync todavía le quedarían por transferir, en seco.
@@ -1565,50 +1567,9 @@ std::string detectOsLine() {
 #endif
 }
 
+// The same code the client uses to find its own machine in the network (base/osinfo.h).
 std::string detectMachineUuid() {
-#ifdef _WIN32
-    // MachineGuid del registro: es el mismo identificador que la GUI ya leía por su
-    // cuenta para deduplicar conexiones, así que ambos lados coinciden.
-    {
-        char buf[128];
-        DWORD sz = sizeof(buf);
-        if (RegGetValueA(HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\Cryptography", "MachineGuid",
-                         RRF_RT_REG_SZ | RRF_SUBKEY_WOW6464KEY, nullptr, buf, &sz)
-            == ERROR_SUCCESS) {
-            return trim(std::string(buf));
-        }
-        return std::string();
-    }
-#else
-    std::string id = readFirstLineFile("/etc/machine-id");
-    if (!id.empty()) {
-        return id;
-    }
-    id = readFirstLineFile("/var/lib/dbus/machine-id");
-    if (!id.empty()) {
-        return id;
-    }
-    const ExecResult io = runExecCapture("ioreg", {"-rd1", "-c", "IOPlatformExpertDevice"});
-    for (const std::string& line : splitLines(io.out + "\n" + io.err)) {
-        const auto pos = line.find("IOPlatformUUID");
-        if (pos == std::string::npos) {
-            continue;
-        }
-        const auto eq = line.find('=');
-        if (eq == std::string::npos || eq + 1 >= line.size()) {
-            continue;
-        }
-        std::string val = trim(line.substr(eq + 1));
-        if (val.size() >= 2 && val.front() == '"' && val.back() == '"') {
-            val = val.substr(1, val.size() - 2);
-        }
-        val = trim(val);
-        if (!val.empty()) {
-            return val;
-        }
-    }
-    return {};
-#endif
+    return zfsmgr::base::osinfo::machineUuid();
 }
 
 std::string detectZfsVersionRaw() {

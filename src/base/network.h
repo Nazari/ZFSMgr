@@ -102,4 +102,13 @@ bool fromClientConfig(const json::Value& config, const json::Value& trustStore,
                       const std::string& thisHost, const std::string& thisUid, long long now,
                       Document& d, LocalSettings& local, std::string& error);
 
+// The other way: what a client loads, in the shapes config.json and trust-store.json have
+// —their «connections»— so the code that turns them into connections and opens their secrets
+// stays as it is. Every machine is a connection named after it; the one whose uid is
+// `thisUid` is THIS computer's (type LOCAL, no SSH to itself) and is called by its network
+// name too: there is no «local» any more. The address is this computer's preferred one, or the
+// first. The master block goes in `config` as config.json keeps it (master + master_check).
+void toClientConfig(const Document& d, const LocalSettings& local, const std::string& thisUid,
+                    json::Value& config, json::Value& trustStore);
+
 }  // namespace zfsmgr::base::network

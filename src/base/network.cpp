@@ -282,4 +282,53 @@ bool fromClientConfig(const J::Value& config, const J::Value& trustStore,
     return true;
 }
 
+void toClientConfig(const Document& d, const LocalSettings& local, const std::string& thisUid,
+                    J::Value& config, J::Value& trustStore) {
+    config = J::Value();
+    trustStore = J::Value();
+    J::Value master = d.master;
+    const J::Value check = master["check"];
+    master.remove("check");
+    config.set("master", master);
+    if (!check.isNull()) {
+        config.set("master_check", check);
+    }
+    J::Array conns;
+    J::Array trust;
+    for (const Machine& m : d.machines) {
+        const bool here = !thisUid.empty() && m.uid == thisUid;
+        J::Value c;
+        c.set("id", J::Value(m.name));
+        c.set("name", J::Value(m.name));
+        c.set("conn_type", J::Value(std::string(here ? "LOCAL" : "SSH")));
+        std::string host = m.addresses.empty() ? std::string() : m.addresses.front();
+        if (const auto p = local.preferredAddress.find(m.uid); p != local.preferredAddress.end()) {
+            host = p->second;
+        }
+        c.set("host", J::Value(here ? std::string("localhost") : host));
+        c.set("port", J::Value(here ? 0 : m.sshPort));
+        c.set("machine_uid", J::Value(m.uid));
+        c.set("username", J::Value(m.sshUser));
+        c.set("use_sudo", J::Value(m.sudo));
+        c.set("password", J::Value(m.password));
+        c.set("os_type", J::Value(m.os));
+        c.set("ssh_address_family", J::Value(m.sshFamily));
+        const auto k = local.keyPaths.find(m.uid);
+        c.set("key_path", J::Value(k == local.keyPaths.end() ? std::string() : k->second));
+        conns.push_back(c);
+        if (!m.tlsServerCert.empty() || !m.tlsClientCert.empty() || !m.tlsClientKey.empty()) {
+            J::Value t;
+            t.set("id", J::Value(m.name));
+            t.set("machine_uid", J::Value(m.uid));
+            t.set("daemon_tls_port", J::Value(m.tlsPort));
+            t.set("daemon_tls_server_cert_pem", J::Value(m.tlsServerCert));
+            t.set("daemon_tls_client_cert_pem", J::Value(m.tlsClientCert));
+            t.set("daemon_tls_client_key_pem", J::Value(m.tlsClientKey));
+            trust.push_back(t);
+        }
+    }
+    config.set("connections", J::Value(conns));
+    trustStore.set("connections", J::Value(trust));
+}
+
 }  // namespace zfsmgr::base::network
