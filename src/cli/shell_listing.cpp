@@ -220,6 +220,9 @@ bool listaPools(Estado& e, const ZfsmUrl& destino) {
     // json only: the pool's guid (also of one not imported, to import it by guid) and why
     // an importable one cannot be imported.
     t.campos.insert(t.campos.end(), {"guid", "reason"});
+    // On a narrow terminal these go first: DEDUP, RAM DDT, IMPORTADO, TIPO, COMPR and MONTADO.
+    t.secundarias = {false, false, false, false, false, true, true,
+                     false, true,  true,  false, true,  true, false};
     t.tipos.insert(t.tipos.end(), {Tipo::Cadena, Tipo::Cadena});
 
     // Los campos de dataset del pool raíz, uno por pool.

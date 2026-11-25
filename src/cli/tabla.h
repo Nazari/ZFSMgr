@@ -78,6 +78,9 @@ struct Tabla {
     // (times in seconds, the error) and a person reads in other words.
     std::vector<std::string> campos;
     std::vector<Tipo> tipos;                  // por columna; solo lo mira json
+    // Per text column: may be hidden first when the table does not fit the terminal (only
+    // with the shell's screen; tsv and json carry every column).
+    std::vector<bool> secundarias;
     std::vector<std::vector<std::string>> filas;
 
     Tipo tipoDe(std::size_t i) const { return i < tipos.size() ? tipos[i] : Tipo::Cadena; }
@@ -164,6 +167,9 @@ struct Tabla {
             if (!t.tipos.empty()) {
                 t.tipos.insert(t.tipos.begin(), Tipo::Cadena);
             }
+            if (!t.secundarias.empty()) {
+                t.secundarias.insert(t.secundarias.begin(), false);
+            }
             for (auto& fila : t.filas) {
                 fila.insert(fila.begin(), a->destinoActual);
             }
@@ -200,7 +206,7 @@ struct Tabla {
             for (std::size_t i = 0; i < cabecerasTexto.size(); ++i) {
                 derecha.push_back(tipoDe(i) == Tipo::Entero || tipoDe(i) == Tipo::Bytes);
             }
-            pantalla::tabla(cabecerasTexto, celdas, derecha);
+            pantalla::tabla(cabecerasTexto, celdas, derecha, secundarias);
             return;
         }
         // Anchos por columna, contando CARACTERES y no bytes: «sí» ocupa tres bytes y

@@ -1,6 +1,8 @@
 #include "pantalla.h"
 
 #include "secretinput.h"
+#include "strutil.h"
+#include "tr.h"
 
 #include "json.h"
 
@@ -57,6 +59,7 @@ struct TablaGuardada {
     std::vector<std::string> cabeceras;
     std::vector<std::vector<std::string>> filas;
     std::vector<bool> derecha;
+    std::vector<bool> secundaria;
 };
 
 // El historial: líneas LÓGICAS, tal cual llegaron —al repintar las vuelve a partir el propio
@@ -221,8 +224,8 @@ bool usaUnicode() {
 }
 
 void pintaTablaEn(std::string& s, const TablaGuardada& t) {
-    for (const std::string& l :
-         componTabla(t.cabeceras, t.filas, t.derecha, anchoSinBloqueo(), usaUnicode())) {
+    for (const std::string& l : componTabla(t.cabeceras, t.filas, t.derecha, anchoSinBloqueo(),
+                                            usaUnicode(), t.secundaria)) {
         s += l;
         s += "\r\n";
     }
@@ -238,6 +241,8 @@ void tablaRecibida(std::string& s) {
     auto t = std::make_shared<TablaGuardada>();
     for (const auto& c : v["h"].toArray()) t->cabeceras.push_back(c.toString());
     for (const auto& d : v["r"].toArray()) t->derecha.push_back(d.toBool(false));
+    for (const auto& d : v["o"].toArray())
+        t->secundaria.push_back(d.toBool(false));
     for (const auto& f : v["f"].toArray()) {
         std::vector<std::string> fila;
         for (const auto& c : f.toArray()) fila.push_back(c.toString());
@@ -715,12 +720,16 @@ void reanuda(const std::string& eco, bool secreto) {
 }
 
 void tabla(const std::vector<std::string>& cabeceras,
-           const std::vector<std::vector<std::string>>& filas, const std::vector<bool>& derecha) {
+           const std::vector<std::vector<std::string>>& filas, const std::vector<bool>& derecha,
+           const std::vector<bool>& secundaria) {
     namespace J = zfsmgr::base::json;
     J::Array h;
     for (const auto& c : cabeceras) h.push_back(J::Value(c));
     J::Array r;
     for (const bool d : derecha) r.push_back(J::Value(d));
+    J::Array o;
+    for (const bool d : secundaria)
+        o.push_back(J::Value(d));
     J::Array f;
     for (const auto& fila : filas) {
         J::Array a;
@@ -730,6 +739,7 @@ void tabla(const std::vector<std::string>& cabeceras,
     J::Value v;
     v.set("h", J::Value(std::move(h)));
     v.set("r", J::Value(std::move(r)));
+    v.set("o", J::Value(std::move(o)));
     v.set("f", J::Value(std::move(f)));
     const std::string marca = "\x1b_ZT" + J::toCompact(v) + "\x1b\\";
     std::fwrite(marca.data(), 1, marca.size(), stdout);
@@ -798,68 +808,122 @@ std::string repite(const std::string& s, std::size_t n) {
 
 }  // namespace
 
-std::vector<std::string> componTabla(const std::vector<std::string>& cabeceras,
-                                     const std::vector<std::vector<std::string>>& filas,
-                                     const std::vector<bool>& derecha, std::size_t ancho,
-                                     bool unicode) {
-    const std::size_t n = cabeceras.size();
-    std::vector<std::string> out;
-    if (n == 0) {
-        return out;
-    }
-    // Lo natural de cada columna: lo más ancho de su cabecera y sus celdas. Una celda que
-    // se extiende hasta el final no cuenta: no es de una columna sola.
+namespace {
+
+// Las anchuras de `cols` para que quepan en `ancho`: lo natural de cada una y, con `estrecha`,
+// estrechando SIEMPRE la más ancha, una columna cada vez —así las estrechas (IDs, sí/no) se
+// quedan enteras—. Vacío si no cabe: sin `estrecha`, a lo natural; con ella, ni al mínimo.
+std::vector<std::size_t> anchurasQueCaben(const std::vector<std::string>& cabeceras,
+                                          const std::vector<std::vector<std::string>>& filas,
+                                          const std::vector<std::size_t>& cols, std::size_t ancho,
+                                          bool estrecha) {
+    const std::size_t n = cols.size();
+    const std::size_t total = cabeceras.size();
     std::vector<std::size_t> w(n, 0);
-    for (std::size_t i = 0; i < n; ++i) w[i] = std::max<std::size_t>(1, columnas(cabeceras[i]));
-    for (const auto& f : filas) {
-        for (std::size_t i = 0; i < f.size() && i < n; ++i) {
-            if (f.size() < n && i + 1 == f.size()) continue;
-            w[i] = std::max(w[i], columnas(f[i]));
+    for (std::size_t k = 0; k < n; ++k) {
+        const std::size_t i = cols[k];
+        w[k] = std::max<std::size_t>(1, columnas(cabeceras[i]));
+        for (const auto& f : filas) {
+            // Una celda que se extiende hasta el final no cuenta: no es de una columna sola.
+            if (i < f.size() && !(f.size() < total && i + 1 == f.size())) {
+                w[k] = std::max(w[k], columnas(f[i]));
+            }
         }
     }
     // Lo que cabe: «│ a │ b │» son 3 por columna más 1.
     const std::size_t marco = 3 * n + 1;
-    const std::size_t hueco = ancho > marco ? ancho - marco : n;
-    std::size_t total = 0;
-    for (const std::size_t x : w) total += x;
-    // Se estrecha SIEMPRE la más ancha, una columna cada vez: así se reparte el recorte entre
-    // las que pueden permitírselo y las estrechas —IDs, sí/no— se quedan enteras.
-    const std::size_t minimo = 4;
-    while (total > hueco) {
-        std::size_t mayor = 0;
-        for (std::size_t i = 1; i < n; ++i) {
-            if (w[i] > w[mayor]) mayor = i;
-        }
-        if (w[mayor] <= minimo) break;
-        --w[mayor];
-        --total;
+    if (ancho <= marco) {
+        return {};
     }
-    const std::string H = unicode ? "─" : "-";
-    // No cabe ni con todas al mínimo: una FICHA por fila, «CABECERA valor», como `\\x` en
-    // psql. Partir una tabla de doce columnas en tiras de cuatro letras no se lee.
-    if (total > hueco) {
-        std::size_t anchoCab = 0;
-        for (const auto& c : cabeceras) anchoCab = std::max(anchoCab, columnas(c));
-        const std::size_t sangria = 2 + anchoCab + 2;
-        const std::size_t paraValor = ancho > sangria + 4 ? ancho - sangria - 1 : 20;
-        for (const auto& f : filas) {
-            const std::string titulo = f.empty() ? std::string() : f[0];
-            std::string cab = (unicode ? "── " : "-- ") + titulo + " ";
-            const std::size_t usado = columnas(cab);
-            if (usado + 1 < ancho) cab += repite(H, ancho - usado - 1);
-            out.push_back(cab);
-            for (std::size_t i = 1; i < f.size() && i < n; ++i) {
-                const bool extiende = f.size() < n && i + 1 == f.size();
-                const std::string nombre = extiende ? std::string() : cabeceras[i];
-                const std::vector<std::string> partes = parteCelda(f[i], paraValor);
-                for (std::size_t l = 0; l < partes.size(); ++l) {
-                    out.push_back("  " + rellena(l == 0 ? nombre : std::string(), anchoCab, false)
-                                  + "  " + partes[l]);
-                }
-            }
+    const std::size_t hueco = ancho - marco;
+    std::size_t suma = 0;
+    for (const std::size_t x : w)
+        suma += x;
+    const std::size_t minimo = 4;
+    if (!estrecha && suma > hueco) {
+        return {};
+    }
+    while (suma > hueco) {
+        std::size_t mayor = 0;
+        for (std::size_t k = 1; k < n; ++k) {
+            if (w[k] > w[mayor])
+                mayor = k;
         }
+        if (w[mayor] <= minimo)
+            return {};
+        --w[mayor];
+        --suma;
+    }
+    return w;
+}
+
+}  // namespace
+
+std::vector<std::string> componTabla(const std::vector<std::string>& cabecerasEnteras,
+                                     const std::vector<std::vector<std::string>>& filasEnteras,
+                                     const std::vector<bool>& derechaEntera, std::size_t ancho,
+                                     bool unicode, const std::vector<bool>& secundaria) {
+    std::vector<std::string> out;
+    const std::size_t todas = cabecerasEnteras.size();
+    if (todas == 0) {
         return out;
     }
+    // Qué columnas se enseñan: todas si caben; si no, fuera las secundarias de derecha a
+    // izquierda, y después las del final. La primera —el nombre de la fila— nunca.
+    std::vector<std::size_t> cols;
+    for (std::size_t i = 0; i < todas; ++i)
+        cols.push_back(i);
+    // The secondary ones go while the rest does not fit at its natural width: squeezing every
+    // column to a few letters to keep one more is worse than not showing it. Then squeezing;
+    // and only if not even that fits, the last columns.
+    const auto mide = [&](bool estrecha) {
+        return anchurasQueCaben(cabecerasEnteras, filasEnteras, cols, ancho, estrecha);
+    };
+    std::vector<std::size_t> w = mide(false);
+    std::vector<std::size_t> ocultas;
+    for (std::size_t k = cols.size(); w.empty() && k-- > 1;) {
+        const std::size_t i = cols[k];
+        if (i < secundaria.size() && secundaria[i]) {
+            ocultas.push_back(i);
+            cols.erase(cols.begin() + static_cast<std::ptrdiff_t>(k));
+            w = mide(false);
+        }
+    }
+    if (w.empty()) {
+        w = mide(true);
+    }
+    for (std::size_t k = cols.size(); w.empty() && k-- > 1;) {
+        ocultas.push_back(cols[k]);
+        cols.erase(cols.begin() + static_cast<std::ptrdiff_t>(k));
+        w = mide(true);
+    }
+    if (w.empty()) {
+        // Ni la primera sola: al mínimo, y el terminal la partirá.
+        w.assign(cols.size(), 4);
+    }
+    std::sort(ocultas.begin(), ocultas.end());
+    // Las filas y cabeceras de las columnas que quedan. Una fila con menos celdas que
+    // columnas extiende la última: sigue extendiéndola.
+    std::vector<std::string> cabeceras;
+    std::vector<bool> derecha;
+    for (const std::size_t i : cols) {
+        cabeceras.push_back(cabecerasEnteras[i]);
+        derecha.push_back(i < derechaEntera.size() && derechaEntera[i]);
+    }
+    std::vector<std::vector<std::string>> filas;
+    for (const auto& f : filasEnteras) {
+        std::vector<std::string> g;
+        const bool extiende = f.size() < todas && !f.empty();
+        for (const std::size_t i : cols) {
+            if (i < f.size() && !(extiende && i + 1 == f.size()))
+                g.push_back(f[i]);
+        }
+        if (extiende)
+            g.push_back(f.back());
+        filas.push_back(std::move(g));
+    }
+    const std::size_t n = cols.size();
+    const std::string H = unicode ? "─" : "-";
     const std::string V = unicode ? "│" : "|";
     const auto borde = [&](const char* izq, const char* cruce, const char* der, const char* ai,
                            const char* ac, const char* ad) {
@@ -912,6 +976,14 @@ std::vector<std::string> componTabla(const std::vector<std::string>& cabeceras,
     out.push_back(borde("├", "┼", "┤", "+", "+", "+"));
     for (const auto& f : filas) fila(f, false);
     out.push_back(borde("└", "┴", "┘", "+", "+", "+"));
+    if (!ocultas.empty()) {
+        std::string nombres;
+        for (const std::size_t i : ocultas) {
+            nombres += (nombres.empty() ? "" : ", ") + cabecerasEnteras[i];
+        }
+        out.push_back(zfsmgr::base::format(
+            T("t_tabla_ocultas", "(sin sitio para: %1 — más ancho, o «format json»)"), {nombres}));
+    }
     return out;
 }
 

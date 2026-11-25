@@ -70,17 +70,23 @@ void limpia();
 // No se pinta desde aquí: se escribe en la salida estándar como una marca interna (una
 // secuencia APC con los datos en JSON) para que llegue EN SU ORDEN con el resto de lo
 // impreso, que viaja por la tubería. La pantalla la reconoce al leer.
-// `derecha`: columnas que se alinean a la derecha (números, tamaños).
+// `derecha`: columnas que se alinean a la derecha (números, tamaños). `secundaria`: las que
+// se ocultan antes cuando la tabla no cabe en el ancho del terminal.
 void tabla(const std::vector<std::string>& cabeceras,
-           const std::vector<std::vector<std::string>>& filas, const std::vector<bool>& derecha);
+           const std::vector<std::vector<std::string>>& filas, const std::vector<bool>& derecha,
+           const std::vector<bool>& secundaria = {});
 
 // Compone una tabla con bordes para `ancho` columnas. Aparte para poder probarla sin
 // terminal. Las celdas que no caben se parten en varias líneas dentro de su columna,
 // estrechando antes las columnas más anchas. Una fila con menos celdas que cabeceras
 // extiende la última hasta el final (los alias de `devices`).
+//
+// Siempre es una TABLA. Si no cabe ni con las columnas estrechadas al mínimo, se ocultan
+// columnas —primero las `secundaria`, de derecha a izquierda; después las del final, nunca la
+// primera— y una línea debajo dice cuáles: «--format json» las da todas.
 std::vector<std::string> componTabla(const std::vector<std::string>& cabeceras,
                                      const std::vector<std::vector<std::string>>& filas,
                                      const std::vector<bool>& derecha, std::size_t ancho,
-                                     bool unicode);
+                                     bool unicode, const std::vector<bool>& secundaria = {});
 
 }  // namespace zfsmgr::cli::pantalla

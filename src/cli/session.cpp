@@ -78,6 +78,8 @@ Tabla tablaDeConexiones(const Conexiones& c) {
                 "host", "port",   "sudo", "tls", "connected"};
     t.tipos = {Tipo::Cadena,   Tipo::Cadena, Tipo::Cadena,   Tipo::Cadena,   Tipo::Cadena,
                Tipo::Cadena,   Tipo::Entero, Tipo::Booleano, Tipo::Booleano, Tipo::Booleano};
+    // On a narrow terminal these go first: TIPO, USUARIO, PUERTO, SUDO and TLS.
+    t.secundarias = {false, false, true, false, true, false, true, true, true, false};
     for (const auto& p : c.perfiles) {
         const std::string id = p.id.empty() ? p.name : p.id;
         const bool local = CJ::isLocalProfile(p);

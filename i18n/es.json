@@ -1589,6 +1589,7 @@
     "t_sw_usuario": "hace falta el usuario",
     "t_tab_props": "El tabulador completa el nombre PREGUNTÁNDOSELO a la máquina, así que ofrece las que ese dataset tiene de verdad y no una lista escrita aquí que envejecería con cada versión de OpenZFS.",
     "t_tab_valores": "El tabulador completa el nombre y, tras el « = », los valores posibles de las que tienen lista cerrada —`compression`, `canmount`, `sync`…—. Para `quota` o `mountpoint` no ofrece nada, que es mejor que inventar.",
+    "t_tabla_ocultas": "(sin sitio para: %1 — más ancho, o «format json»)",
     "t_tambi_n_de_5714fd": "Snapshot: también de los descendientes.",
     "t_tambi_n_en_33e099": "También en los descendientes.",
     "t_text_es_pa_52ce5c": "text es para leer: columnas alineadas y tamaños legibles. tsv es para guiones: sin encabezado, tabuladores y columnas fijas en inglés. json añade TIPOS: los números son números y lo que no aplica es null.",
