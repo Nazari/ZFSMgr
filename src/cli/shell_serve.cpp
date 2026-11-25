@@ -167,9 +167,10 @@ static int ordenDeRed(Estado& e, bool sembrar) {
     }
     std::string contrasena;
     if (!e.pideSecretoServicio
-        || !e.pideSecretoServicio(T("t_serve_maestra_red",
-                                    "La contraseña maestra de la red (la del ordenador que la creó)"),
-                                  contrasena)) {
+        || !e.pideSecretoServicio(
+            T("t_serve_maestra_red",
+              "La contraseña maestra de la red (la del ordenador que la creó)"),
+            contrasena)) {
         return 1;
     }
     const int r = unirseARed(e.ses->dirConfig, e.ses->maestra, contrasena);

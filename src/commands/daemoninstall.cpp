@@ -842,8 +842,8 @@ Result installPackage(TransportSession& ses, const ConnectionProfile& perfil,
         if (!subeAWindows(perfil, tar, subida, r)) {
             return r;
         }
-        if (!T::runSsh(ses, perfil, packageInstallScriptWindows(subida, o), 900000, out, errSsh,
-                       rc, traza, traza, {}, {}, false, verboso)
+        if (!T::runSsh(ses, perfil, packageInstallScriptWindows(subida, o), 900000, out, errSsh, rc,
+                       traza, traza, {}, {}, false, verboso)
             || rc != 0) {
             r.fallo = Failure::InstallFailed;
             r.rc = rc;

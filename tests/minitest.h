@@ -28,7 +28,8 @@ struct Skipped {
 template <typename T, typename = void>
 struct Printable : std::false_type {};
 template <typename T>
-struct Printable<T, std::void_t<decltype(std::declval<std::ostream&>() << std::declval<const T&>())>>
+struct Printable<T,
+                 std::void_t<decltype(std::declval<std::ostream&>() << std::declval<const T&>())>>
     : std::true_type {};
 
 template <typename T>
@@ -95,7 +96,10 @@ int run(std::initializer_list<Case<T>> cases) {
 
 #define QVERIFY(cond) ::minitest::verify(static_cast<bool>(cond), #cond, __FILE__, __LINE__)
 #define QCOMPARE(a, b) ::minitest::compare((a), (b), #a, #b, __FILE__, __LINE__)
-#define QSKIP(why) throw ::minitest::Skipped{why}
-#define QVERIFY2(cond, msg)                                                                    \
+#define QSKIP(why)              \
+    throw ::minitest::Skipped { \
+        why                     \
+    }
+#define QVERIFY2(cond, msg)                                                                  \
     ::minitest::verify(static_cast<bool>(cond), (std::string(#cond) + "  " + (msg)).c_str(), \
                        __FILE__, __LINE__)

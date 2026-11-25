@@ -104,10 +104,10 @@ Result installLocal(const std::string& platform, const std::string& binaryPath, 
 // ends exactly as if somebody had installed it by hand: CLI, GUI with its menu entry, .app or
 // Start menu shortcut, and the daemon. Over SSH with sudo, like the agent.
 struct PackageOptions {
-    bool daemon{true};     // install or update the daemon (only where OpenZFS is)
-    bool cliOnly{false};   // no GUI
-    bool force{false};     // update the daemon even with jobs in progress
-    std::string lang;      // «es» or «en»: the installer's messages
+    bool daemon{true};    // install or update the daemon (only where OpenZFS is)
+    bool cliOnly{false};  // no GUI
+    bool force{false};    // update the daemon even with jobs in progress
+    std::string lang;     // «es» or «en»: the installer's messages
 };
 
 // The package's files, as (name in the tar, local path). Empty and `error` filled when the
@@ -158,7 +158,7 @@ CliProbe readCliProbe(const std::string& output);
 struct GuiProbe {
     bool found{false};
     std::string path;
-    std::string java;   // «ok», «missing», or empty when it could not be asked
+    std::string java;  // «ok», «missing», or empty when it could not be asked
 };
 GuiProbe probeRemoteGui(TransportSession& ses, const ConnectionProfile& profile, bool verbose);
 std::string guiProbeCommand();

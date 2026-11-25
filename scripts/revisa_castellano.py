@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Texts in Spanish that do not go through the translation catalogs.
 #
-#   scripts/revisa_castellano.py            all of src/ (except the GUI, frozen until 2.0)
+#   scripts/revisa_castellano.py            all of src/
 #
 # Code is written in English (CONTRIBUTING.md) and what a user reads goes through
 # T(…)/TC(…)/i18n::tr(…) with a key, so it comes out in the user's language. A Spanish
@@ -17,6 +17,8 @@ PERMITIDOS = {
     'no está en el fichero sudoers', 'intento de contraseña incorrecto',
     'intentos de contraseña incorrectos', 'se requiere una contraseña',
     'se necesita una contraseña', 'fallo de autenticación',
+    # What a Spanish shell prints when sudo is not installed: recognised, not shown.
+    'sudo: orden no encontrada', 'sudo: no se encontró la orden',
     # OpenZFS's «modules are not loaded» in a Spanish locale: recognised, not shown.
     'módulos',
     # What the user may type as «yes».

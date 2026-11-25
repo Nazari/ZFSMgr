@@ -55,7 +55,6 @@ bool idaYVuelta(const AR::Operation& o, AR::Operation& vuelta, AR::HeaderLengths
 // (Desglosar, Ensamblar, Hacia Dir). El camino feliz importa menos que los casos
 // límite: por eso el grueso de este fichero son enlaces, exclusiones y verificación.
 class CopyTreeTest final {
-
     fs::path root_;
     fs::path src_;
     fs::path dst_;
@@ -897,8 +896,7 @@ public:
         d[1].path = "dir/dentro.txt";
         const AR::Plan p = AR::makePlan(o, d, true);
         QCOMPARE(p.operations.size(), size_t(2));
-        QCOMPARE(std::string(p.operations[0].entry.path),
-                 std::string("dir/dentro.txt"));
+        QCOMPARE(std::string(p.operations[0].entry.path), std::string("dir/dentro.txt"));
         QCOMPARE(std::string(p.operations[1].entry.path), std::string("dir"));
     }
 
@@ -989,8 +987,7 @@ public:
         uint64_t literales = 0;
         QVERIFY(AR::delta((src_ / "r.bin").string(), fi, tb, ins, literales, err));
         QCOMPARE(literales, uint64_t(0));
-        QVERIFY2(ins.size() <= 2,
-                 "salieron " + std::to_string(ins.size()) + " instrucciones");
+        QVERIFY2(ins.size() <= 2, "salieron " + std::to_string(ins.size()) + " instrucciones");
     }
 
     void soloViajaLoQueCambio() {
@@ -1008,8 +1005,7 @@ public:
         QVERIFY(AR::delta((src_ / "nuevo.bin").string(), fi, tb, ins, literales, err));
         // Un cambio de 10 bytes no puede costar 300 KB: como mucho el bloque que lo
         // contiene. Si esto crece, el delta ha dejado de servir para nada.
-        QVERIFY2(literales <= 2 * tb,
-                 "literales=" + std::to_string(literales));
+        QVERIFY2(literales <= 2 * tb, "literales=" + std::to_string(literales));
         QVERIFY(literales > 0);
     }
 
@@ -1028,8 +1024,7 @@ public:
         std::vector<AR::Instruction> ins;
         uint64_t literales = 0;
         QVERIFY(AR::delta((src_ / "b.bin").string(), fi, tb, ins, literales, err));
-        QVERIFY2(literales < 3 * tb,
-                 "con un byte insertado viajaron " + std::to_string(literales));
+        QVERIFY2(literales < 3 * tb, "con un byte insertado viajaron " + std::to_string(literales));
     }
 
     void elDeltaReconstruyeExactamenteElOriginal() {
@@ -1098,8 +1093,7 @@ public:
         }
         QCOMPARE(int(rehecho.size()), int(cambiado.size()));
         QVERIFY2(rehecho == cambiado, "el delta trunco el fichero en el limite del buffer");
-        QVERIFY2(literales <= 2 * tb,
-                 "viajaron " + std::to_string(literales) + " bytes");
+        QVERIFY2(literales <= 2 * tb, "viajaron " + std::to_string(literales) + " bytes");
     }
 
     void lasFirmasSobrevivenAlViajeDeIdaYVuelta() {
@@ -1260,8 +1254,7 @@ public:
         QCOMPARE(vuelta[0].special, 'c');
         QCOMPARE(vuelta[0].devMinor, uint32_t(3));
         QCOMPARE(vuelta[0].mtimeNsec, uint32_t(987654321));
-        QCOMPARE(std::string(vuelta[0].metaDigest),
-                 std::string(zfsmgr::fsmeta::digestOf(x.meta)));
+        QCOMPARE(std::string(vuelta[0].metaDigest), std::string(zfsmgr::fsmeta::digestOf(x.meta)));
     }
 
     // Lo que cabe en cada sistema: una ACL POSIX de Linux no significa nada en FreeBSD, una
@@ -1384,7 +1377,6 @@ private:
         fs::create_hard_link(src_ / "a.txt", src_ / "duro.txt");
         fs::create_symlink("a.txt", src_ / "enlace");
     }
-
 };
 
 int main() {
@@ -1398,63 +1390,90 @@ int main() {
         {"preservesExtendedAttributes", &CopyTreeTest::preservesExtendedAttributes},
         {"fullySparseFileAllocatesNothing", &CopyTreeTest::fullySparseFileAllocatesNothing},
         {"skipsWhatIsAlreadyThere", &CopyTreeTest::skipsWhatIsAlreadyThere},
-        {"deleteExtraneousRemovesWhatIsNotInSource", &CopyTreeTest::deleteExtraneousRemovesWhatIsNotInSource},
+        {"deleteExtraneousRemovesWhatIsNotInSource",
+         &CopyTreeTest::deleteExtraneousRemovesWhatIsNotInSource},
         {"deleteExtraneousSpareExcluded", &CopyTreeTest::deleteExtraneousSpareExcluded},
         {"dryRunTouchesNothing", &CopyTreeTest::dryRunTouchesNothing},
         {"unCambioDeTipoSeRehaceConBorrado", &CopyTreeTest::unCambioDeTipoSeRehaceConBorrado},
-        {"sinBorradoNoSeVaciaUnDirectorioYSeSigue", &CopyTreeTest::sinBorradoNoSeVaciaUnDirectorioYSeSigue},
+        {"sinBorradoNoSeVaciaUnDirectorioYSeSigue",
+         &CopyTreeTest::sinBorradoNoSeVaciaUnDirectorioYSeSigue},
         {"laPasadaEnSecoDiceQueCambiaria", &CopyTreeTest::laPasadaEnSecoDiceQueCambiaria},
-        {"unCambioDeModoLlegaSinCambiarElContenido", &CopyTreeTest::unCambioDeModoLlegaSinCambiarElContenido},
+        {"unCambioDeModoLlegaSinCambiarElContenido",
+         &CopyTreeTest::unCambioDeModoLlegaSinCambiarElContenido},
         {"elEnlaceSimbolicoConservaSuFecha", &CopyTreeTest::elEnlaceSimbolicoConservaSuFecha},
         {"unaFifoSeRecrea", &CopyTreeTest::unaFifoSeRecrea},
-        {"reescribirNoArrastraAUnEnlaceDuroDelDestino", &CopyTreeTest::reescribirNoArrastraAUnEnlaceDuroDelDestino},
+        {"reescribirNoArrastraAUnEnlaceDuroDelDestino",
+         &CopyTreeTest::reescribirNoArrastraAUnEnlaceDuroDelDestino},
         {"unDirectorioIlegibleNoVaciaSuCopia", &CopyTreeTest::unDirectorioIlegibleNoVaciaSuCopia},
-        {"unPocoDeDatosTrasUnHuecoNoMaterializaElBufer", &CopyTreeTest::unPocoDeDatosTrasUnHuecoNoMaterializaElBufer},
+        {"unPocoDeDatosTrasUnHuecoNoMaterializaElBufer",
+         &CopyTreeTest::unPocoDeDatosTrasUnHuecoNoMaterializaElBufer},
         {"unAtributoQuitadoSeQuitaEnElDestino", &CopyTreeTest::unAtributoQuitadoSeQuitaEnElDestino},
         {"countPendingReportsMissingFiles", &CopyTreeTest::countPendingReportsMissingFiles},
         {"countPendingHonoursExcludes", &CopyTreeTest::countPendingHonoursExcludes},
-        {"countPendingReportsFailureAsMinusOne", &CopyTreeTest::countPendingReportsFailureAsMinusOne},
+        {"countPendingReportsFailureAsMinusOne",
+         &CopyTreeTest::countPendingReportsFailureAsMinusOne},
         {"copyTreeRefusesNonDirectorySource", &CopyTreeTest::copyTreeRefusesNonDirectorySource},
         {"recorreDistingueLosCuatroTipos", &CopyTreeTest::recorreDistingueLosCuatroTipos},
         {"loDelVolumenNoEsDelArbol", &CopyTreeTest::loDelVolumenNoEsDelArbol},
         {"elLargoDeNombresCuentaDuenoYGrupo", &CopyTreeTest::elLargoDeNombresCuentaDuenoYGrupo},
-        {"unFicheroSueltoEsUnArbolDeUnaEntrada", &CopyTreeTest::unFicheroSueltoEsUnArbolDeUnaEntrada},
-        {"elRecorridoLeeLosAtributosYSabeCualesCabenAlli", &CopyTreeTest::elRecorridoLeeLosAtributosYSabeCualesCabenAlli},
+        {"unFicheroSueltoEsUnArbolDeUnaEntrada",
+         &CopyTreeTest::unFicheroSueltoEsUnArbolDeUnaEntrada},
+        {"elRecorridoLeeLosAtributosYSabeCualesCabenAlli",
+         &CopyTreeTest::elRecorridoLeeLosAtributosYSabeCualesCabenAlli},
         {"lasRutasVanSiempreConBarras", &CopyTreeTest::lasRutasVanSiempreConBarras},
-        {"elManifiestoSobreviveAlViajeDeIdaYVuelta", &CopyTreeTest::elManifiestoSobreviveAlViajeDeIdaYVuelta},
+        {"elManifiestoSobreviveAlViajeDeIdaYVuelta",
+         &CopyTreeTest::elManifiestoSobreviveAlViajeDeIdaYVuelta},
         {"copiarUnFicheroSuelto", &CopyTreeTest::copiarUnFicheroSuelto},
-        {"unFicheroNoSeMeteDentroDeUnDirectorioHomonimo", &CopyTreeTest::unFicheroNoSeMeteDentroDeUnDirectorioHomonimo},
+        {"unFicheroNoSeMeteDentroDeUnDirectorioHomonimo",
+         &CopyTreeTest::unFicheroNoSeMeteDentroDeUnDirectorioHomonimo},
         {"laPasadaEnSecoDeUnFicheroNoEscribe", &CopyTreeTest::laPasadaEnSecoDeUnFicheroNoEscribe},
         {"elManifiestoLlevaDuenoYGrupo", &CopyTreeTest::elManifiestoLlevaDuenoYGrupo},
         {"unManifiestoSinDuenoSeRechaza", &CopyTreeTest::unManifiestoSinDuenoSeRechaza},
-        {"laCabeceraDeOperacionTambienLosLleva", &CopyTreeTest::laCabeceraDeOperacionTambienLosLleva},
-        {"unaCabeceraDeOperacionSinDuenoSeRechaza", &CopyTreeTest::unaCabeceraDeOperacionSinDuenoSeRechaza},
-        {"elRecorridoAnotaElModoDeLosDirectorios", &CopyTreeTest::elRecorridoAnotaElModoDeLosDirectorios},
-        {"unNombreConSaltoDeLineaNoRompeElManifiesto", &CopyTreeTest::unNombreConSaltoDeLineaNoRompeElManifiesto},
+        {"laCabeceraDeOperacionTambienLosLleva",
+         &CopyTreeTest::laCabeceraDeOperacionTambienLosLleva},
+        {"unaCabeceraDeOperacionSinDuenoSeRechaza",
+         &CopyTreeTest::unaCabeceraDeOperacionSinDuenoSeRechaza},
+        {"elRecorridoAnotaElModoDeLosDirectorios",
+         &CopyTreeTest::elRecorridoAnotaElModoDeLosDirectorios},
+        {"unNombreConSaltoDeLineaNoRompeElManifiesto",
+         &CopyTreeTest::unNombreConSaltoDeLineaNoRompeElManifiesto},
         {"elPlanSaltaLoQueYaEstaIgual", &CopyTreeTest::elPlanSaltaLoQueYaEstaIgual},
         {"unaFechaDistintaLoVuelveACopiar", &CopyTreeTest::unaFechaDistintaLoVuelveACopiar},
         {"sinBorradoNoSeBorraNada", &CopyTreeTest::sinBorradoNoSeBorraNada},
         {"conBorradoSeVaDeDentroHaciaFuera", &CopyTreeTest::conBorradoSeVaDeDentroHaciaFuera},
         {"unEnlaceQueCambiaDeDestinoSeRehace", &CopyTreeTest::unEnlaceQueCambiaDeDestinoSeRehace},
-        {"laCabeceraSobreviveAlViajeDeIdaYVuelta", &CopyTreeTest::laCabeceraSobreviveAlViajeDeIdaYVuelta},
-        {"laSumaRodanteCoincideConLaCalculadaDeCero", &CopyTreeTest::laSumaRodanteCoincideConLaCalculadaDeCero},
+        {"laCabeceraSobreviveAlViajeDeIdaYVuelta",
+         &CopyTreeTest::laCabeceraSobreviveAlViajeDeIdaYVuelta},
+        {"laSumaRodanteCoincideConLaCalculadaDeCero",
+         &CopyTreeTest::laSumaRodanteCoincideConLaCalculadaDeCero},
         {"unFicheroIgualNoMandaNiUnByte", &CopyTreeTest::unFicheroIgualNoMandaNiUnByte},
-        {"unFicheroDeBloquesRepetidosNoExplotaEnInstrucciones", &CopyTreeTest::unFicheroDeBloquesRepetidosNoExplotaEnInstrucciones},
+        {"unFicheroDeBloquesRepetidosNoExplotaEnInstrucciones",
+         &CopyTreeTest::unFicheroDeBloquesRepetidosNoExplotaEnInstrucciones},
         {"soloViajaLoQueCambio", &CopyTreeTest::soloViajaLoQueCambio},
-        {"unByteInsertadoAlPrincipioNoTiraElReconocimiento", &CopyTreeTest::unByteInsertadoAlPrincipioNoTiraElReconocimiento},
-        {"elDeltaReconstruyeExactamenteElOriginal", &CopyTreeTest::elDeltaReconstruyeExactamenteElOriginal},
+        {"unByteInsertadoAlPrincipioNoTiraElReconocimiento",
+         &CopyTreeTest::unByteInsertadoAlPrincipioNoTiraElReconocimiento},
+        {"elDeltaReconstruyeExactamenteElOriginal",
+         &CopyTreeTest::elDeltaReconstruyeExactamenteElOriginal},
         {"unFicheroMayorQueElBufferNoSeTrunca", &CopyTreeTest::unFicheroMayorQueElBufferNoSeTrunca},
-        {"lasFirmasSobrevivenAlViajeDeIdaYVuelta", &CopyTreeTest::lasFirmasSobrevivenAlViajeDeIdaYVuelta},
-        {"laFechaSeComparaALaResolucionDelMasTosco", &CopyTreeTest::laFechaSeComparaALaResolucionDelMasTosco},
+        {"lasFirmasSobrevivenAlViajeDeIdaYVuelta",
+         &CopyTreeTest::lasFirmasSobrevivenAlViajeDeIdaYVuelta},
+        {"laFechaSeComparaALaResolucionDelMasTosco",
+         &CopyTreeTest::laFechaSeComparaALaResolucionDelMasTosco},
         {"unCambioDeModoEsSoloDeMetadatos", &CopyTreeTest::unCambioDeModoEsSoloDeMetadatos},
-        {"unDirectorioConContenidoSoloSeSustituyeConBorrado", &CopyTreeTest::unDirectorioConContenidoSoloSeSustituyeConBorrado},
+        {"unDirectorioConContenidoSoloSeSustituyeConBorrado",
+         &CopyTreeTest::unDirectorioConContenidoSoloSeSustituyeConBorrado},
         {"loDeUnDirectorioIlegibleNoSeBorra", &CopyTreeTest::loDeUnDirectorioIlegibleNoSeBorra},
-        {"elDirectorioDondeSeEscribeRecuperaSuFecha", &CopyTreeTest::elDirectorioDondeSeEscribeRecuperaSuFecha},
-        {"unNombreQueNoExisteAlliSeComparaPorNumero", &CopyTreeTest::unNombreQueNoExisteAlliSeComparaPorNumero},
-        {"elManifiestoLlevaNanosegundosEspecialesYHuella", &CopyTreeTest::elManifiestoLlevaNanosegundosEspecialesYHuella},
+        {"elDirectorioDondeSeEscribeRecuperaSuFecha",
+         &CopyTreeTest::elDirectorioDondeSeEscribeRecuperaSuFecha},
+        {"unNombreQueNoExisteAlliSeComparaPorNumero",
+         &CopyTreeTest::unNombreQueNoExisteAlliSeComparaPorNumero},
+        {"elManifiestoLlevaNanosegundosEspecialesYHuella",
+         &CopyTreeTest::elManifiestoLlevaNanosegundosEspecialesYHuella},
         {"cadaSistemaGuardaLoSuyo", &CopyTreeTest::cadaSistemaGuardaLoSuyo},
-        {"losHuecosViajanComoLongitudYLleganComoHuecos", &CopyTreeTest::losHuecosViajanComoLongitudYLleganComoHuecos},
-        {"elRecorridoVeEspecialesYEnlacesDurosDeSimbolicos", &CopyTreeTest::elRecorridoVeEspecialesYEnlacesDurosDeSimbolicos},
+        {"losHuecosViajanComoLongitudYLleganComoHuecos",
+         &CopyTreeTest::losHuecosViajanComoLongitudYLleganComoHuecos},
+        {"elRecorridoVeEspecialesYEnlacesDurosDeSimbolicos",
+         &CopyTreeTest::elRecorridoVeEspecialesYEnlacesDurosDeSimbolicos},
         {"unSubdirectorioIlegibleSeApunta", &CopyTreeTest::unSubdirectorioIlegibleSeApunta},
     });
 }

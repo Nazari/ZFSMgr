@@ -671,8 +671,9 @@ bool cmdInstalarPaquete(Estado& e, const LineaAnalizada& linea) {
     }
     const std::string dir = pet.valor("package");
     if (dir.empty()) {
-        std::fputs(TC("t_install_package_falta", "falta --package <dir>: el paquete descomprimido\n"),
-                   stderr);
+        std::fputs(
+            TC("t_install_package_falta", "falta --package <dir>: el paquete descomprimido\n"),
+            stderr);
         return false;
     }
     std::string error;
