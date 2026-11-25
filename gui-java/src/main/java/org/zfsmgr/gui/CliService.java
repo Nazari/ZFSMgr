@@ -114,6 +114,7 @@ public final class CliService {
     private String dataKey = "";
     private String version = "";
     private boolean noMaster;
+    private boolean network;
     private boolean failedSaid;
 
     public CliService(String cli, String lang, Executor deliver, Listener listener) {
@@ -149,6 +150,11 @@ public final class CliService {
 
     public boolean noMaster() {
         return noMaster;
+    }
+
+    /** This computer has joined a network (its configuration is the network's). */
+    public boolean network() {
+        return network;
     }
 
     /**
@@ -346,6 +352,7 @@ public final class CliService {
                 dataKey = Json.str(ev, "data_key");
                 version = Json.str(ev, "version");
                 noMaster = Json.bool(ev, "no_master", false);
+                network = Json.bool(ev, "network", false);
                 listener.ready(ev);
                 sendNext();
             }

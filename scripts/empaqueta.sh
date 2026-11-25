@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
-# El artefacto de una versión: `zfsmgr-<ver>.zip`, con el CLI y el agente de cada sistema, la
+# El artefacto de una versión: `zfsmgr-<ver>.jar`, con el CLI y el agente de cada sistema, la
 # interfaz y un instalador por sistema operativo.
+#
+# Es un .jar Y un zip. `java -jar zfsmgr-<ver>.jar` abre el instalador gráfico (Installer.java):
+# instala en este ordenador, abre o crea la red y pone el paquete en sus máquinas. Sin Java,
+# `unzip` deja zfsmgr-<ver>/ —el árbol de siempre, con install-linux.sh y los demás— junto a
+# META-INF/ y la clase de arranque (gui-java/boot), compilada para Java 8 para poder decir a un
+# Java viejo que hace falta el 21.
 #
 # **Se niega a empaquetar si algo no es de esta compilación.** Ya pasó dos veces: un
 # agente de agosto empaquetado con el número de la versión nueva —una vuelta atrás que
@@ -24,7 +30,7 @@ uso() {
   cat <<'USO'
 Uso: empaqueta.sh [--salida <dir>] [--sin-podar]
 
-  --salida <dir>   Dónde dejar el .zip (por omisión, dist/)
+  --salida <dir>   Dónde dejar el .jar (por omisión, dist/)
   --sin-podar      No quitar los símbolos de los binarios sueltos; sirve para depurar.
 USO
 }
@@ -125,6 +131,13 @@ JAR="${RAIZ}/gui-java/target/zfsmgr-gui.jar"
 limpia() { [[ -n "${TRABAJO:-}" ]] && rm -rf "${TRABAJO}"; return 0; }
 trap limpia EXIT
 
+# Java 21 para compilar: el `java` por omisión de fc16 es el 8.
+jh="${JAVA_HOME:-}"
+for c in "${jh}" /usr/lib/jvm/java-21-openjdk-amd64 /usr/lib/jvm/java-21-openjdk /usr/lib/jvm/temurin-21-jdk-amd64; do
+  [[ -n "${c}" && -x "${c}/bin/javac" ]] && { jh="${c}"; break; }
+done
+JAVAC="${jh:+${jh}/bin/}javac"
+
 if true; then
   echo
   echo "== Interfaz (Java)"
@@ -134,10 +147,6 @@ if true; then
   fi
   if [[ "${viejo}" -eq 1 ]]; then
     # Java 21 para compilar: el `java` por omisión de fc16 es el 8.
-    jh="${JAVA_HOME:-}"
-    for c in "${jh}" /usr/lib/jvm/java-21-openjdk-amd64 /usr/lib/jvm/java-21-openjdk /usr/lib/jvm/temurin-21-jdk-amd64; do
-      [[ -n "${c}" && -x "${c}/bin/javac" ]] && { jh="${c}"; break; }
-    done
     echo "  (el .jar es más viejo que su código: se compila con ${jh:-el Java por omisión})"
     mkdir -p "${RAIZ}/gui-java/target"
     if ! JAVA_HOME="${jh}" mvn -q -o -f "${RAIZ}/gui-java/pom.xml" package >"${RAIZ}/gui-java/target/build.log" 2>&1; then
@@ -146,8 +155,9 @@ if true; then
   fi
   if [[ ! -f "${JAR}" ]]; then
     falla "interfaz: no existe ${JAR#"${RAIZ}/"}"
-  elif ! unzip -l "${JAR}" 'org/zfsmgr/gui/Main.class' >/dev/null 2>&1; then
-    falla "interfaz: el .jar no trae org/zfsmgr/gui/Main.class"
+  elif ! unzip -l "${JAR}" 'org/zfsmgr/gui/Main.class' >/dev/null 2>&1 \
+       || ! unzip -l "${JAR}" 'org/zfsmgr/gui/Installer.class' >/dev/null 2>&1; then
+    falla "interfaz: el .jar no trae org/zfsmgr/gui/Main.class o Installer.class"
   elif [[ -n "$(find "${RAIZ}/gui-java/src/main" -type f -newer "${JAR}" | head -1)" ]]; then
     falla "interfaz: hay código de gui-java más nuevo que el .jar"
   else
@@ -244,17 +254,23 @@ arma() {
   ( cd "${arbol}" && find . -type f ! -name MANIFIESTO.sha256 | sed 's|^\./||' | LC_ALL=C sort \
       | xargs sha256sum > MANIFIESTO.sha256 )
 
-  mkdir -p "${SALIDA}"
-  local zip="${SALIDA}/${nombre}.zip"
-  rm -f "${zip}" "${zip}.sha256"
-  ( cd "${TRABAJO}" && zip -qry "${zip}" "${nombre}" )
-  ( cd "${SALIDA}" && sha256sum "${nombre}.zip" > "${nombre}.zip.sha256" )
+  # El .jar: el manifiesto, la clase de arranque y el árbol. Con `zip` y no con `jar`, que no
+  # guarda los permisos: así quien lo descomprime tiene los guiones y binarios ejecutables.
+  mkdir -p "${TRABAJO}/META-INF" "${SALIDA}"
+  printf 'Manifest-Version: 1.0\r\nMain-Class: ZFSMgrInstaller\r\nImplementation-Version: %s\r\n\r\n' \
+    "${VERSION}" > "${TRABAJO}/META-INF/MANIFEST.MF"
+  "${JAVAC}" --release 8 -proc:none -Xlint:-options -d "${TRABAJO}" "${RAIZ}/gui-java/boot/ZFSMgrInstaller.java" \
+    || { echo "no compila gui-java/boot/ZFSMgrInstaller.java" >&2; exit 1; }
+  local jar="${SALIDA}/${nombre}.jar"
+  rm -f "${jar}" "${jar}.sha256"
+  ( cd "${TRABAJO}" && zip -qrX "${jar}" META-INF/MANIFEST.MF ZFSMgrInstaller*.class "${nombre}" )
+  ( cd "${SALIDA}" && sha256sum "${nombre}.jar" > "${nombre}.jar.sha256" )
   # `du` da bloques de disco, y en ZFS con compresión miente: dijo «1.0K» de un ZIP de 22 MB.
   # El número lo formatea awk y no printf: con LC_NUMERIC en castellano, printf de bash no
   # acepta «22.83» —espera coma—, escribía «22,0 MB» y, con set -e, cortaba el guion.
-  printf '  %-34s %s MB  (%s ficheros)\n' "${zip##*/}" \
-    "$(LC_ALL=C awk -v b="$(stat -c%s "${zip}")" 'BEGIN{printf "%.1f", b/1048576}')" \
-    "$(unzip -Z1 "${zip}" | grep -vc '/$')"
+  printf '  %-34s %s MB  (%s ficheros)\n' "${jar##*/}" \
+    "$(LC_ALL=C awk -v b="$(stat -c%s "${jar}")" 'BEGIN{printf "%.1f", b/1048576}')" \
+    "$(unzip -Z1 "${jar}" | grep -vc '/$')"
 }
 
 echo

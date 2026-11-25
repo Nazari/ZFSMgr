@@ -44,7 +44,7 @@ Variables opcionales:
                con sufijo —2.0.0rc1— lo es siempre.
 
 Artefactos publicados (los genera scripts/empaqueta.sh, que llama buildall-cross.sh):
-  - zfsmgr-<version>.zip        CLI, agentes e interfaz en Java, un instalador por sistema
+  - zfsmgr-<version>.jar        el instalador: CLI, agentes e interfaz en Java (también es un zip)
   - y su suma SHA-256
 
 Resolución de artefactos:
@@ -106,7 +106,7 @@ LOG_DIR="${RELEASE_LOG_DIR:-${ARTIFACTS_ROOT}/logs/${VERSION}}"
 STATE_FILE="${ARTIFACTS_ROOT}/state/${VERSION}/release-state.json"
 ARTIFACTS_DIR="${OUTPUT_DIR:-${ARTIFACTS_ROOT}/${VERSION}}"
 BUILDALL_PLATFORM_LOG_DIR="${LOG_DIR}/buildall-platforms"
-ZIP_COMPLETO=""
+PAQUETE=""
 RELEASE_FILES=()
 
 if [[ "${ONLY_RELEASE}" -eq 1 ]]; then
@@ -178,13 +178,13 @@ join_by() {
 
 
 resolve_release_artifacts() {
-  # Un zip y su suma, y nada más: dentro va todo, con un instalador por sistema. Ver
+  # El .jar y su suma, y nada más: dentro va todo, con un instalador por sistema. Ver
   # scripts/empaqueta.sh.
   local artifacts_dir="$1"
-  ZIP_COMPLETO="${artifacts_dir}/zfsmgr-${VERSION}.zip"
+  PAQUETE="${artifacts_dir}/zfsmgr-${VERSION}.jar"
   RELEASE_FILES=()
   local f
-  local publish=("${ZIP_COMPLETO}" "${ZIP_COMPLETO}.sha256")
+  local publish=("${PAQUETE}" "${PAQUETE}.sha256")
   for f in "${publish[@]}"; do
     # Con `if` y no con `[[ ]] &&`: si el último no existe —lo normal antes de compilar—, la
     # función devolvería 1 y la trampa de ERR abortaría la release sin decir nada.
@@ -220,7 +220,7 @@ write_state() {
   "artifacts_dir": "$(json_escape "${ARTIFACTS_DIR}")",
   "buildall_platform_log_dir": "$(json_escape "${BUILDALL_PLATFORM_LOG_DIR}")",
   "artifacts": {
-    "zip_completo": "$(json_escape "${ZIP_COMPLETO:-}")"
+    "paquete": "$(json_escape "${PAQUETE:-}")"
   }
 }
 EOF
@@ -265,7 +265,7 @@ Dry run de release GitHub
   tag remoto existente: ${REMOTE_TAG_EXISTS}
   release existente: ${RELEASE_EXISTS}
   pre-release: ${PRERELEASE}
-  se publica: zfsmgr-${VERSION}.zip (+ .sha256)
+  se publica: zfsmgr-${VERSION}.jar (+ .sha256)
   notas: $([[ -f "${PROJECT_ROOT}/docs/notas/${VERSION}.md" ]] && echo "docs/notas/${VERSION}.md" || echo "NO HAY docs/notas/${VERSION}.md")
 
 Fases previstas:
@@ -380,7 +380,7 @@ else
 fi
 
 [[ ${#RELEASE_FILES[@]} -eq 2 ]] \
-  || fail "falta el zip de CLI de ${VERSION} o su suma en ${ARTIFACTS_DIR} (los genera scripts/empaqueta.sh)"
+  || fail "falta zfsmgr-${VERSION}.jar o su suma en ${ARTIFACTS_DIR} (los genera scripts/empaqueta.sh)"
 log "Artefactos resueltos:"
 for _f in "${RELEASE_FILES[@]}"; do
   log "  ${_f}"

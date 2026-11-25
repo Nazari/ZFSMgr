@@ -1674,6 +1674,8 @@
     "t_install_package_en": "installing the package on %s...\n",
     "t_install_package_fallo": "could not install on %s: %s (%s)\n",
     "t_ej_install_package_2": "only the CLI and the GUI",
-    "t_ej_install_package_3": "a server: no GUI, and the daemon even with jobs running"
+    "t_ej_install_package_3": "a server: no GUI, and the daemon even with jobs running",
+    "t_serve_maestra_red": "The network's master password (that of the computer that created it)",
+    "t_serve_ya_en_red": "this computer is already in a network\n"
   }
 }

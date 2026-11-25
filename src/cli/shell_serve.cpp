@@ -1,3 +1,4 @@
+#include "network_sync.h"
 #include "presence.h"
 #include "shell_internal.h"
 
@@ -154,6 +155,31 @@ private:
 
 }  // namespace
 
+// `network seed` / `network join` from a client (the installer): on this computer's own
+// configuration, never on a network's.
+static int ordenDeRed(Estado& e, bool sembrar) {
+    if (esDirDeRed(e.ses->dirConfig)) {
+        std::fputs(TC("t_serve_ya_en_red", "este ordenador ya está en una red\n"), stderr);
+        return 1;
+    }
+    if (sembrar) {
+        return sembrarRed(e.ses->dirConfig, e.ses->maestra);
+    }
+    std::string contrasena;
+    if (!e.pideSecretoServicio
+        || !e.pideSecretoServicio(T("t_serve_maestra_red",
+                                    "La contraseña maestra de la red (la del ordenador que la creó)"),
+                                  contrasena)) {
+        return 1;
+    }
+    const int r = unirseARed(e.ses->dirConfig, e.ses->maestra, contrasena);
+    volatile char* q = contrasena.empty() ? nullptr : &contrasena[0];
+    for (std::size_t i = 0; i < contrasena.size(); ++i) {
+        q[i] = '\0';
+    }
+    return r;
+}
+
 int servirOrdenes(Sesion& ses, bool anunciaClave) {
     std::fflush(stdout);
     g_eventos = SV_DUP(SV_FILENO(stdout));
@@ -256,6 +282,9 @@ int servirOrdenes(Sesion& ses, bool anunciaClave) {
     if (anunciaClave && !e.ses->maestra.empty()) {
         listo.set("data_key", J::Value(e.ses->maestra));
     }
+    // Whether this computer has joined a network (network_sync.h): the installer offers to
+    // create one, or to join one, when it has not.
+    listo.set("network", J::Value(esDirDeRed(ses.dirConfig)));
     emite(listo);
 
     // Asked from another machine to close (`sessions close`): the interface decides —it tells
@@ -316,7 +345,15 @@ int servirOrdenes(Sesion& ses, bool anunciaClave) {
         }
         {
             CapturaDeOrden captura;
-            if (captura.ok()) {
+            const std::string linea = B::trim(pet["line"].toString());
+            if (captura.ok() && (linea == "network seed" || linea == "network join")) {
+                // The two orders of main() on this computer's own configuration, for a client
+                // that already holds the secrets open: the service ENDS after them, because
+                // its files are not the network's ones. The client starts another.
+                e.ultimoRc = ordenDeRed(e, linea == "network seed");
+                captura.termina(out, errTexto);
+                e.salir = true;
+            } else if (captura.ok()) {
                 ejecutaLinea(e, pet["line"].toString(), nullptr);
                 redTrasOrden(e);
                 captura.termina(out, errTexto);

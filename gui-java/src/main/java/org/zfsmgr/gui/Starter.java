@@ -37,9 +37,17 @@ public final class Starter {
     private JWindow opening;
     private UnlockDialog unlock;
     private MainWindow window;
+    /** Instead of the window: the installer takes the open service (no presence of a GUI). */
+    private final java.util.function.Consumer<CliService> onReady;
+    private boolean handedOver;
 
     public Starter(String cli) {
+        this(cli, null);
+    }
+
+    public Starter(String cli, java.util.function.Consumer<CliService> onReady) {
         this.cli = cli;
+        this.onReady = onReady;
     }
 
     public void attempt(char[] master) {
@@ -75,6 +83,11 @@ public final class Starter {
                     unlock = null;
                 }
                 Arrays.fill(pending, '\0');
+                if (onReady != null) {
+                    handedOver = true;
+                    onReady.accept(svc);
+                    return;
+                }
                 window = new MainWindow(cli, svc);
                 Main.showWindow(window);
                 if (firstRun) {
@@ -85,6 +98,10 @@ public final class Starter {
             @Override
             public void failed(String reason, boolean wrongPassword) {
                 hideOpening();
+                // Its owner now: a service that ends after `network seed` ends on purpose.
+                if (handedOver) {
+                    return;
+                }
                 if (window != null) {
                     window.serviceLost(reason);
                     return;
@@ -174,7 +191,7 @@ public final class Starter {
             }
         });
         self[0] = s;
-        s.setPresence(true);
+        s.setPresence(onReady == null);
         s.setSession(sessionMode);
         s.start(pending.clone(), false);
     }

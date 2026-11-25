@@ -1,7 +1,12 @@
 ZFSMgr @VERSION@  (@PAQUETE@)
 ==============================
 
-Ejecute el guion de SU sistema desde este directorio:
+Con Java 21 o posterior, lo más cómodo es el instalador gráfico: abra el .jar del que sale
+este directorio (doble clic, o «java -jar zfsmgr-@VERSION@.jar»). Instala en este ordenador
+y luego le enseña su red: crea la red o le une a una, añade máquinas e instala o actualiza
+ZFSMgr en cada una, por SSH.
+
+Sin Java, ejecute el guion de SU sistema desde este directorio:
 
   Linux (x86_64)                 sh install-linux.sh
   macOS (Apple Silicon e Intel)  sh install-macos.sh
@@ -24,7 +29,7 @@ instala igual, como cliente para manejar otras máquinas. Con un OpenZFS válido
 guiones ofrecen instalar también el daemon local (--with-daemon / --no-daemon;
 Windows: -WithDaemon / -NoDaemon).
 
-Interfaz gráfica (paquete completo): es un programa Java, el mismo en todos los sistemas, y
+Interfaz gráfica: es un programa Java, el mismo en todos los sistemas, y
 necesita Java 21 o posterior (por ejemplo Temurin 21, https://adoptium.net; en FreeBSD, el
 port openjdk21). Se instala aunque no lo haya: «zfsmgr-gui --check» dice si lo encuentra.
 macOS: si instala el daemon, conceda «Acceso total al disco» a
@@ -39,7 +44,12 @@ los de la 1.4; la interfaz es nueva y puede tener fallos: el CLI sigue siendo la
 ZFSMgr @VERSION@  (@PAQUETE@) — English
 -------------------------------------
 
-Run the script for YOUR system from this directory:
+With Java 21 or later, the graphical installer is the easiest: open the .jar this directory
+comes from (double-click, or «java -jar zfsmgr-@VERSION@.jar»). It installs on this computer
+and then shows you your network: it creates the network or joins you to one, adds machines
+and installs or updates ZFSMgr on each of them, over SSH.
+
+Without Java, run the script for YOUR system from this directory:
 
   Linux (x86_64)                 sh install-linux.sh
   macOS (Apple Silicon & Intel)  sh install-macos.sh
@@ -56,7 +66,7 @@ OpenZFS: if present, it must be @ZFSMIN@ or later. Without it ZFSMgr still insta
 client for managing other machines. With a valid OpenZFS, the scripts offer to install
 the local daemon too (--with-daemon / --no-daemon; Windows: -WithDaemon / -NoDaemon).
 
-GUI (full package): a Java program, the same on every system, which needs Java 21 or later
+GUI: a Java program, the same on every system, which needs Java 21 or later
 (for instance Temurin 21, https://adoptium.net; on FreeBSD, the openjdk21 port). It is
 installed even without one: «zfsmgr-gui --check» says whether it finds it.
 macOS: if you install the daemon, grant «Full Disk Access» to

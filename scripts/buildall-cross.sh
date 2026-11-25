@@ -21,7 +21,7 @@ Uso:
 Descripción:
   Compila las cinco plataformas en este equipo y deja en OUTPUT_DIR SOLO los paquetes de
   la versión (scripts/empaqueta.sh), cada uno con su .sha256:
-  - zfsmgr-<ver>.zip   CLI y agentes de todas las plataformas, la interfaz Java e instaladores
+  - zfsmgr-<ver>.jar   el instalador: CLI y agentes de todas las plataformas, la interfaz e instaladores
   Los agentes quedan también en builds/agents/<plataforma>/, de donde los toma install-daemon.
 
 Variables opcionales:
@@ -342,7 +342,7 @@ if has_platform "macos"; then
 fi
 check_agents
 
-# Los dos zip de la versión. El empaquetador comprueba la huella de cada pieza y se niega
+# El paquete de la versión. El empaquetador comprueba la huella de cada pieza y se niega
 # si alguna no es de esta compilación.
 run_phase empaqueta "${SCRIPT_DIR}/empaqueta.sh" --salida "${OUTPUT_DIR}"
 log "Artefactos en ${OUTPUT_DIR}:"
