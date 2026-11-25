@@ -4,7 +4,7 @@
 # The CLI goes to Program Files\ZFSMgr\bin, with its catalogues and agents beside it. The GUI,
 # since 2.0, is a Java 21+ program (one .jar for every system): it goes to ZFSMgr\gui with a
 # zfsmgr-gui.cmd and a Start menu shortcut that runs it with javaw. The Inno Setup of the Qt GUI
-# of 1.x, if it is there, is uninstalled first.
+# of 1.x, if it is there, is always uninstalled first, with the GUI or without it.
 #
 # The local daemon is offered as on Unix, and the installed CLI sets it up with
 # `install-daemon-local`: the same scheduled task, firewall rule and TLS that `install-daemon`
@@ -197,10 +197,11 @@ $withGui = (-not $CliOnly) -and (Test-Path $jar)
 if ($CliOnly) { Log (T '-CliOnly: la interfaz no se instala.' '-CliOnly: the GUI is not installed.') }
 elseif (-not (Test-Path $jar)) { Log (T 'este paquete es el de SOLO CLI: no trae la interfaz grafica.' 'this is the CLI-ONLY package: it has no graphical interface.') }
 
-# The Inno Setup of the Qt GUI of 1.x: uninstalled first, so its GUI, shortcuts and CLI do not
-# stay beside the new ones. The agent and the configuration are not its: they stay.
+# The Inno Setup of the Qt GUI of 1.x: ALWAYS uninstalled first, with the Java GUI or without
+# it, so its GUI, shortcuts and CLI do not stay beside the new ones talking to a CLI they no
+# longer match. The agent and the configuration are not its: they stay.
 $oldUnins = Get-ChildItem -Path $App -Filter 'unins*.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
-if ($withGui -and $oldUnins) {
+if ($oldUnins) {
     Log (T 'se desinstala la interfaz anterior (Qt)' 'the previous (Qt) GUI is uninstalled')
     Run { Start-Process $oldUnins.FullName -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait } "$($oldUnins.FullName) /VERYSILENT"
 }

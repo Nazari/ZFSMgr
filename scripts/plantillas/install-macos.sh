@@ -6,7 +6,7 @@
 # standalone, as in the CLI-only package; the GUI goes to <prefix>/lib/zfsmgr with its launcher
 # <prefix>/bin/zfsmgr-gui, and /Applications/ZFSMgr.app is only a small bundle that runs that
 # launcher —so it opens from Finder, Launchpad and the Dock—. The Qt bundle of 1.x, which had
-# the CLI inside and <prefix>/bin/zfsmgr-cli linked to it, is replaced.
+# the CLI inside and <prefix>/bin/zfsmgr-cli linked to it, is always removed.
 set -eu
 ZM_HERE="$(cd "$(dirname "$0")" && pwd)"
 ZM_SCRIPT="install-macos.sh"
@@ -48,6 +48,18 @@ zm_openzfs
 zm_check_jobs
 
 zm_install_cli
+
+# The Qt bundle of 1.x —the one with Qt's frameworks inside—: ALWAYS removed, with the Java GUI
+# or without it. Left behind it goes on talking to a CLI it no longer matches.
+if [ -d "${ZM_APP}/Contents/Frameworks" ]; then
+  zm_log "$(zm_t 'se quita la interfaz anterior (Qt)' 'the previous (Qt) GUI is removed')"
+  sudo_cli="${ZM_SUDO}"
+  zm_elevate_for /Applications
+  zm_run rm -rf "${ZM_APP}"
+  ZM_SUDO="${sudo_cli}"
+  # Its launcher was a link into the bundle.
+  [ -L "${PREFIX}/bin/zfsmgr-gui" ] && zm_run rm -f "${PREFIX}/bin/zfsmgr-gui"
+fi
 
 if [ "${CLI_ONLY}" -eq 1 ]; then
   zm_log "$(zm_t '--cli-only: la interfaz no se instala.' '--cli-only: the GUI is not installed.')"

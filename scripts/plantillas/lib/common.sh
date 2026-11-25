@@ -306,6 +306,22 @@ DESKTOP
   fi
 }
 
+# The Qt GUI of 1.x (Linux): ALWAYS removed, with the Java GUI or without it. Left behind it
+# goes on talking to a CLI it no longer matches. Its AppDir, the launcher that was a link into
+# it, and —when no Java GUI is there to take it— its menu entry.
+zm_remove_qt_gui() {
+  old="${PREFIX}/lib/zfsmgr/gui"
+  [ -d "${old}" ] || return 0
+  zm_log "$(zm_t 'se quita la interfaz anterior (Qt)' 'the previous (Qt) GUI is removed')"
+  zm_run rm -rf "${old}"
+  [ -L "${PREFIX}/bin/zfsmgr-gui" ] && zm_run rm -f "${PREFIX}/bin/zfsmgr-gui"
+  if [ ! -f "${PREFIX}/lib/zfsmgr/zfsmgr-gui.jar" ]; then
+    zm_run rm -f "${PREFIX}/share/applications/zfsmgr.desktop" \
+                 "${PREFIX}/share/icons/hicolor/512x512/apps/ZFSMgr.png"
+  fi
+  return 0
+}
+
 zm_uninstall_desktop_entry() {
   ZM_GUI_BIN="${PREFIX}/bin/zfsmgr-gui"
   desktop_file="${PREFIX}/share/applications/zfsmgr.desktop"
