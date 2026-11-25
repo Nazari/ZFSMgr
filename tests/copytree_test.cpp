@@ -410,6 +410,8 @@ public:
         QSKIP("esta prueba es de POSIX");
 #else
         QCOMPARE(::mkfifo((src_ / "tubo").c_str(), 0620), 0);
+        // mkfifo goes through the umask (022 on CI's runner: 0600); the mode is set apart.
+        QCOMPARE(::chmod((src_ / "tubo").c_str(), 0620), 0);
         const Result r = copyTree(src_.string(), dst_.string(), {});
         QVERIFY2(r.ok, r.error.c_str());
         struct stat st {};
