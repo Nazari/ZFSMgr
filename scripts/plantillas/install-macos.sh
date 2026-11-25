@@ -63,6 +63,19 @@ fi
 
 if [ "${CLI_ONLY}" -eq 1 ]; then
   zm_log "$(zm_t '--cli-only: la interfaz no se instala.' '--cli-only: the GUI is not installed.')"
+  # A Java GUI of an earlier installation would be left with a CLI it may no longer match.
+  if [ -f "${PREFIX}/lib/zfsmgr/zfsmgr-gui.jar" ] || [ -e "${PREFIX}/bin/zfsmgr-gui" ] || [ -d "${ZM_APP}" ]; then
+    zm_log "$(zm_t 'se quita la interfaz instalada antes: con --cli-only se quedaría desfasada' \
+                   'the GUI installed before is removed: with --cli-only it would fall out of step')"
+    zm_run rm -f "${PREFIX}/bin/zfsmgr-gui"
+    zm_run rm -rf "${PREFIX}/lib/zfsmgr"
+    if [ -d "${ZM_APP}" ]; then
+      sudo_cli="${ZM_SUDO}"
+      zm_elevate_for /Applications
+      zm_run rm -rf "${ZM_APP}"
+      ZM_SUDO="${sudo_cli}"
+    fi
+  fi
 elif ! zm_has_gui; then
   zm_log "$(zm_t 'este paquete es el de SOLO CLI: no trae la interfaz gráfica.' \
                  'this is the CLI-ONLY package: it has no graphical interface.')"

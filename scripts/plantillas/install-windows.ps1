@@ -194,7 +194,16 @@ if ((Test-Path $Agent) -and -not $NoDaemon -and -not $DryRun -and -not $Force) {
 
 $jar = Join-Path $Here 'gui\zfsmgr-gui.jar'
 $withGui = (-not $CliOnly) -and (Test-Path $jar)
-if ($CliOnly) { Log (T '-CliOnly: la interfaz no se instala.' '-CliOnly: the GUI is not installed.') }
+if ($CliOnly) {
+    Log (T '-CliOnly: la interfaz no se instala.' '-CliOnly: the GUI is not installed.')
+    # A Java GUI of an earlier installation would be left with a CLI it may no longer match.
+    if ((Test-Path $GuiDir) -or (Test-Path $GuiCmd) -or (Test-Path $Shortcut)) {
+        Log (T 'se quita la interfaz instalada antes: con -CliOnly se quedaria desfasada' 'the GUI installed before is removed: with -CliOnly it would fall out of step')
+        if (Test-Path $GuiDir) { Run { Remove-Item -Recurse -Force $GuiDir } "delete $GuiDir" }
+        if (Test-Path $GuiCmd) { Run { Remove-Item -Force $GuiCmd } "delete $GuiCmd" }
+        if (Test-Path $Shortcut) { Run { Remove-Item -Force $Shortcut } "delete $Shortcut" }
+    }
+}
 elseif (-not (Test-Path $jar)) { Log (T 'este paquete es el de SOLO CLI: no trae la interfaz grafica.' 'this is the CLI-ONLY package: it has no graphical interface.') }
 
 # The Inno Setup of the Qt GUI of 1.x: ALWAYS uninstalled first, with the Java GUI or without

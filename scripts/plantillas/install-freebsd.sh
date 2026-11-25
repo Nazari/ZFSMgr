@@ -61,6 +61,7 @@ zm_install_cli
 zm_test_cli
 if [ "${CLI_ONLY}" -eq 1 ]; then
   zm_log "$(zm_t '--cli-only: la interfaz no se instala.' '--cli-only: the GUI is not installed.')"
+  zm_remove_java_gui
 elif zm_has_gui; then
   # The Java GUI runs here too: the same .jar, with the openjdk21 port.
   zm_install_gui

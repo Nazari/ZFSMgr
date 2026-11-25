@@ -322,6 +322,15 @@ zm_remove_qt_gui() {
   return 0
 }
 
+# A Java GUI of an earlier installation, when this one goes without the GUI (--cli-only): it
+# would be left with a CLI it may no longer match. Its .jar, launcher and menu entry.
+zm_remove_java_gui() {
+  [ -f "${PREFIX}/lib/zfsmgr/zfsmgr-gui.jar" ] || [ -e "${PREFIX}/bin/zfsmgr-gui" ] || return 0
+  zm_log "$(zm_t 'se quita la interfaz instalada antes: con --cli-only se quedaría desfasada' \
+                 'the GUI installed before is removed: with --cli-only it would fall out of step')"
+  zm_uninstall_desktop_entry
+}
+
 zm_uninstall_desktop_entry() {
   ZM_GUI_BIN="${PREFIX}/bin/zfsmgr-gui"
   desktop_file="${PREFIX}/share/applications/zfsmgr.desktop"

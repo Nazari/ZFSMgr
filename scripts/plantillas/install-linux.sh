@@ -35,6 +35,7 @@ zm_remove_qt_gui
 
 if [ "${CLI_ONLY}" -eq 1 ]; then
   zm_log "$(zm_t '--cli-only: la interfaz no se instala.' '--cli-only: the GUI is not installed.')"
+  zm_remove_java_gui
 elif ! zm_has_gui; then
   zm_log "$(zm_t 'este paquete es el de SOLO CLI: no trae la interfaz gráfica.' \
                  'this is the CLI-ONLY package: it has no graphical interface.')"
