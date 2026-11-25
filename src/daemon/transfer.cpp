@@ -763,11 +763,9 @@ void runTransferReceiveSession(TransferSocket listenFd, const std::string& token
     // de 4 KiB multiplica por dieciséis las idas y venidas sin ganar nada.
     std::vector<char> buf(65536);
     std::uint64_t moved = 0;
-    bool senderEndedCleanly = false;
     while (true) {
         const int n = recv(clientFd, buf.data(), static_cast<int>(buf.size()), 0);
         if (n <= 0) {
-            senderEndedCleanly = (n == 0);
             break;
         }  // 0 = el emisor terminó; <0 = se cortó
         int off = 0;
@@ -796,34 +794,6 @@ void runTransferReceiveSession(TransferSocket listenFd, const std::string& token
     GetExitCodeProcess(pi.hProcess, &exitCode);
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
-
-    // OpenZFS on Windows (measured with zfswin-2.4.1rc17) fails a PACKAGE stream —`send -I`,
-    // `send -R`— read from a pipe even though it received all of it: the snapshots are there,
-    // and then it says «cannot receive: failed to read from stream» and exits 1. The same
-    // stream from a file is received with rc 0, and so is a plain or `-i` stream from a pipe:
-    // the end of a pipe reads as an error there, and only a package reads past its last
-    // record. So the failure is taken for what it is only when the stream is known whole:
-    // the sender closed normally —it does so only after its `zfs send` ended with 0 and every
-    // byte was delivered; otherwise it resets the connection— and no receive was left
-    // half-way under the target, which `-s` would have marked with a resume token.
-    if (exitCode != 0 && senderEndedCleanly && moved > 0
-        && trim(childOutput) == "cannot receive: failed to read from stream") {
-        const ExecResult tokens = runExecCapture(
-            "zfs", {"get", "-H", "-r", "-o", "value", "receive_resume_token", dataset});
-        bool halfway = tokens.rc != 0;
-        for (const std::string& line : zfsmgr::base::split(tokens.out, "\n", true)) {
-            if (trim(line) != "-") {
-                halfway = true;
-            }
-        }
-        if (!halfway) {
-            daemonLog("WARN", "recv-listen " + dataset
-                                  + ": zfs recv reported a read error after the whole stream; "
-                                    "taken as received (no resume token left)");
-            exitCode = 0;
-            childOutput.clear();
-        }
-    }
     informaAlEmisor(clientFd, static_cast<int>(exitCode),
                     "zfs recv on " + dataset + " failed (exit " + std::to_string(exitCode)
                         + "): " + trim(childOutput));

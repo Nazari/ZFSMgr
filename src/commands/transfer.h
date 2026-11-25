@@ -44,7 +44,7 @@ enum class Failure {
     SameObject,
     SourceIsNotSnapshot,
     TargetIsNotDataset,
-    WindowsEndpoint,  // a Windows end without its agent: SSH stdio stops at 132 KiB there
+    WindowsEndpoint,  // the Windows agent does not stream over a pipeline yet
     NoJobSupport,     // the async route is required and one end does not take it
     ZfsTooOld,        // below 2.3.3 nothing is transferred
 };

@@ -209,9 +209,21 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
         std::fprintf(stderr, "%s\n", error.c_str());
         return false;
     }
-    // A Windows end is fine: its agent pumps the socket into an anonymous pipe for
-    // `zfs recv` and reads `zfs send` from one, the only input and output OpenZFS on Windows
-    // takes whole (a socket, sshd's included, stops it at 132 KiB).
+    // The ZFS end cannot be Windows. The agent does move the stream there (it pumps the
+    // socket into a pipe for `zfs recv`), and it was allowed for a day in 2026-11: OpenZFS on
+    // Windows (zfswin-2.4.1rc17) failed every incremental and `-R` read from a pipe, and a real
+    // dataset brought the machine down (VERIFY3U(drrw->drr_logical_size > dn->dn_datablksz) in
+    // dmu_recv.c). Saying it HERE avoids a failure halfway through that nobody understands. A
+    // FILE on Windows is fine: writing or reading it does not go through `zfs` there.
+    if ((ficheroOrigen.empty() && T::isWindowsConnection(*pOrigen))
+        || (ficheroDestino.empty() && T::isWindowsConnection(*pDestino))) {
+        std::fputs(TC("t_la_transfe_6f9799",
+                      "la transferencia por socket no está disponible en Windows.\n"
+                      "Para llevar datos a o desde una máquina Windows, use «todir» y "
+                      "«fromdir».\n"),
+                   stderr);
+        return false;
+    }
     const bool mismaMaquina =
         B::toLowerAscii(origen.connection) == B::toLowerAscii(destino.connection);
 
