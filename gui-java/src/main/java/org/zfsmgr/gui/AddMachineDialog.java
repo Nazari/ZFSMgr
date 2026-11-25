@@ -23,7 +23,7 @@ import javax.swing.SpinnerNumberModel;
 /**
  * «Añadir una máquina»: how to reach it by SSH; the CLI asks the machine its system and the
  * password, if it needs one, as a secret. Then it is checked, its daemon offered, and when that
- * answers every machine gets the keys of all the others. (src/gui/addmachinedialog.cpp.)
+ * answers every machine gets the keys of all the others.
  */
 public final class AddMachineDialog extends JDialog {
     private final StateStore store;

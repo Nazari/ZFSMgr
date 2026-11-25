@@ -9,7 +9,7 @@ import java.util.Map;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
-/** The same cases as tests/gui_status_test.cpp, for the status part. */
+/** The status model's cases. */
 class StatusModelTest {
     @BeforeAll
     static void english() {

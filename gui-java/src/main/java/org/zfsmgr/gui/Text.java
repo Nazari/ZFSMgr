@@ -2,7 +2,7 @@ package org.zfsmgr.gui;
 
 import java.util.Locale;
 
-/** The interface's language: Spanish or English, as the Qt one ({@code L(en, es)}). */
+/** The interface's language: Spanish or English ({@code L(en, es)}). */
 public final class Text {
     private static String lang = Locale.getDefault().getLanguage().equals("es") ? "es" : "en";
 

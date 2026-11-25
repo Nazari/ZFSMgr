@@ -8,7 +8,7 @@ import java.util.List;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
-/** The copy plan cases of tests/gui_status_test.cpp. */
+/** The copy plan's cases. */
 class CopyPlanTest {
     @BeforeAll
     static void english() {

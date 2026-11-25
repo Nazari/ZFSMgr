@@ -15,9 +15,11 @@ Ha habido dos intentos anteriores, los dos retirados, y conviene saber por qué:
   anfitrión, y nunca podrá llevarlo dentro porque el SDK de Apple no se redistribuye—.
   Costaba unos 48 GB entre imagen y su propio `builds/` para hacer lo mismo.
 
-Para compilar en sistemas nativos siguen estando `scripts/build-macos.sh`,
-`build-freebsd.sh` y `build-windows.ps1`, que son los que usa el CI de GitHub Actions en
-sus runners. **Lo que se publica sale del CI**, no de este equipo.
+Lo que se publica sale de aquí: `scripts/release-github.sh` llama a `buildall-cross.sh`.
+La integración continua solo compila y prueba el CLI, el agente y la interfaz Java en Linux.
+
+Desde la 2.0 no hay Qt en ninguna parte: cada objetivo compila `zfsmgr-cli` y
+`zfsmgr_agent`, y la interfaz es UN `.jar` (gui-java/) que se compila con Maven.
 
 La base del cross-compiling local:
 
@@ -29,9 +31,9 @@ La base del cross-compiling local:
 
 ## Dónde viven las cadenas de herramientas: `<entorno>`
 
-Qt, los OpenSSL cruzados y el sysroot de FreeBSD **no son del proyecto** pero hacen falta
+Los OpenSSL cruzados y el sysroot de FreeBSD **no son del proyecto** pero hacen falta
 para compilarlo. Viven en `entorno/` dentro del árbol —ignorado por git— y no en el
-directorio personal, que es donde estaban: `~/Qt` con 12 GB, `~/opt` y `~/sysroots`, tres
+directorio personal, que es donde estaban: `~/opt` y `~/sysroots`,
 entradas en la raíz del HOME de alguien que no las puso ahí a propósito.
 
 `scripts/entorno.sh` lo resuelve, y lo incluyen todos los guiones de compilación:
@@ -46,11 +48,10 @@ Donde este documento dice `<entorno>`, léase lo que salga de esos tres pasos.
 
 ## Estado por plataforma
 
-- Windows: viable y validado en este Linux (configura y compila `zfsmgr-gui.exe`).
-- FreeBSD: viable con sysroot FreeBSD + Qt6 para target FreeBSD.
-- macOS: viable con osxcross + SDK macOS + Qt6 para target macOS.
-
-Nota: para Qt, no basta Qt host Linux. Necesitas Qt compilado para cada target.
+- Windows: MinGW y OpenSSL estático; el CLI y el agente van solos, sin DLL.
+- FreeBSD: sysroot base de FreeBSD; OpenSSL estático del propio sysroot.
+- macOS: osxcross + SDK de macOS; dos arquitecturas (amd64 y arm64). El agente se firma
+  con `rcodesign` y el certificado estable de `~/.config/zfsmgr-firma`.
 
 ## Uso rápido
 
@@ -62,11 +63,7 @@ Provisioning de prerequisitos target:
 # ./scripts/provision-cross-targets.sh --macos --macos-sdk /ruta/al/SDK.tar.xz
 ```
 
-Qué hace `--freebsd` ahora:
-- Descarga `base.txz` (sysroot base).
-- Descarga `packagesite.pkg` de FreeBSD pkg repo.
-- Resuelve `qt6-base` y sus dependencias y las extrae en el sysroot.
-- Instala Qt host Linux compatible (misma rama 6.x.y de `qt6-base`) en `<entorno>/Qt`.
+Qué hace `--freebsd`: descarga `base.txz` y lo extrae como sysroot.
 
 Validación de entorno:
 
@@ -90,39 +87,17 @@ Build local multiplaforma (fc16):
 ./scripts/buildall-cross.sh --platforms linux,windows,freebsd,macos --macos-arches amd64,arm64
 ```
 
-Esto deja artefactos en `builds/artifacts/<timestamp>/`.
-
-Instalador de Windows (Inno) en Linux:
-
-```bash
-./scripts/buildall-cross.sh --platforms windows --windows-installer 1
-```
-
-Artefactos esperados para Windows:
-- `ZFSMgr-<version>-windows.exe`
-- `ZFSMgr-Setup-<version>.exe`
-
-Dependencias host recomendadas para Inno por Wine (Ubuntu/Debian):
-
-```bash
-sudo dpkg --add-architecture i386
-sudo apt-get update
-sudo apt-get install -y wine64 wine32:i386 winbind xvfb cabextract
-```
+Esto deja en `builds/artifacts/<timestamp>/` los dos zip de la versión (`scripts/empaqueta.sh`),
+y los agentes en `builds/agents/<plataforma>/`.
 
 ## Variables de entorno
 
 ### Windows
 
-- `QT6_WINDOWS_PREFIX`: prefijo de Qt6 para Windows target.
-- `QT_HOST_PATH`: Qt host Linux para herramientas (`moc/uic/rcc`), idealmente misma versión que target.
-- `QT_HOST_PATH_CMAKE_DIR`: `.../lib/cmake/Qt6` para `QT_HOST_PATH`.
 - `OPENSSL_ROOT_DIR`: OpenSSL MinGW target.
 - `CROSS_TRIPLE_WINDOWS` (opcional): default `x86_64-w64-mingw32`.
 
 Autodetecciones implementadas:
-- `QT6_WINDOWS_PREFIX` desde `<entorno>/Qt/*/mingw_64`.
-- `QT_HOST_PATH` desde `<entorno>/Qt/<version>/gcc_64` (misma versión) o fallback `/usr`.
 - `OPENSSL_ROOT_DIR` desde `<entorno>/opt/openssl-mingw64`.
 
 Comando validado:
@@ -134,28 +109,21 @@ Comando validado:
 ### FreeBSD
 
 - `FREEBSD_SYSROOT`: sysroot de FreeBSD.
-- `QT6_FREEBSD_PREFIX`: prefijo Qt6 target FreeBSD.
 - `FREEBSD_TRIPLE` (opcional): default `x86_64-unknown-freebsd13`.
 - `FREEBSD_CC` / `FREEBSD_CXX` (opcionales).
 
 Autodetección implementada:
 - `FREEBSD_SYSROOT` desde `<entorno>/sysroots/freebsd*-amd64`.
-- `QT6_FREEBSD_PREFIX` desde `\$FREEBSD_SYSROOT/usr/local` si existe `Qt6Config.cmake`.
 
 ### macOS
 
 - `OSXCROSS_TARGET`: autodetectado desde `/opt/osxcross/target/bin` (preferencia `x86_64-apple-darwin*`).
 - `OSX_SYSROOT`: SDK macOS.
-- `QT6_MACOS_PREFIX`: prefijo Qt6 target macOS.
-- `QT_HOST_PATH`: Qt host Linux para `moc/uic/rcc` (autodetectado desde `<entorno>/Qt/*/gcc_64` y prioriza la misma versión que target).
 - `OPENSSL_ROOT_DIR`: prefijo OpenSSL target macOS (autodetecta `<entorno>/opt/openssl-macos-x86_64`).
 - `OSXCROSS_CC` / `OSXCROSS_CXX` (opcionales).
 
 Autodetección implementada:
 - Añade `/opt/osxcross/target/bin` al `PATH` en `--doctor`.
-- `QT6_MACOS_PREFIX` desde `<entorno>/Qt/*/{macos,clang_64}`.
-- `QT_HOST_PATH` y `QT_HOST_PATH_CMAKE_DIR` desde `<entorno>/Qt/*/gcc_64`.
-- Fuerza herramientas host Qt (`moc/uic/rcc`) y `Qt6CoreTools_DIR`/`Qt6WidgetsTools_DIR` al kit Linux.
 - `CMAKE_OSX_DEPLOYMENT_TARGET=10.15` por defecto (si no defines `MACOSX_DEPLOYMENT_TARGET`).
 - OpenSSL target macOS vía `OPENSSL_ROOT_DIR` + include/lib explícitos.
 
@@ -165,6 +133,6 @@ Por defecto:
 
 - `builds/cross-windows`
 - `builds/cross-freebsd`
-- `builds/cross-macos`
+- `builds/cross-macos-<arch>` (desde `buildall-cross.sh`)
 
 Puedes cambiarlo con `--build-dir`.

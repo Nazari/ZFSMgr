@@ -16,8 +16,8 @@ import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * CliService against a fake {@code zfsmgr-cli --serve}: a shell script that speaks the protocol,
- * as tests/gui_service_test.cpp. Events are delivered on this test's thread through a queue.
+ * CliService against a fake {@code zfsmgr-cli --serve}: a shell script that speaks the protocol.
+ * Events are delivered on this test's thread through a queue.
  */
 @DisabledOnOs(OS.WINDOWS)
 class CliServiceTest {

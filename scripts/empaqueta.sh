@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Los dos artefactos de una versión: `zfsmgr-<ver>.zip` (CLI + interfaz) y
-# `zfsmgr-cli-<ver>.zip` (solo CLI). La misma estructura y los mismos guiones; el segundo
-# es el primero sin `gui/`. Dentro, un instalador por sistema operativo.
+# El artefacto de una versión: `zfsmgr-<ver>.zip`, con el CLI y el agente de cada sistema, la
+# interfaz y un instalador por sistema operativo.
 #
 # **Se niega a empaquetar si algo no es de esta compilación.** Ya pasó dos veces: un
 # agente de agosto empaquetado con el número de la versión nueva —una vuelta atrás que
@@ -10,7 +9,7 @@
 # lee la huella de cada binario —clientes y agentes— y todas tienen que ser la misma.
 #
 # La interfaz, desde la 2.0, es la de Java (gui-java/): UN .jar para todos los sistemas, que
-# se compila aquí mismo si es más viejo que su código. La de Qt (src/gui) ya no se empaqueta.
+# se compila aquí mismo si es más viejo que su código.
 #
 # Windows y FreeBSD: el CLI de Windows va solo (enlazado estático); FreeBSD entra como
 # EXPERIMENTAL: se ha probado en una sola máquina (15.1).
@@ -20,14 +19,12 @@ RAIZ="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PLANTILLAS="${RAIZ}/scripts/plantillas"
 SALIDA="${RAIZ}/dist"
 PODAR=1
-SOLO_CLI=0
 
 uso() {
   cat <<'USO'
-Uso: empaqueta.sh [--salida <dir>] [--solo-cli] [--sin-podar]
+Uso: empaqueta.sh [--salida <dir>] [--sin-podar]
 
-  --salida <dir>   Dónde dejar los .zip (por omisión, dist/)
-  --solo-cli       Genera solo zfsmgr-cli-<ver>.zip (no exige las interfaces)
+  --salida <dir>   Dónde dejar el .zip (por omisión, dist/)
   --sin-podar      No quitar los símbolos de los binarios sueltos; sirve para depurar.
 USO
 }
@@ -35,7 +32,6 @@ USO
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --salida) shift; SALIDA="${1:?falta el directorio}"; shift ;;
-    --solo-cli) SOLO_CLI=1; shift ;;
     --sin-podar) PODAR=0; shift ;;
     -h|--help) uso; exit 0 ;;
     *) echo "opción desconocida: $1" >&2; uso >&2; exit 2 ;;
@@ -96,20 +92,6 @@ exige_huella() {
   fi
 }
 
-# Los catálogos que una interfaz lleva DENTRO se copiaron al compilarla, y una traducción
-# añadida después no está en ellos: el .app hablaría en castellano con la interfaz en
-# inglés. Tienen que ser idénticos a los de i18n/.
-exige_catalogos() {
-  local que="$1" dir="$2" j
-  for j in "${RAIZ}"/i18n/es.json "${RAIZ}"/i18n/en.json; do
-    if ! cmp -s "${j}" "${dir}/$(basename "${j}")"; then
-      falla "${que}: su $(basename "${j}") no es el de i18n/ (recompila esa interfaz)"
-      return
-    fi
-  done
-  bien "${que}: catálogos al día"
-}
-
 # --- Qué binario va a cada sitio. La clave es «<sistema>-<arquitectura>», la MISMA que usa
 # `rutaDelAgente()`; si aquí se escribiera otra, el paquete saldría bien formado y el
 # `install-daemon` no encontraría nada.
@@ -143,7 +125,7 @@ JAR="${RAIZ}/gui-java/target/zfsmgr-gui.jar"
 limpia() { [[ -n "${TRABAJO:-}" ]] && rm -rf "${TRABAJO}"; return 0; }
 trap limpia EXIT
 
-if [[ "${SOLO_CLI}" -eq 0 ]]; then
+if true; then
   echo
   echo "== Interfaz (Java)"
   viejo=1
@@ -218,7 +200,7 @@ plantilla() {
 TRABAJO="$(mktemp -d)"
 
 arma() {
-  local nombre="$1" con_gui="$2" paquete="$3"
+  local nombre="$1" paquete="$2"
   local arbol="${TRABAJO}/${nombre}"
   mkdir -p "${arbol}/cli" "${arbol}/agents" "${arbol}/i18n" "${arbol}/lib"
 
@@ -246,7 +228,7 @@ arma() {
   plantilla "${PLANTILLAS}/install-windows.cmd" "${TRABAJO}/cmd.tmp" "${paquete}"
   sed 's/$/\r/' "${TRABAJO}/cmd.tmp" > "${arbol}/install-windows.cmd"
 
-  if [[ "${con_gui}" -eq 1 ]]; then
+  {
     # UN .jar para todos los sistemas, su lanzador (los instaladores escriben en él las rutas)
     # y los iconos de cada escritorio.
     mkdir -p "${arbol}/gui"
@@ -256,7 +238,7 @@ arma() {
     cp -f "${RAIZ}/icons/ZFSMgr-512.png" "${arbol}/gui/ZFSMgr.png"
     cp -f "${RAIZ}/icons/ZFSMgr.icns" "${arbol}/gui/ZFSMgr.icns"
     cp -f "${RAIZ}/icons/ZFSMgr.ico" "${arbol}/gui/ZFSMgr.ico"
-  fi
+  }
 
   # El manifiesto: los instaladores lo comprueban ANTES de copiar nada.
   ( cd "${arbol}" && find . -type f ! -name MANIFIESTO.sha256 | sed 's|^\./||' | LC_ALL=C sort \
@@ -276,6 +258,5 @@ arma() {
 }
 
 echo
-echo "== Paquetes"
-arma "zfsmgr-cli-${VERSION}" 0 "solo CLI"
-[[ "${SOLO_CLI}" -eq 1 ]] || arma "zfsmgr-${VERSION}" 1 "CLI + interfaz"
+echo "== Paquete"
+arma "zfsmgr-${VERSION}" "CLI + interfaz"

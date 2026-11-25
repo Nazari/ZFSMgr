@@ -222,11 +222,12 @@ atomic and locked between processes.
 
 ## Building from source
 
-Requirements: CMake 3.21 or later, a C++17 compiler, OpenSSL, and Qt 6 for the configure step
-(the CLI and the daemon link no Qt; the build files still find it for the future GUI).
+Requirements: CMake 3.21 or later, a C++17 compiler and OpenSSL. The interface needs a JDK 21
+and Maven.
 
 ```sh
 ./scripts/build-linux.sh              # builds/linux/zfsmgr-cli and zfsmgr_agent
+mvn -f gui-java/pom.xml package       # gui-java/target/zfsmgr-gui.jar
 ```
 
 All platforms are cross-compiled from a Linux host —Windows with MinGW, FreeBSD with a
@@ -242,10 +243,10 @@ See `docs/cross-compiling-linux.md` for the toolchains.
 
 ## The graphical interface (2.0.0)
 
-`zfsmgr-gui` (`src/gui`) is a Qt 6 window over the CLI. It is **not released with 1.x**; its
-first release is planned for **2.0.0**.
+`zfsmgr-gui` (`gui-java/`) is a Java 21 window (Swing with FlatLaf) over the CLI: the same
+`.jar` on Linux, macOS, Windows and FreeBSD. Its first release is **2.0.0**.
 
-It links only Qt and launches one process, `zfsmgr-cli --serve`: every action and every read
+It launches one process, `zfsmgr-cli --serve`: every action and every read
 is a shell command line, so it has no business logic and no transport of its own, and it does
 exactly what the same command does in the shell. The protocol is in `docs/protocolo_serve.md`.
 

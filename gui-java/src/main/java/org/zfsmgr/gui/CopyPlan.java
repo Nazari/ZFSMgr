@@ -7,7 +7,7 @@ import java.util.List;
 
 /**
  * The «new copy» assistant's plan: the exact command lines it shows and runs. Pure, tested
- * without a screen. (src/gui/copyplan.cpp.)
+ * without a screen.
  *
  * <ul>
  *   <li>Once: a snapshot now and a send.

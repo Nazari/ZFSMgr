@@ -21,8 +21,7 @@ Opciones:
 
 Notas:
 - macOS cross requiere SDK de Apple proporcionado por el usuario (licencia Apple).
-- Qt6 para target (Windows/FreeBSD/macOS) debe instalarse aparte y exportarse en:
-  QT6_WINDOWS_PREFIX, QT6_FREEBSD_PREFIX, QT6_MACOS_PREFIX
+- OpenSSL cruzado, sysroot de FreeBSD y osxcross: scripts/provision-cross-targets.sh
 - Si ejecutas en entorno no interactivo, puedes pasar la contraseña de sudo por:
   export SUDO_PASSWORD='...'
 USAGE

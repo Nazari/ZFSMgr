@@ -13,7 +13,7 @@ JOBS="$(nproc 2>/dev/null || echo 4)"
 RUN_DOCTOR=0
 DO_CONFIGURE=1
 DO_BUILD=1
-# Solo el agente: sin Qt. Ver --agent-only.
+# Only the agent. See --agent-only.
 AGENT_ONLY=0
 EXTRA_CMAKE_ARGS=()
 
@@ -28,7 +28,7 @@ Opciones:
   --build-type <t>    Tipo de build CMake (por defecto: Release)
   --jobs <n>          Paralelismo para cmake --build (por defecto: nproc)
   --doctor            Solo valida prerequisitos del target
-  --agent-only        Compila SOLO el agente (sin Qt ni interfaz)
+  --agent-only        Compila SOLO el agente (sin el CLI)
   --no-configure      No ejecuta cmake -S/-B
   --no-build          No ejecuta cmake --build
   -h, --help          Muestra esta ayuda
@@ -40,25 +40,18 @@ Toolchains:
 
 Variables de entorno esperadas:
   Windows:
-    QT6_WINDOWS_PREFIX  (ruta de Qt6 para MinGW target)
-                       (si no se define, se intenta autodetectar en <entorno>/Qt/*/mingw_64)
-    QT6_HOST_PREFIX     (Qt6 host, por defecto /usr/lib/x86_64-linux-gnu/cmake)
     OPENSSL_ROOT_DIR    (OpenSSL target MinGW; autodetecta <entorno>/opt/openssl-mingw64)
     CROSS_TRIPLE_WINDOWS (opcional, default x86_64-w64-mingw32)
 
   FreeBSD:
     FREEBSD_SYSROOT      (sysroot FreeBSD)
-    QT6_FREEBSD_PREFIX   (Qt6 para target FreeBSD)
     FREEBSD_TRIPLE       (opcional, default x86_64-unknown-freebsd13)
     FREEBSD_CC/FREEBSD_CXX (opcionales)
 
   macOS (osxcross):
     OSXCROSS_TARGET      (opcional; si no se define se autodetecta desde /opt/osxcross/target/bin)
     OSX_SYSROOT          (SDK de macOS)
-    QT6_MACOS_PREFIX     (Qt6 para target macOS; autodetecta <entorno>/Qt/*/{macos,clang_64})
-    QT_HOST_PATH         (Qt6 host Linux para tools; autodetecta <entorno>/Qt/*/gcc_64)
-    QT_HOST_PATH_CMAKE_DIR (opcional; autodetecta <QT_HOST_PATH>/lib/cmake/Qt6)
-    MACOSX_DEPLOYMENT_TARGET (opcional; default 10.15 para compatibilidad Qt6 + std::filesystem)
+    MACOSX_DEPLOYMENT_TARGET (opcional; default 10.15, por std::filesystem)
     OPENSSL_ROOT_DIR     (opcional; autodetecta <entorno>/opt/openssl-macos-x86_64 o <entorno>/opt/openssl-macos-arm64)
     OSXCROSS_CC/OSXCROSS_CXX (opcionales)
 USAGE
@@ -140,18 +133,6 @@ need_cmd() {
   command -v "$1" >/dev/null 2>&1 || { echo "Falta comando: $1" >&2; return 1; }
 }
 
-autodetect_qt_prefix() {
-  local pattern="$1"
-  local found=""
-  shopt -s nullglob
-  local candidates=("${ZFSMGR_ENTORNO}"/Qt/${pattern})
-  shopt -u nullglob
-  if [[ ${#candidates[@]} -gt 0 ]]; then
-    found="$(printf '%s\n' "${candidates[@]}" | sort -V | tail -n1)"
-  fi
-  echo "${found}"
-}
-
 autodetect_path_glob() {
   local glob_pattern="$1"
   local found=""
@@ -212,298 +193,6 @@ autodetect_macos_openssl_prefix() {
   echo ""
 }
 
-find_cross_tool() {
-  local suffix="$1"
-  if [[ -n "${OSXCROSS_TARGET:-}" ]]; then
-    if command -v "${OSXCROSS_TARGET}-${suffix}" >/dev/null 2>&1; then
-      command -v "${OSXCROSS_TARGET}-${suffix}"
-      return 0
-    fi
-    if [[ -x "/opt/osxcross/target/bin/${OSXCROSS_TARGET}-${suffix}" ]]; then
-      echo "/opt/osxcross/target/bin/${OSXCROSS_TARGET}-${suffix}"
-      return 0
-    fi
-  fi
-  local guess
-  guess="$(ls /opt/osxcross/target/bin/*-"${suffix}" 2>/dev/null | sort -V | tail -n1 || true)"
-  if [[ -n "${guess}" ]]; then
-    echo "${guess}"
-    return 0
-  fi
-  return 1
-}
-
-# La firma AD-HOC del bundle. NO es opcional.
-#
-# El despliegue de aquí al lado reescribe los `install_name` de los frameworks de Qt y de
-# libcrypto, y con eso INVALIDA la firma que traían. En Apple Silicon eso no es un aviso de
-# Gatekeeper: el proceso muere nada más arrancar con `EXC_BAD_ACCESS (SIGKILL (Code
-# Signature Invalid))` y la pila entera dentro de dyld. Un .app sin firmar aquí es un .app
-# que no arranca, así que si falta el firmador se ABORTA en vez de entregar eso.
-#
-# Los `.dSYM` se excluyen: dentro hay DWARF, que no es Mach-O firmable y hace fallar al
-# firmador entero. dyld no los carga, así que quedan fuera y es correcto.
-# El intérprete, dentro del .app.
-#
-# macOS no tiene instalador: se arrastra el .app y ya está. Así que el intérprete viaja
-# donde viaja la aplicación, y quien lo quiera en el PATH pone un enlace:
-#
-#   ln -s /Applications/ZFSMgr.app/Contents/MacOS/zfsmgr-cli /usr/local/bin/zfsmgr-cli
-#
-# `Contents/MacOS` no es un sitio cualquiera: es el que hace que la ruta
-# `<ejecutable>/../Resources/i18n` —una de las cuatro que `src/cli/main.cpp` ya busca—
-# apunte a los catálogos que se copian aquí al lado. El intérprete no enlaza Qt, así que
-# sin ellos solo hablaría castellano.
-#
-# En el cruce OpenSSL va estático, de modo que este binario solo depende de libc++ y
-# libSystem: no hay rutas que reapuntar, a diferencia del ejecutable principal.
-#
-# ANTES de firmar, como los agentes: añadir ficheros a un bundle ya firmado rompe el
-# sello de recursos.
-mete_cli_en_bundle_macos() {
-  local app_bundle="$1"
-  local build_dir="$2"
-  # Quitar antes lo que hubiera de una pasada anterior.
-  #
-  # El bundle vive DENTRO del directorio de compilación y no se regenera solo: al renombrar
-  # los ejecutables (`zfsmgr_cli` → `zfsmgr-cli`), los del nombre viejo se quedaron dentro y
-  # el .app salió con LOS DOS juegos —cuatro binarios donde debían ir dos, y dos de ellos de
-  # una compilación anterior—. Se vio abriendo el zip, no en el log: el empaquetado copiaba
-  # los nuevos y no se quejaba de nada.
-  #
-  # Se borra solo lo que este propio paso pone; el ejecutable principal del bundle se llama
-  # ZFSMgr y no casa con el patrón.
-  local viejo
-  for viejo in "${app_bundle}/Contents/MacOS/"zfsmgr[-_]*; do
-    [[ -e "${viejo}" ]] || continue
-    rm -f "${viejo}"
-  done
-  local cliente
-  # Un solo cliente de línea de órdenes en el bundle.
-  for cliente in zfsmgr-cli; do
-    if [[ ! -f "${build_dir}/${cliente}" ]]; then
-      echo "Error: no se encontró ${build_dir}/${cliente} para meter en el bundle." >&2
-      echo "       Sin él, el .app de macOS sale incompleto." >&2
-      return 1
-    fi
-    cp -f "${build_dir}/${cliente}" "${app_bundle}/Contents/MacOS/${cliente}"
-    chmod 0755 "${app_bundle}/Contents/MacOS/${cliente}"
-    echo "  empaquetado: Contents/MacOS/${cliente}"
-  done
-  mkdir -p "${app_bundle}/Contents/Resources/i18n"
-  cp -f "${PROJECT_ROOT}"/i18n/*.json "${app_bundle}/Contents/Resources/i18n/"
-
-  # Los agentes de las CINCO plataformas, en `Contents/Resources/agents/<plat>-<arq>/`.
-  #
-  # Sin ellos, desde la interfaz de un Mac no se podía instalar un daemon en ninguna otra
-  # máquina: el .app se veía completo y le faltaba media función. `rutaDelAgente` y la
-  # interfaz ya buscaban en `<ejecutable>/../Resources/agents/`; lo que faltaba era ponerlos.
-  # Se exigen todos: un .app con cuatro de cinco falla solo contra la quinta, y eso se ve
-  # meses después.
-  local agentes="${PROJECT_ROOT}/builds/agents"
-  rm -rf "${app_bundle}/Contents/Resources/agents"
-  local k ext
-  for k in linux-x86_64 macos-amd64 macos-arm64 freebsd-x86_64 windows-x86_64; do
-    ext=""; [[ "${k}" == windows-* ]] && ext=".exe"
-    if [[ ! -f "${agentes}/${k}/zfsmgr_agent${ext}" ]]; then
-      echo "Error: falta el agente ${k} en ${agentes}: compílalo antes que el .app." >&2
-      return 1
-    fi
-    mkdir -p "${app_bundle}/Contents/Resources/agents/${k}"
-    cp -f "${agentes}/${k}/zfsmgr_agent${ext}" "${app_bundle}/Contents/Resources/agents/${k}/"
-    chmod 0755 "${app_bundle}/Contents/Resources/agents/${k}/zfsmgr_agent${ext}"
-    # Podados: sin símbolos, los cinco pasan de 44 MB a unos 23. Los de macOS NO: ya vienen
-    # recortados y FIRMADOS con el certificado estable (buildall-cross.sh, firma_agente_macos),
-    # y `llvm-strip` les deja una firma ad hoc. Con ella macOS pierde el «Acceso total al
-    # disco» en cada actualización instalada desde el .app (mmela, 2026-11-24).
-    if [[ "${k}" != macos-* ]]; then
-      llvm-strip "${app_bundle}/Contents/Resources/agents/${k}/zfsmgr_agent${ext}" 2>/dev/null || true
-    fi
-  done
-  echo "  empaquetado: Contents/Resources/agents (5 plataformas)"
-
-  # Fuera los `.dSYM`. Llegan con los plugins del SDK de Qt —13 paquetes, 82 MB, más de un
-  # tercio del .app— y son símbolos de depuración: dyld no los carga y la firma ya los
-  # excluía. Quien necesite depurar un plugin de Qt los tiene en el SDK, no en el .app.
-  find "${app_bundle}" -name '*.dSYM' -type d -prune -exec rm -rf {} +
-}
-
-firma_adhoc_bundle() {
-  local bundle="$1"
-  local firmador="${RCODESIGN:-}"
-  if [[ -z "${firmador}" ]]; then
-    firmador="$(command -v rcodesign || true)"
-  fi
-  if [[ -z "${firmador}" ]]; then
-    echo "Error: no hay rcodesign para firmar ${bundle}." >&2
-    echo "Sin firma ad-hoc el bundle NO arranca en Apple Silicon: el despliegue reescribe" >&2
-    echo "los install_name y eso invalida la firma con la que venía Qt." >&2
-    echo "Aprovisione con: scripts/provision-cross-targets.sh --macos-qt" >&2
-    exit 1
-  fi
-  echo "Firmando (ad-hoc) ${bundle} con ${firmador}"
-  # Los agentes de macOS que lleva dentro, fuera de la firma de código: ya traen la suya, la
-  # del certificado estable, y firmarlos aquí la cambiaría por una ad hoc (macOS ataría el
-  # «Acceso total al disco» a cada binario). Siguen sellados como recursos del .app.
-  "${firmador}" sign --exclude '**/*.dSYM' --exclude '**/*.dSYM/**' \
-    --exclude 'Contents/Resources/agents/macos-*/zfsmgr_agent' "${bundle}" >/dev/null
-}
-
-ensure_macos_bundle_runtime_cross() {
-  local app_bundle="$1"
-  local qt_prefix="$2"
-  [[ -d "${app_bundle}" ]] || return 0
-  [[ -d "${qt_prefix}" ]] || { echo "Falta QT6_MACOS_PREFIX para deploy runtime: ${qt_prefix}" >&2; return 1; }
-  local otool_bin
-  otool_bin="$(find_cross_tool otool)" || { echo "No se encontró otool de osxcross" >&2; return 1; }
-
-  local frameworks_dst="${app_bundle}/Contents/Frameworks"
-  local plugins_dst="${app_bundle}/Contents/PlugIns"
-  local resources_dst="${app_bundle}/Contents/Resources"
-  mkdir -p "${frameworks_dst}" "${plugins_dst}" "${resources_dst}"
-
-  # El binario principal POR NOMBRE, no «el primero que salga».
-  #
-  # Era un `find | head -n1`, y Contents/MacOS tenía un solo ejecutable. Desde que
-  # también lleva `zfsmgr-cli`, ese head podía devolver el intérprete y entonces las
-  # dependencias que se resuelven abajo serían las suyas —ninguna: es autónomo— en vez
-  # de las de la aplicación, que es la que necesita los frameworks de Qt. El .app
-  # saldría sin Qt dentro y sin que nada fallara.
-  local main_bin="${app_bundle}/Contents/MacOS/ZFSMgr"
-  if [[ ! -f "${main_bin}" ]]; then
-    main_bin="$(find "${app_bundle}/Contents/MacOS" -maxdepth 1 -type f -perm -111 \
-                     ! -name 'zfsmgr-cli' | head -n1 || true)"
-  fi
-  [[ -n "${main_bin}" ]] || { echo "No se encontró binario principal en ${app_bundle}/Contents/MacOS" >&2; return 1; }
-
-  copy_framework_by_name() {
-    local framework_name="$1"
-    local src="${qt_prefix}/lib/${framework_name}.framework"
-    local dst="${frameworks_dst}/${framework_name}.framework"
-    [[ -d "${src}" ]] || return 1
-    [[ -d "${dst}" ]] || cp -R "${src}" "${dst}"
-    return 0
-  }
-
-  # Copiar plugins Qt básicos necesarios para arranque GUI.
-  local plugin_roots=("${qt_prefix}/plugins" "${qt_prefix}/share/qt/plugins")
-  local plugin_dirs=(platforms styles imageformats iconengines networkinformation tls)
-  local plugin_root plugin_dir src_dir
-  for plugin_dir in "${plugin_dirs[@]}"; do
-    src_dir=""
-    for plugin_root in "${plugin_roots[@]}"; do
-      if [[ -d "${plugin_root}/${plugin_dir}" ]]; then
-        src_dir="${plugin_root}/${plugin_dir}"
-        break
-      fi
-    done
-    [[ -n "${src_dir}" ]] || continue
-    mkdir -p "${plugins_dst}/${plugin_dir}"
-    cp -R "${src_dir}/." "${plugins_dst}/${plugin_dir}/"
-  done
-
-  # Resolver dependencias de frameworks Qt via @rpath y copiarlas al bundle.
-  local -a queue=("${main_bin}")
-  local -A seen=()
-  local current line dep framework_name framework_bin framework_bin_path
-  while [[ ${#queue[@]} -gt 0 ]]; do
-    current="${queue[0]}"
-    queue=("${queue[@]:1}")
-    [[ -n "${seen["${current}"]+x}" ]] && continue
-    seen["${current}"]=1
-    while IFS= read -r line; do
-      dep="$(echo "${line}" | sed 's/^[[:space:]]*//; s/ (.*$//')"
-      [[ -n "${dep}" ]] || continue
-      if [[ "${dep}" =~ (^@rpath/|${qt_prefix//\//\\/}/lib/)(Qt[^/]+)\.framework/Versions/[^/]+/(Qt[^/]+)$ ]]; then
-        framework_name="${BASH_REMATCH[2]}"
-        framework_bin="${BASH_REMATCH[3]}"
-        if copy_framework_by_name "${framework_name}"; then
-          framework_bin_path="${frameworks_dst}/${framework_name}.framework/Versions/A/${framework_bin}"
-          [[ -f "${framework_bin_path}" ]] && queue+=("${framework_bin_path}")
-        fi
-      fi
-    done < <("${otool_bin}" -L "${current}" | tail -n +2)
-  done
-
-  cat > "${resources_dst}/qt.conf" <<'EOF'
-[Paths]
-Plugins = PlugIns
-EOF
-
-  # OpenSSL compartido al bundle. Sin esto el .app compilado en cruce se quedaba SIN
-  # backend de OpenSSL —`availableBackends()` devolvía [securetransport, cert-only]—
-  # y NINGÚN daemon conectaba: con SecureTransport el cliente no presenta su
-  # certificado, el daemon exige mTLS y corta la sesión con
-  # `SSLHandshake failed: -9831`. Y como entonces `--health` cae a la rama de línea de
-  # comandos, que siempre imprime SERVER=0, la aplicación decía "el agente no está en
-  # marcha" con el daemon corriendo y escuchando.
-  #
-  # Esto ya estaba resuelto en scripts/build-macos.sh (compilación NATIVA), pero el
-  # cruce nunca lo tuvo: aquí solo se despliegan frameworks de Qt resueltos con otool,
-  # y encima OpenSSL se enlaza estático, así que el binario ni declara la dependencia.
-  # Quien necesita las .dylib sueltas es el plugin libqopensslbackend.dylib de Qt, que
-  # las carga en tiempo de ejecución. Afectó a los .app publicados de 0.90.6 y 0.90.7.
-  local install_name_tool_bin
-  install_name_tool_bin="$(find_cross_tool install_name_tool)" \
-    || { echo "No se encontró install_name_tool de osxcross" >&2; return 1; }
-  local ossl_prefix="${OPENSSL_MACOS_SHARED_PREFIX:-}"
-  if [[ -z "${ossl_prefix}" ]]; then
-    # La arquitectura sale del mismo sitio que para el OpenSSL estático, para que las
-    # dos no puedan divergir.
-    local ossl_arch
-    ossl_arch="$(macos_arch_from_target "${OSXCROSS_TARGET:-}")"
-    case "${ossl_arch}" in
-      arm64) ossl_prefix="${ZFSMGR_ENTORNO}/opt/openssl-macos-arm64-shared" ;;
-      *)     ossl_prefix="${ZFSMGR_ENTORNO}/opt/openssl-macos-x86_64-shared" ;;
-    esac
-  fi
-  local ossl_libs=()
-  local lib
-  for lib in libssl.3.dylib libcrypto.3.dylib; do
-    if [[ -f "${ossl_prefix}/lib/${lib}" ]]; then
-      cp -f "${ossl_prefix}/lib/${lib}" "${frameworks_dst}/${lib}"
-      chmod u+w "${frameworks_dst}/${lib}"
-      "${install_name_tool_bin}" -id "@executable_path/../Frameworks/${lib}" \
-        "${frameworks_dst}/${lib}" 2>/dev/null || true
-      ossl_libs+=("${lib}")
-    fi
-  done
-  if [[ ${#ossl_libs[@]} -eq 2 ]]; then
-    # libssl depende de libcrypto: reapuntarla dentro del bundle o buscaría la del
-    # prefijo de compilación, que en la máquina del usuario no existe.
-    local dep
-    while IFS= read -r dep; do
-      case "${dep}" in
-        *libcrypto*)
-          "${install_name_tool_bin}" -change "${dep}" \
-            "@executable_path/../Frameworks/libcrypto.3.dylib" \
-            "${frameworks_dst}/libssl.3.dylib" 2>/dev/null || true
-          ;;
-      esac
-    done < <("${otool_bin}" -L "${frameworks_dst}/libssl.3.dylib" | tail -n +2 | awk '{print $1}')
-    echo "  OpenSSL desplegado en el bundle desde ${ossl_prefix}"
-  else
-    # Antes esto habría sido un aviso y la compilación seguiría en verde produciendo
-    # un .app que no habla con ningún daemon. Es exactamente el fallo que se busca
-    # evitar: un artefacto roto que parece correcto.
-    echo "Error: faltan libssl.3.dylib/libcrypto.3.dylib para macOS en ${ossl_prefix}." >&2
-    echo "Sin ellas el .app se queda con SecureTransport y ningún daemon conecta." >&2
-    echo "Aprovisione con: scripts/provision-cross-targets.sh --macos" >&2
-    return 1
-  fi
-}
-
-autodetect_matching_qt_host_prefix() {
-  local qt_target_prefix="$1"
-  local target_parent=""
-  target_parent="$(dirname "${qt_target_prefix}")"
-  if [[ -d "${target_parent}/gcc_64" ]]; then
-    echo "${target_parent}/gcc_64"
-    return 0
-  fi
-  echo ""
-}
-
 doctor_windows() {
   local ok=0
   echo "[doctor] target=windows"
@@ -512,22 +201,6 @@ doctor_windows() {
   need_cmd "${triple}-gcc" || ok=1
   need_cmd "${triple}-g++" || ok=1
   need_cmd "${triple}-windres" || ok=1
-  if [[ -z "${QT6_WINDOWS_PREFIX:-}" ]]; then
-    QT6_WINDOWS_PREFIX="$(autodetect_qt_prefix '*/mingw_64')"
-    export QT6_WINDOWS_PREFIX
-    if [[ -n "${QT6_WINDOWS_PREFIX}" ]]; then
-      echo "QT6_WINDOWS_PREFIX autodetectado: ${QT6_WINDOWS_PREFIX}"
-    fi
-  fi
-  if [[ -z "${QT6_WINDOWS_PREFIX:-}" ]]; then
-    echo "Falta QT6_WINDOWS_PREFIX" >&2
-    ok=1
-  fi
-  if [[ -z "${QT6_HOST_PREFIX:-}" ]] && [[ -d "/usr/lib/x86_64-linux-gnu/cmake/Qt6" ]]; then
-    QT6_HOST_PREFIX="/usr/lib/x86_64-linux-gnu/cmake"
-    export QT6_HOST_PREFIX
-    echo "QT6_HOST_PREFIX autodetectado: ${QT6_HOST_PREFIX}"
-  fi
   if [[ -z "${OPENSSL_ROOT_DIR:-}" ]] && [[ -f "${ZFSMGR_ENTORNO}/opt/openssl-mingw64/lib/libcrypto.a" ]]; then
     OPENSSL_ROOT_DIR="${ZFSMGR_ENTORNO}/opt/openssl-mingw64"
     export OPENSSL_ROOT_DIR
@@ -549,17 +222,7 @@ doctor_freebsd() {
       echo "FREEBSD_SYSROOT autodetectado: ${FREEBSD_SYSROOT}"
     fi
   fi
-  if [[ -z "${QT6_FREEBSD_PREFIX:-}" ]] && [[ -n "${FREEBSD_SYSROOT:-}" ]] && [[ -f "${FREEBSD_SYSROOT}/usr/local/lib/cmake/Qt6/Qt6Config.cmake" ]]; then
-    QT6_FREEBSD_PREFIX="${FREEBSD_SYSROOT}/usr/local"
-    export QT6_FREEBSD_PREFIX
-    echo "QT6_FREEBSD_PREFIX autodetectado: ${QT6_FREEBSD_PREFIX}"
-  fi
   [[ -n "${FREEBSD_SYSROOT:-}" ]] || { echo "Falta FREEBSD_SYSROOT" >&2; ok=1; }
-  [[ -n "${QT6_FREEBSD_PREFIX:-}" ]] || { echo "Falta QT6_FREEBSD_PREFIX" >&2; ok=1; }
-  if [[ -n "${QT6_FREEBSD_PREFIX:-}" ]] && [[ ! -f "${QT6_FREEBSD_PREFIX}/lib/cmake/Qt6/Qt6Config.cmake" ]]; then
-    echo "QT6_FREEBSD_PREFIX no parece válido (falta Qt6Config.cmake): ${QT6_FREEBSD_PREFIX}" >&2
-    ok=1
-  fi
   return ${ok}
 }
 
@@ -587,37 +250,6 @@ doctor_macos() {
       echo "OSX_SYSROOT autodetectado: ${OSX_SYSROOT}"
     fi
   fi
-  if [[ -z "${QT6_MACOS_PREFIX:-}" ]]; then
-    local qt_macos_guess=""
-    qt_macos_guess="$(autodetect_qt_prefix '*/macos')"
-    if [[ -z "${qt_macos_guess}" ]]; then
-      qt_macos_guess="$(autodetect_qt_prefix '*/clang_64')"
-    fi
-    if [[ -n "${qt_macos_guess}" ]]; then
-      QT6_MACOS_PREFIX="${qt_macos_guess}"
-      export QT6_MACOS_PREFIX
-      echo "QT6_MACOS_PREFIX autodetectado: ${QT6_MACOS_PREFIX}"
-    fi
-  fi
-  if [[ -z "${QT_HOST_PATH:-}" ]]; then
-    local qt_host_guess=""
-    if [[ -n "${QT6_MACOS_PREFIX:-}" ]]; then
-      qt_host_guess="$(autodetect_matching_qt_host_prefix "${QT6_MACOS_PREFIX}")"
-    fi
-    if [[ -z "${qt_host_guess}" ]]; then
-      qt_host_guess="$(autodetect_qt_prefix '*/gcc_64')"
-    fi
-    if [[ -n "${qt_host_guess}" ]]; then
-      QT_HOST_PATH="${qt_host_guess}"
-      export QT_HOST_PATH
-      echo "QT_HOST_PATH autodetectado: ${QT_HOST_PATH}"
-    fi
-  fi
-  if [[ -z "${QT_HOST_PATH_CMAKE_DIR:-}" ]] && [[ -n "${QT_HOST_PATH:-}" ]] && [[ -d "${QT_HOST_PATH}/lib/cmake/Qt6" ]]; then
-    QT_HOST_PATH_CMAKE_DIR="${QT_HOST_PATH}/lib/cmake/Qt6"
-    export QT_HOST_PATH_CMAKE_DIR
-    echo "QT_HOST_PATH_CMAKE_DIR autodetectado: ${QT_HOST_PATH_CMAKE_DIR}"
-  fi
   if [[ -z "${OPENSSL_ROOT_DIR:-}" ]]; then
     OPENSSL_ROOT_DIR="$(autodetect_macos_openssl_prefix)"
     if [[ -n "${OPENSSL_ROOT_DIR:-}" ]]; then
@@ -631,21 +263,6 @@ doctor_macos() {
   need_cmd "${cc}" || ok=1
   need_cmd "${cxx}" || ok=1
   [[ -n "${OSX_SYSROOT:-}" ]] || { echo "Falta OSX_SYSROOT" >&2; ok=1; }
-  # Con --agent-only no hay interfaz que compilar, así que Qt no hace falta. Es lo que
-  # permite tener el DAEMON de macOS sin un Qt para macOS instalado: el agente no usa Qt, y
-  # exigirlo dejaba a macOS sin daemon por una dependencia que no es suya.
-  if [[ "${AGENT_ONLY}" -eq 0 ]]; then
-    [[ -n "${QT6_MACOS_PREFIX:-}" ]] || { echo "Falta QT6_MACOS_PREFIX" >&2; ok=1; }
-    [[ -n "${QT_HOST_PATH:-}" ]] || { echo "Falta QT_HOST_PATH (Qt host Linux para moc/uic/rcc)" >&2; ok=1; }
-  fi
-  if [[ -n "${QT6_MACOS_PREFIX:-}" ]] && [[ ! -f "${QT6_MACOS_PREFIX}/lib/cmake/Qt6/Qt6Config.cmake" ]]; then
-    echo "QT6_MACOS_PREFIX no parece válido (falta Qt6Config.cmake): ${QT6_MACOS_PREFIX}" >&2
-    ok=1
-  fi
-  if [[ -n "${QT_HOST_PATH:-}" ]] && [[ ! -x "${QT_HOST_PATH}/libexec/moc" ]]; then
-    echo "QT_HOST_PATH no parece válido (falta moc ejecutable): ${QT_HOST_PATH}" >&2
-    ok=1
-  fi
   [[ -n "${OPENSSL_ROOT_DIR:-}" ]] || { echo "Falta OPENSSL_ROOT_DIR (OpenSSL target macOS)" >&2; ok=1; }
   if [[ -n "${OPENSSL_ROOT_DIR:-}" ]]; then
     [[ -f "${OPENSSL_ROOT_DIR}/include/openssl/evp.h" ]] || { echo "OPENSSL_ROOT_DIR inválido (falta include/openssl/evp.h): ${OPENSSL_ROOT_DIR}" >&2; ok=1; }
@@ -674,45 +291,7 @@ if [[ "${DO_CONFIGURE}" -eq 1 ]]; then
   if command -v ninja >/dev/null 2>&1; then
     cmake_generator_args=(-G Ninja)
   fi
-  if [[ "${TARGET}" == "windows" ]]; then
-    if [[ -z "${QT_HOST_PATH:-}" ]] && [[ -n "${QT6_WINDOWS_PREFIX:-}" ]]; then
-      qt_ver_dir="$(dirname "${QT6_WINDOWS_PREFIX}")"
-      if [[ -d "${qt_ver_dir}/gcc_64" ]]; then
-        QT_HOST_PATH="${qt_ver_dir}/gcc_64"
-        export QT_HOST_PATH
-      fi
-    fi
-    if [[ -z "${QT_HOST_PATH:-}" ]] && [[ -d "/usr/lib/qt6" ]]; then
-      QT_HOST_PATH="/usr"
-      export QT_HOST_PATH
-    fi
-    if [[ -z "${QT_HOST_PATH_CMAKE_DIR:-}" ]] && [[ -n "${QT_HOST_PATH:-}" ]]; then
-      if [[ -d "${QT_HOST_PATH}/lib/cmake/Qt6" ]]; then
-        QT_HOST_PATH_CMAKE_DIR="${QT_HOST_PATH}/lib/cmake/Qt6"
-        export QT_HOST_PATH_CMAKE_DIR
-      elif [[ -d "/usr/lib/x86_64-linux-gnu/cmake/Qt6" ]]; then
-        QT_HOST_PATH_CMAKE_DIR="/usr/lib/x86_64-linux-gnu/cmake/Qt6"
-        export QT_HOST_PATH_CMAKE_DIR
-      fi
-    fi
-    [[ -n "${QT_HOST_PATH:-}" ]] && target_extra_args+=("-DQT_HOST_PATH=${QT_HOST_PATH}")
-    [[ -n "${QT_HOST_PATH_CMAKE_DIR:-}" ]] && target_extra_args+=("-DQT_HOST_PATH_CMAKE_DIR=${QT_HOST_PATH_CMAKE_DIR}")
-    target_extra_args+=("-DCMAKE_DISABLE_FIND_PACKAGE_WrapVulkanHeaders=TRUE")
-  elif [[ "${TARGET}" == "freebsd" ]]; then
-    if [[ -z "${QT_HOST_PATH:-}" ]]; then
-      qt_host_guess="$(autodetect_qt_prefix '*/gcc_64')"
-      if [[ -n "${qt_host_guess}" ]]; then
-        QT_HOST_PATH="${qt_host_guess}"
-        export QT_HOST_PATH
-      fi
-    fi
-    if [[ -z "${QT_HOST_PATH_CMAKE_DIR:-}" ]] && [[ -n "${QT_HOST_PATH:-}" ]] && [[ -d "${QT_HOST_PATH}/lib/cmake/Qt6" ]]; then
-      QT_HOST_PATH_CMAKE_DIR="${QT_HOST_PATH}/lib/cmake/Qt6"
-      export QT_HOST_PATH_CMAKE_DIR
-    fi
-    [[ -n "${QT_HOST_PATH:-}" ]] && target_extra_args+=("-DQT_HOST_PATH=${QT_HOST_PATH}")
-    [[ -n "${QT_HOST_PATH_CMAKE_DIR:-}" ]] && target_extra_args+=("-DQT_HOST_PATH_CMAKE_DIR=${QT_HOST_PATH_CMAKE_DIR}")
-    target_extra_args+=("-DCMAKE_DISABLE_FIND_PACKAGE_WrapVulkanHeaders=TRUE")
+  if [[ "${TARGET}" == "freebsd" ]]; then
     # Link the daemon agent against static libssl/libcrypto so the binary
     # works on any FreeBSD version regardless of the base system SSL soname
     # (FreeBSD 13 ships libssl.so.111 / LibreSSL; FreeBSD 14+ changed soname).
@@ -733,31 +312,6 @@ if [[ "${DO_CONFIGURE}" -eq 1 ]]; then
       OPENSSL_ROOT_DIR="$(autodetect_macos_openssl_prefix)"
       [[ -n "${OPENSSL_ROOT_DIR:-}" ]] && export OPENSSL_ROOT_DIR
     fi
-    if [[ -z "${QT_HOST_PATH:-}" ]]; then
-      if [[ -n "${QT6_MACOS_PREFIX:-}" ]]; then
-        qt_host_guess="$(autodetect_matching_qt_host_prefix "${QT6_MACOS_PREFIX}")"
-      fi
-      if [[ -z "${qt_host_guess}" ]]; then
-        qt_host_guess="$(autodetect_qt_prefix '*/gcc_64')"
-      fi
-      if [[ -n "${qt_host_guess}" ]]; then
-        QT_HOST_PATH="${qt_host_guess}"
-        export QT_HOST_PATH
-      fi
-    fi
-    if [[ -z "${QT_HOST_PATH_CMAKE_DIR:-}" ]] && [[ -n "${QT_HOST_PATH:-}" ]] && [[ -d "${QT_HOST_PATH}/lib/cmake/Qt6" ]]; then
-      QT_HOST_PATH_CMAKE_DIR="${QT_HOST_PATH}/lib/cmake/Qt6"
-      export QT_HOST_PATH_CMAKE_DIR
-    fi
-    [[ -n "${QT_HOST_PATH:-}" ]] && target_extra_args+=("-DQT_HOST_PATH=${QT_HOST_PATH}")
-    [[ -n "${QT_HOST_PATH_CMAKE_DIR:-}" ]] && target_extra_args+=("-DQT_HOST_PATH_CMAKE_DIR=${QT_HOST_PATH_CMAKE_DIR}")
-    if [[ -n "${QT_HOST_PATH:-}" ]]; then
-      [[ -d "${QT_HOST_PATH}/lib/cmake/Qt6CoreTools" ]] && target_extra_args+=("-DQt6CoreTools_DIR=${QT_HOST_PATH}/lib/cmake/Qt6CoreTools")
-      [[ -d "${QT_HOST_PATH}/lib/cmake/Qt6WidgetsTools" ]] && target_extra_args+=("-DQt6WidgetsTools_DIR=${QT_HOST_PATH}/lib/cmake/Qt6WidgetsTools")
-      [[ -x "${QT_HOST_PATH}/libexec/moc" ]] && target_extra_args+=("-DCMAKE_AUTOMOC_EXECUTABLE=${QT_HOST_PATH}/libexec/moc")
-      [[ -x "${QT_HOST_PATH}/libexec/uic" ]] && target_extra_args+=("-DCMAKE_AUTOUIC_EXECUTABLE=${QT_HOST_PATH}/libexec/uic")
-      [[ -x "${QT_HOST_PATH}/libexec/rcc" ]] && target_extra_args+=("-DCMAKE_AUTORCC_EXECUTABLE=${QT_HOST_PATH}/libexec/rcc")
-    fi
     if [[ -n "${OPENSSL_ROOT_DIR:-}" ]]; then
       target_extra_args+=("-DOPENSSL_ROOT_DIR=${OPENSSL_ROOT_DIR}")
       [[ -d "${OPENSSL_ROOT_DIR}/include" ]] && target_extra_args+=("-DOPENSSL_INCLUDE_DIR=${OPENSSL_ROOT_DIR}/include")
@@ -768,51 +322,12 @@ if [[ "${DO_CONFIGURE}" -eq 1 ]]; then
       [[ -d "${OPENSSL_ROOT_DIR}/lib/pkgconfig" ]] && target_extra_args+=("-DPKG_CONFIG_USE_CMAKE_PREFIX_PATH=TRUE")
     fi
     target_extra_args+=("-DCMAKE_OSX_DEPLOYMENT_TARGET=${MACOSX_DEPLOYMENT_TARGET}")
-    target_extra_args+=("-DCMAKE_BUILD_WITH_INSTALL_RPATH=ON")
-    target_extra_args+=("-DCMAKE_INSTALL_RPATH=@executable_path/../Frameworks")
-    target_extra_args+=("-DCMAKE_BUILD_RPATH=@executable_path/../Frameworks")
-    target_extra_args+=("-DCMAKE_DISABLE_FIND_PACKAGE_WrapVulkanHeaders=TRUE")
   fi
-  # SIEMPRE explícito, en los dos sentidos.
-  #
-  # Poniéndolo solo cuando vale ON, el valor cacheado de una pasada anterior sobrevivía: un
-  # directorio compilado sin Qt para macOS —y por tanto con `--agent-only`— seguía dando
-  # SOLO el agente cuando ya había Qt, y el fallo salía al final, al montar el bundle, como
-  # «no se encontró bundle .app». Nada decía que se estuviera compilando otra cosa de la
-  # pedida.
+  # Always explicit: a cached ON from an earlier pass would otherwise survive.
   if [[ "${AGENT_ONLY}" -eq 1 ]]; then
     target_extra_args+=("-DZFSMGR_AGENT_ONLY=ON")
   else
     target_extra_args+=("-DZFSMGR_AGENT_ONLY=OFF")
-  fi
-  # Un directorio ya configurado se queda con el Qt de la vez anterior.
-  #
-  # CMake graba las rutas de cada módulo —`Qt6Core_DIR`, `Qt6Widgets_DIR`…— en la caché y
-  # NO las revisa porque cambie una variable de entorno. Al fijar la versión en
-  # `qt-version.txt`, un `builds/cross-macos-arm64` de una pasada anterior seguía apuntando
-  # a la vieja mientras las herramientas del anfitrión ya eran de la nueva, y el configure
-  # moría con «Failed to find required Qt component "Widgets"» señalando una ruta que
-  # existe. El mensaje no dice nada de versiones, así que se pierde el rato buscando un Qt
-  # incompleto que está completo.
-  #
-  # Es el mismo cuidado que ya tenía `build-linux.sh` (`ensure_build_dir_qt_match`), que
-  # aquí faltaba. Se compara la raíz del Qt de destino, no el prefijo entero: la caché
-  # guarda `<raiz>/lib/cmake/Qt6Core`, no `<raiz>`.
-  if [[ -f "${BUILD_DIR}/CMakeCache.txt" ]]; then
-    _qt_cacheado="$(sed -n 's/^Qt6Core_DIR:PATH=//p' "${BUILD_DIR}/CMakeCache.txt" | head -n1)"
-    _qt_pedido=""
-    case "${TARGET}" in
-      windows) _qt_pedido="${QT6_WINDOWS_PREFIX:-}" ;;
-      macos)   _qt_pedido="${QT6_MACOS_PREFIX:-}" ;;
-      freebsd) _qt_pedido="${QT6_FREEBSD_PREFIX:-}" ;;
-    esac
-    if [[ -n "${_qt_cacheado}" && -n "${_qt_pedido}" && "${_qt_cacheado}" != "${_qt_pedido}"/* ]]; then
-      echo "Detectado build cache con otro Qt:"
-      echo "  cache:  ${_qt_cacheado}"
-      echo "  pedido: ${_qt_pedido}"
-      echo "Regenerando ${BUILD_DIR}..."
-      rm -rf "${BUILD_DIR}"
-    fi
   fi
   cmake -S "${SOURCE_DIR}" -B "${BUILD_DIR}" \
     "${cmake_generator_args[@]}" \
@@ -825,28 +340,6 @@ fi
 
 if [[ "${DO_BUILD}" -eq 1 ]]; then
   cmake --build "${BUILD_DIR}" -j"${JOBS}"
-  if [[ "${TARGET}" == "macos" && "${AGENT_ONLY}" -eq 0 ]]; then
-    # ZFSMgr.app primero: el bundle dejó de llevar la versión en el nombre para que al
-    # copiarlo reemplace al anterior, y este find se quedó buscando el patrón antiguo.
-    # El resultado era que Qt se desplegaba dentro de un bundle VIEJO que seguía en el
-    # directorio de compilación, o dentro de ninguno, y el .app publicado no arrancaba
-    # en un Mac sin Qt instalado.
-    app_bundle="${BUILD_DIR}/ZFSMgr.app"
-    if [[ ! -d "${app_bundle}" ]]; then
-      app_bundle="$(find "${BUILD_DIR}" -maxdepth 1 -type d -name "ZFSMgr-*.app" | sort -V | tail -n1 || true)"
-    fi
-    if [[ -n "${app_bundle}" ]]; then
-      ensure_macos_bundle_runtime_cross "${app_bundle}" "${QT6_MACOS_PREFIX:-}"
-      mete_cli_en_bundle_macos "${app_bundle}" "${BUILD_DIR}"
-      firma_adhoc_bundle "${app_bundle}"
-    else
-      # Antes era un aviso, y la compilación seguía en verde produciendo un .app sin Qt
-      # dentro: no arranca en un Mac que no tenga Qt instalado. Un artefacto que no
-      # funciona debe hacer fallar la compilación, no salir con una nota al margen.
-      echo "Error: no se encontró bundle .app para deploy runtime macOS en ${BUILD_DIR}" >&2
-      exit 1
-    fi
-  fi
 fi
 
 echo "Cross build finalizado: ${TARGET} -> ${BUILD_DIR}"

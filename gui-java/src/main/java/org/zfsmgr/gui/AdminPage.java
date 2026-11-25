@@ -37,7 +37,7 @@ import javax.swing.Timer;
 /**
  * «Administración» (advanced mode): the connections, the programs on each machine, whether each
  * daemon reaches every other by itself ({@code peers --check}), the security keys that open
- * ZFSMgr, and the language. (src/gui/adminpage.cpp.)
+ * ZFSMgr, and the language.
  */
 public final class AdminPage extends JPanel {
     private final StateStore store;

@@ -51,7 +51,7 @@ import javax.swing.tree.TreePath;
  * «Máquinas»: a tree —machine, pool, dataset— and the detail of what is chosen, with what can be
  * done to it. Every level is asked to the CLI when it is opened ({@code ls}, {@code ls -r},
  * {@code probe}), on the service of its own machine, so a slow machine only slows its own
- * branch. (src/gui/machinespage.cpp and machinespage_manage.cpp.)
+ * branch.
  */
 public final class MachinesPage extends JPanel {
     enum Kind { MACHINE, POOL, DATASET, WAITING }
@@ -1269,7 +1269,7 @@ public final class MachinesPage extends JPanel {
     }
 
     // ── Advanced: name, mounting, keys, permissions; sending; snapshot extras
-    //    (machinespage_manage.cpp). Everything is a CLI line; the CLI asks what has to be
+    //    Everything is a CLI line; the CLI asks what has to be
     //    confirmed and the passphrases.
 
     private void showOutput(String machine, String line, String title) {

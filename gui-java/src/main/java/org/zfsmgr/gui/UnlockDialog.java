@@ -18,7 +18,6 @@ import javax.swing.JPasswordField;
  * The start window when FIDO2 keys are registered: «touch your key» and the master password at
  * once, whichever comes first. The CLI's service does the work (it is locked: «Cerrado» in
  * docs/protocolo_serve.md); this shows what it says and hands it the password.
- * (src/gui/unlockdialog.cpp.)
  */
 public final class UnlockDialog extends JDialog {
     private final JLabel key = new JLabel();

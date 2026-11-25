@@ -17,7 +17,7 @@ import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.Timer;
 
-/** «Estado»: how everything is, at a glance. (src/gui/statuspage.cpp.) */
+/** «Estado»: how everything is, at a glance. */
 public final class StatusPage extends JPanel {
     private final StateStore store;
     private final JLabel ago = Ui.muted(" ");

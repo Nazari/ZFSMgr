@@ -28,7 +28,6 @@ import javax.swing.JScrollPane;
  * «Trabajos»: what is copying now —with a button to stop it— and what finished, with when and
  * how. The running ones come from the shared state; the finished ones are asked to each machine
  * ({@code jobs --history}) when the page is shown and after every refresh while it is.
- * (src/gui/jobspage.cpp.)
  */
 public final class JobsPage extends JPanel {
     private static final int HISTORY_SHOWN = 30;

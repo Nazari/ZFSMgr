@@ -35,7 +35,7 @@ import javax.swing.event.DocumentListener;
 
 /**
  * «Nueva copia»: what, where to, how, a review with the exact commands, and running them one by
- * one. The plan itself is {@link CopyPlan}, with its tests. (src/gui/newcopywizard.cpp.)
+ * one. The plan itself is {@link CopyPlan}, with its tests.
  */
 public final class NewCopyWizard extends JDialog {
     private static final int WHAT = 0;

@@ -12,7 +12,7 @@ import java.util.Set;
  * What the status panel shows, computed from what the CLI answers —{@code ls zfsm://} for the
  * machines and {@code overview <machine>} for each— and nothing else. No widget here: the part
  * tested without a screen. The CLI decides what is a warning and writes it; this only counts
- * and orders. (The Qt one: src/gui/statusmodel.cpp.)
+ * and orders.
  */
 public final class StatusModel {
     private StatusModel() {}

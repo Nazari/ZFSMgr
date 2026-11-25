@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.21)
 # Sin declararlo, CMake compilaba esos ficheros como C++ y sus símbolos no casaban con las
 # declaraciones `extern "C"` del lado C++ —el enlazado fallaba con «referencia sin definir»
 # sobre funciones que estaban ahí mismo—.
-project(ZFSMgrQt VERSION 1.2.0 LANGUAGES C CXX)
+project(ZFSMgr VERSION 1.2.0 LANGUAGES C CXX)
 include(CTest)
 
 # Un `switch` sobre un enum al que le falte un caso es un ERROR, no un aviso.
@@ -24,7 +24,6 @@ else()
 endif()
 
 set(ZFSMGR_APP_VERSION_STRING "1.4.3")
-set(ZFSMGR_LINUX_DESKTOP_FILE "${CMAKE_CURRENT_BINARY_DIR}/zfsmgr.desktop")
 set(ZFSMGR_AGENT_SCHEMA_MARKER [=[linux-service:/etc/systemd/system/zfsmgr-agent.service
 linux-bin:/usr/local/libexec/zfsmgr-agent
 linux-config:/etc/zfsmgr/agent.toml
@@ -149,15 +148,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-set(CMAKE_AUTOUIC ON)
-set(CMAKE_AUTOMOC ON)
-set(CMAKE_AUTORCC ON)
-
-# El agente no usa Qt, pero este CMakeLists es común con la GUI y su find_package(Qt6)
-# obligaba a instalar Qt para compilar solo el daemon. Eso hacía inviable cruzarlo con
-# MinGW en integración continua, que es donde hace falta: el agente de Windows se
-# despliega solo en la máquina remota y tiene que ir enlazado estáticamente.
-option(ZFSMGR_AGENT_ONLY "Compilar únicamente el agente, sin Qt ni GUI" OFF)
+# Only the agent: what the Windows agent cross build needs, statically linked.
+option(ZFSMGR_AGENT_ONLY "Build only the agent" OFF)
 
 # El árbol está en UTF-8, y hay que DECÍRSELO al compilador de Microsoft.
 #
@@ -174,14 +166,8 @@ endif()
 find_package(OpenSSL REQUIRED)
 find_package(Threads REQUIRED)
 
-# Capa base: lógica del cliente SIN Qt.
-#
-# La regla que le da sentido es la de enlazado: este objetivo NO enlaza contra Qt, así
-# que si alguien mete aquí un QString el build falla en el sitio, no meses después
-# cuando ya haya media biblioteca contaminada. Esa es toda la garantía; el resto son
-# buenas intenciones.
-#
-# Lo usan tanto la GUI como el agente. Ver docs/diseno_tecnico_capa_base_sin_qt.md.
+# The base layer: the client's logic, used by the CLI and the agent.
+# See docs/diseno_tecnico_capa_base_sin_qt.md.
 add_library(zfsmgr_base STATIC
     ../src/base/strutil.cpp
     ../src/base/strutil.h
@@ -238,7 +224,7 @@ add_library(zfsmgr_base STATIC
 #
 # **Y la dependencia va en un solo sentido, comprobado por el enlazador**: commands usa
 # base, base NO usa commands. Si alguien mete en `base/` un include de `commands/`, el build
-# falla en el sitio. Es la misma garantía que la de no enlazar Qt, y por el mismo motivo:
+# falla en el sitio. Es una regla del enlazador, y por este motivo:
 # una regla que solo está escrita en un documento se incumple sin que nadie se entere.
 #
 # Aquí es donde debe acabar concentrándose la construcción de cada orden del agente: la
@@ -297,8 +283,7 @@ target_include_directories(zfsmgr_base PUBLIC ../src/base "${CMAKE_BINARY_DIR}/g
 # es un dato de la compilación, como en los otros dos objetivos que ya la reciben.
 target_compile_definitions(zfsmgr_base PRIVATE
 )
-# OpenSSL sí, Qt no. La regla es la ausencia de Qt, no la de dependencias: el cifrado de
-# la configuración usa EVP/HMAC/RAND y el agente ya enlaza lo mismo.
+# OpenSSL: the configuration's encryption uses EVP/HMAC/RAND, as the agent does.
 # Threads en PUBLIC, no en cada consumidor.
 #
 # La capa base usa hilos —el transporte, las esperas— y en Linux eso enlaza igual sin
@@ -476,43 +461,9 @@ if(ZFSMGR_AGENT_ONLY)
     return()
 endif()
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Widgets Core Gui Test)
-
-# --- El «-framework AGL» que Qt añade aunque no exista.
-#
-# AGL es el OpenGL antiguo de Apple. Está retirado del SDK desde hace varias versiones —en
-# MacOSX26 ya no está—, y el `FindWrapOpenGL.cmake` de Qt (6.8.3) hace esto:
-#
-#     find_library(WrapOpenGL_AGL NAMES AGL)
-#     if(NOT __opengl_agl_fw_path)
-#         set(__opengl_agl_fw_path "-framework AGL")   # «por si acaso»
-#
-# Es decir: cuando NO lo encuentra, lo enlaza igual. El resultado es que el primer
-# ejecutable que toca Qt6::Widgets muere con «ld: framework not found AGL», y el mensaje no
-# menciona ni Qt ni el SDK. Este fallo costó una investigación en la integración continua
-# que se cerró sin causa, atribuyéndolo primero a la versión de Xcode: no es Xcode, es qué
-# SDK tiene AGL y cuál no.
-#
-# Se quita del objeto de Qt, y SOLO si el SDK de verdad no lo tiene: donde AGL existe,
-# esto no toca nada.
-if(APPLE AND TARGET WrapOpenGL::WrapOpenGL)
-    set(_zfsmgr_agl_sdk "${CMAKE_OSX_SYSROOT}/System/Library/Frameworks/AGL.framework")
-    if(NOT EXISTS "${_zfsmgr_agl_sdk}")
-        get_target_property(_zfsmgr_wrapgl WrapOpenGL::WrapOpenGL INTERFACE_LINK_LIBRARIES)
-        if(_zfsmgr_wrapgl)
-            list(REMOVE_ITEM _zfsmgr_wrapgl "-framework AGL")
-            set_target_properties(WrapOpenGL::WrapOpenGL PROPERTIES
-                                  INTERFACE_LINK_LIBRARIES "${_zfsmgr_wrapgl}")
-            message(STATUS "AGL no está en ${CMAKE_OSX_SYSROOT}: se quita de WrapOpenGL")
-        endif()
-    endif()
-endif()
-
 set_target_properties(zfsmgr_base PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-# La aplicación por línea de órdenes. Enlaza SOLO contra zfsmgr_base: no hay Qt en este
-# binario, y ese es el contrato — si algún día deja de compilar por un símbolo de Qt, es
-# que se ha metido interfaz en la capa de lógica.
+# The command line client. The Java interface (gui-java/) runs it as `zfsmgr-cli --serve`.
 add_executable(zfsmgr-cli
     # El analizador de la línea, GENERADO con bison y flex a partir de
     # ../src/cli/gramatica.{y,l} y guardado en el repositorio. Se regenera con
@@ -593,45 +544,6 @@ target_compile_definitions(zfsmgr-cli PRIVATE
     # esquema. El CLI la necesita para escribir agent.conf al instalar el daemon.
 )
 
-# The interface (src/gui). It links ONLY Qt —no zfsmgr_base, no zfsmgr_commands— and the only
-# process it launches is `zfsmgr-cli --serve`: every rule lives in the CLI. That link line is
-# the rule written where it cannot be forgotten.
-qt_add_executable(zfsmgr-gui
-    ../src/gui/main.cpp
-    ../src/gui/buildstamp.cpp
-    ../src/gui/buildstamp.h
-    ../src/gui/cliservice.cpp
-    ../src/gui/mainwindow.cpp
-    ../src/gui/questiondialog.cpp
-    ../src/gui/statusmodel.cpp
-    ../src/gui/statuspage.cpp
-    ../src/gui/statestore.cpp
-    ../src/gui/uikit.cpp
-    ../src/gui/jobspage.cpp
-    ../src/gui/copiespage.cpp
-    ../src/gui/copyplan.cpp
-    ../src/gui/newcopywizard.cpp
-    ../src/gui/machinespage.cpp
-    ../src/gui/machinespage_manage.cpp
-    ../src/gui/addmachinedialog.cpp
-    ../src/gui/keys.cpp
-    ../src/gui/unlockdialog.cpp
-    ../src/gui/unlockdialog.h
-    ../src/gui/adminpage.cpp
-    ../src/gui/createpooldialog.cpp
-    ../src/gui/singleinstance.cpp
-    # One session per machine (src/base/sessionlock.h): compiled here as it is —it needs only
-    # the standard library and the system's calls— rather than linking zfsmgr_base.
-    ../src/base/sessionlock.cpp
-    gui.qrc
-)
-target_link_libraries(zfsmgr-gui PRIVATE Qt6::Widgets)
-# The generated header with the build's fingerprint (buildstamp.cpp): the packager checks the
-# interface carries the same one as the CLI and the agents beside it.
-target_include_directories(zfsmgr-gui PRIVATE "${CMAKE_BINARY_DIR}/generated")
-target_compile_definitions(zfsmgr-gui PRIVATE QT_NO_KEYWORDS
-                           ZFSMGR_APP_VERSION="${ZFSMGR_APP_VERSION_STRING}")
-
 add_executable(zfsmgr_agent
     ../src/daemon/main.cpp
     ../src/daemon/core.cpp
@@ -703,48 +615,6 @@ if(NOT WIN32)
     endif()
 endif()
 
-if(WIN32)
-    target_sources(zfsmgr-gui PRIVATE appicon.rc)
-    set_target_properties(zfsmgr-gui PROPERTIES WIN32_EXECUTABLE TRUE)
-    if(MSVC)
-        # appicon.rc already embeds app.manifest; disable linker auto-manifest
-        # to avoid CVT1100 duplicate MANIFEST in GitHub Actions (MSVC).
-        target_link_options(zfsmgr-gui PRIVATE "/MANIFEST:NO")
-    endif()
-endif()
-
-if(APPLE)
-    # SIN versión en el nombre: el bundle debe llamarse siempre ZFSMgr.app para que
-    # al copiarlo a /Applications reemplace al anterior en vez de instalarse a su
-    # lado. La versión sigue estando en el Info.plist (CFBundleShortVersionString)
-    # y en el nombre del .zip que se publica.
-    set(ZFSMGR_BUNDLE_NAME "ZFSMgr")
-    set(app_icns "${CMAKE_CURRENT_SOURCE_DIR}/../icons/ZFSMgr.icns")
-    set_source_files_properties(${app_icns} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
-    target_sources(zfsmgr-gui PRIVATE ${app_icns})
-    set_target_properties(zfsmgr-gui PROPERTIES
-        MACOSX_BUNDLE TRUE
-        OUTPUT_NAME "${ZFSMGR_BUNDLE_NAME}"
-        MACOSX_BUNDLE_BUNDLE_NAME "${ZFSMGR_BUNDLE_NAME}"
-        MACOSX_BUNDLE_ICON_FILE "ZFSMgr.icns"
-        # Sin esto, CMake genera com.yourcompany.zfsmgr-gui, su marcador de posición
-        # por defecto, que es lo que aparecía en los informes de fallo del sistema.
-        # Se usa el prefijo org.zfsmgr, que ya emplea el daemon en su plist de
-        # launchd (org.zfsmgr.agent), en vez de introducir otro distinto.
-        MACOSX_BUNDLE_GUI_IDENTIFIER "org.zfsmgr.ZFSMgr"
-        # CMake pone por defecto solo mayor.menor en la versión corta, así que la
-        # 0.90.2 y la 0.90.3 se veían ambas como "0.90" en Finder y en los informes
-        # de fallo. Ambas cadenas llevan la versión completa.
-        MACOSX_BUNDLE_SHORT_VERSION_STRING "${ZFSMGR_APP_VERSION_STRING}"
-        MACOSX_BUNDLE_BUNDLE_VERSION "${ZFSMGR_APP_VERSION_STRING}"
-    )
-endif()
-
-install(TARGETS zfsmgr-gui
-    BUNDLE DESTINATION .
-    RUNTIME DESTINATION bin
-)
-
 install(TARGETS zfsmgr_agent
     RUNTIME DESTINATION bin
 )
@@ -760,10 +630,8 @@ install(TARGETS zfsmgr-cli
 
 # Y sus catálogos, que NO puede llevar dentro.
 #
-# La interfaz tiene los suyos compilados como recurso de Qt y funciona sin fichero
-# ninguno; el intérprete no enlaza Qt —ese es su contrato—, así que los lee del disco. Sin
-# esto se instala y arranca, pero solo habla castellano: los textos en inglés se quedan
-# en el literal de reserva.
+# The CLI reads them from the disk; without them it speaks only Spanish (the fallback
+# literals).
 #
 # `share/zfsmgr/i18n` no es un sitio elegido al azar: es una de las cuatro rutas que
 # `src/cli/main.cpp` ya busca a partir del ejecutable, justo la pensada para un binario
@@ -773,56 +641,8 @@ install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../i18n/"
     FILES_MATCHING PATTERN "*.json"
 )
 
-if(DEFINED ZFSMGR_AGENT_BUNDLE_DIR AND EXISTS "${ZFSMGR_AGENT_BUNDLE_DIR}")
-    install(DIRECTORY "${ZFSMGR_AGENT_BUNDLE_DIR}/"
-        DESTINATION share/zfsmgr/agents
-    )
-endif()
-
-if(UNIX AND NOT APPLE)
-    file(WRITE "${ZFSMGR_LINUX_DESKTOP_FILE}" [=[
-[Desktop Entry]
-Type=Application
-Name=ZFSMgr
-Comment=Cross-platform OpenZFS GUI manager
-Exec=zfsmgr-gui
-Icon=ZFSMgr
-Categories=System;Utility;
-Terminal=false
-]=])
-
-    install(FILES "${ZFSMGR_LINUX_DESKTOP_FILE}"
-        DESTINATION share/applications
-    )
-    install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../icons/ZFSMgr-512.png"
-        DESTINATION share/icons/hicolor/512x512/apps
-        RENAME ZFSMgr.png
-    )
-
-    set(CPACK_PACKAGE_NAME "zfsmgr")
-    set(CPACK_PACKAGE_VENDOR "Nazari")
-    set(CPACK_PACKAGE_CONTACT "Nazari")
-    set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Cross-platform OpenZFS GUI manager")
-    set(CPACK_PACKAGE_VERSION "${ZFSMGR_APP_VERSION_STRING}")
-    set(CPACK_GENERATOR "DEB")
-    set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
-    set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Nazari")
-    set(CPACK_DEBIAN_PACKAGE_SECTION "utils")
-    set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
-    if(DEFINED ZFSMGR_AGENT_BUNDLE_DIR AND EXISTS "${ZFSMGR_AGENT_BUNDLE_DIR}")
-        # Cuando incluimos agentes multi-OS, dpkg-shlibdeps intenta resolver ELFs
-        # de FreeBSD dentro del .deb y falla (no existen esas libs en Linux).
-        set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS OFF)
-    else()
-        set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
-    endif()
-    include(CPack)
-endif()
-
 if(BUILD_TESTING)
-    # SIN Qt a propósito: ni Qt6::Core. Es la comprobación de que la capa base está
-    # realmente limpia; si alguien mete un QString ahí, esto deja de enlazar y el fallo
-    # sale en el commit que lo introduce, no meses después.
+    # No Qt anywhere: the base layer, the CLI and the agent are plain C++.
     add_executable(zfsmgr_base_test ../tests/base_test.cpp)
     # Sin repetir `OpenSSL::Crypto`: ya viene de `zfsmgr_base`, y allí `ws2_32` va DETRÁS.
     # Nombrarlo otra vez aquí lo pone al final del todo, después de `ws2_32`, y el enlazador
@@ -831,7 +651,7 @@ if(BUILD_TESTING)
     target_link_libraries(zfsmgr_base_test PRIVATE zfsmgr_commands zfsmgr_compresion)
     add_test(NAME zfsmgr_base_test COMMAND zfsmgr_base_test)
 
-    # La copia de árboles se prueba aparte y sin Qt: es donde caen los casos límite
+    # La copia de árboles se prueba aparte: es donde caen los casos límite
     # —enlaces duros, dispersos, exclusiones— y donde un fallo BORRA datos, porque de
     # ella cuelgan Desglosar, Ensamblar y Hacia Dir.
     add_executable(zfsmgr_copytree_test
@@ -841,36 +661,8 @@ if(BUILD_TESTING)
         ../src/commands/fsmeta.cpp
     )
     target_include_directories(zfsmgr_copytree_test PRIVATE ../src ../src/base ../src/commands)
-    target_link_libraries(zfsmgr_copytree_test PRIVATE Qt6::Core Qt6::Test OpenSSL::Crypto)
-    target_compile_definitions(zfsmgr_copytree_test PRIVATE QT_NO_KEYWORDS)
+    target_link_libraries(zfsmgr_copytree_test PRIVATE OpenSSL::Crypto)
     add_test(NAME zfsmgr_copytree_test COMMAND zfsmgr_copytree_test)
-
-    # The interface's status model: from the CLI's answers to what the panel counts.
-    # Qt Core only, like the interface itself never links anything of ours.
-    add_executable(zfsmgr_gui_status_test ../tests/gui_status_test.cpp ../src/gui/statusmodel.cpp
-                   ../src/gui/copyplan.cpp)
-    target_link_libraries(zfsmgr_gui_status_test PRIVATE Qt6::Core)
-    target_compile_definitions(zfsmgr_gui_status_test PRIVATE QT_NO_KEYWORDS)
-    add_test(NAME zfsmgr_gui_status_test COMMAND zfsmgr_gui_status_test)
-
-    # A page rebuilt from inside one of its own widgets' handlers does not crash (the double
-    # click on a directory, 2026-11-23). Offscreen: no screen needed.
-    add_executable(zfsmgr_gui_uikit_test ../tests/gui_uikit_test.cpp ../src/gui/uikit.cpp
-                   ../src/gui/uikit.h)
-    target_link_libraries(zfsmgr_gui_uikit_test PRIVATE Qt6::Widgets Qt6::Test)
-    target_compile_definitions(zfsmgr_gui_uikit_test PRIVATE QT_NO_KEYWORDS)
-    add_test(NAME zfsmgr_gui_uikit_test COMMAND zfsmgr_gui_uikit_test)
-    set_tests_properties(zfsmgr_gui_uikit_test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
-
-    # The interface's service against a fake `zfsmgr-cli --serve`: an answer for an owner that
-    # no longer exists is dropped. Not on Windows: the fake is a shell script.
-    if(NOT WIN32)
-        add_executable(zfsmgr_gui_service_test ../tests/gui_service_test.cpp
-                       ../src/gui/cliservice.cpp ../src/gui/cliservice.h)
-        target_link_libraries(zfsmgr_gui_service_test PRIVATE Qt6::Core)
-        target_compile_definitions(zfsmgr_gui_service_test PRIVATE QT_NO_KEYWORDS)
-        add_test(NAME zfsmgr_gui_service_test COMMAND zfsmgr_gui_service_test)
-    endif()
 
     # La gramática del intérprete: que analice lo que se cree, y que toda firma declarada
     # en el catálogo encaje en alguna de sus formas.

@@ -207,7 +207,7 @@ resending a `--job-submit` launches the same transfer twice over the same data.
 
 **The base layer does not translate and does not print.** It returns typed reasons —
 `transport::Failure`, `store::Reason`, `gsa::Failure` — and whoever has an interface words
-them. This is enforced by the build: `zfsmgr_base` links no Qt, and its include directory
+them. This is enforced by the build: `zfsmgr_base`'s include directory
 is only `../src/base`, so an `#include "commands/..."` from `base/` does not compile.
 
 **Empty output is usually not an error.** A dataset with nothing delegated, a directory

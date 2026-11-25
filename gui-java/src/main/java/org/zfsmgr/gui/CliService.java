@@ -15,7 +15,7 @@ import java.util.concurrent.Executor;
 import java.util.function.Consumer;
 
 /**
- * One {@code zfsmgr-cli --serve} (docs/protocolo_serve.md), as the Qt CliService.
+ * One {@code zfsmgr-cli --serve} (docs/protocolo_serve.md).
  *
  * <p>The service runs ONE command at a time, so requests wait here in a queue and the next one
  * goes when the previous one's {@code result} arrives. Everything the service says —results,

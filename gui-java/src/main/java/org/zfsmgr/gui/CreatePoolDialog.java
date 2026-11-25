@@ -27,7 +27,6 @@ import javax.swing.table.DefaultTableModel;
 /**
  * «Crear un pool»: a name, how its disks are arranged, the free disks of the machine, and the
  * exact command. zpool decides the rules; the CLI lists what is lost and asks for the name.
- * (src/gui/createpooldialog.cpp.)
  */
 public final class CreatePoolDialog extends JDialog {
     private final String machine;

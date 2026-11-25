@@ -1,5 +1,0 @@
-<RCC>
-  <qresource prefix="/">
-    <file alias="icons/ZFSMgr-512.png">../icons/ZFSMgr-512.png</file>
-  </qresource>
-</RCC>

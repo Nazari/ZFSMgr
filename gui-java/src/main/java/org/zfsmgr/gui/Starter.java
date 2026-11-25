@@ -12,7 +12,7 @@ import javax.swing.JWindow;
 import javax.swing.SwingUtilities;
 
 /**
- * From nothing to the window, as main.cpp's Starter in the Qt interface. The general service is
+ * From nothing to the window. The general service is
  * started with an EMPTY first line (or the password given with --password-fd), and what it
  * answers decides the next step:
  *

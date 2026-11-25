@@ -1,20 +1,9 @@
-name: Build Packages
+name: Build
 
-# Tres etapas encadenadas:
-#
-#   1. agents-*       compilan SOLO el daemon, una por plataforma
-#   2. agent-bundle   los reúne en un único artefacto zfsmgr-agents
-#   3. build-*        compilan la GUI y empaquetan, con ese bundle a mano
-#
-# La etapa 1 está separada a propósito. La aplicación instala y actualiza el daemon
-# en los hosts remotos, así que CUALQUIER paquete que se publique necesita llevar
-# dentro los agentes de TODAS las plataformas, no solo el de la suya. Si cada
-# plataforma solo compilara el suyo, o habría que encadenar builds completos entre
-# sí, o cada paquete saldría cojo — que es justo lo que pasaba: el .app de macOS no
-# llevaba ninguno y no podía desplegar nada.
-#
-# El daemon es un solo .cpp y se compila en poco tiempo, así que tener su propia
-# etapa sale barato comparado con encadenar builds de la GUI.
+# What CI checks: the CLI, the agent and their tests build and pass on Linux, and the Java
+# interface builds and passes its tests. The release packages —every platform's CLI and
+# agent, the interface's .jar and the installers— are made on one machine with
+# scripts/buildall-cross.sh (scripts/release-github.sh runs it), not here.
 
 on:
   workflow_dispatch:
@@ -24,397 +13,44 @@ on:
     branches: [main]
 
 jobs:
-  # ── Etapa 1: agentes ───────────────────────────────────────────────────────
-  agents:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            key: linux-x86_64
-            artifact: builds/agents-only/zfsmgr_agent
-          - os: macos-15
-            key: macos-universal
-            artifact: builds/agents-only/zfsmgr_agent
-    runs-on: ${{ matrix.os }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Resolver versión de Qt
-        id: qtver
-        shell: bash
-        run: echo "version=$(tr -d '[:space:]' < qt-version.txt)" >> "$GITHUB_OUTPUT"
-
-      # El daemon no usa Qt, pero el CMakeLists es común y hace find_package(Qt6)
-      # para la GUI, así que la configuración falla sin él.
-      - name: Install Qt 6
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: ${{ steps.qtver.outputs.version }}
-          cache: true
-
-      # El agente de macOS tiene que ser universal como el .app, y para eso hace
-      # falta un OpenSSL universal. La caché la comparte con el job de empaquetado,
-      # que va después, así que solo se compila una vez.
-      - name: Caché de OpenSSL universal (macOS)
-        if: runner.os == 'macOS'
-        id: ssl-cache
-        uses: actions/cache@v4
-        with:
-          path: builds/openssl-universal
-          key: openssl-universal-macos-${{ hashFiles('scripts/build-openssl-universal-macos.sh') }}
-
-      - name: Compilar OpenSSL universal (macOS)
-        if: runner.os == 'macOS' && steps.ssl-cache.outputs.cache-hit != 'true'
-        shell: bash
-        run: |
-          chmod +x ./scripts/build-openssl-universal-macos.sh
-          ./scripts/build-openssl-universal-macos.sh
-
-      # Se compila el objetivo zfsmgr_agent a secas, sin la GUI: es lo único que
-      # esta etapa tiene que producir.
-      - name: Compilar el agente
-        shell: bash
-        run: |
-          set -euo pipefail
-          extra=()
-          if [ "${RUNNER_OS}" = "macOS" ]; then
-            extra+=(-DCMAKE_OSX_ARCHITECTURES="x86_64;arm64"
-                    -DOPENSSL_ROOT_DIR="${PWD}/builds/openssl-universal")
-          fi
-          cmake -S resources -B builds/agents-only -DCMAKE_BUILD_TYPE=Release "${extra[@]}"
-          cmake --build builds/agents-only --config Release --target zfsmgr_agent
-
-      - name: Comprobar el agente
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -f "${{ matrix.artifact }}"
-          if [ "${RUNNER_OS}" = "macOS" ]; then
-            archs="$(lipo -archs "${{ matrix.artifact }}")"
-            echo "Arquitecturas: ${archs}"
-            case "${archs}" in
-              *arm64*x86_64*|*x86_64*arm64*) ;;
-              *) echo "Error: el agente de macOS no es universal (${archs})" >&2; exit 1 ;;
-            esac
-          fi
-
-      - name: Subir el agente
-        uses: actions/upload-artifact@v4
-        with:
-          name: agent-${{ matrix.key }}
-          path: ${{ matrix.artifact }}
-          if-no-files-found: error
-
-  # Windows se cruza con MinGW desde Ubuntu, no se compila con MSVC en windows-latest.
-  #
-  # El agente se despliega SOLO en la máquina remota: no va acompañado de ninguna otra
-  # biblioteca y allí no hay gestor de paquetes. Compilado con MSVC depende de
-  # VCRUNTIME140, MSVCP140 y las DLL de OpenSSL, y arranca con 0xC0000135 ("DLL no
-  # encontrada") sin decir cuál; el síntoma que se veía era que instalar el daemon
-  # fallaba al generar el material TLS. Con MinGW se enlaza estáticamente.
-  agents-windows:
+  cli-and-agent:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Instalar la toolchain MinGW
+      - name: Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends mingw-w64 mingw-w64-tools
+          sudo apt-get install -y cmake ninja-build g++ libssl-dev
 
-      # Ubuntu no empaqueta OpenSSL para MinGW, así que se compila. Se cachea porque
-      # tarda varios minutos y solo cambia si cambia el script que lo construye.
-      - name: Caché de OpenSSL para MinGW
-        id: ssl-mingw
-        uses: actions/cache@v4
-        with:
-          path: ~/opt/openssl-mingw64
-          key: openssl-mingw64-${{ hashFiles('scripts/provision-cross-targets.sh') }}
-
-      - name: Compilar OpenSSL para MinGW
-        if: steps.ssl-mingw.outputs.cache-hit != 'true'
-        run: bash scripts/provision-cross-targets.sh --windows --skip-qt
-
-      # ZFSMGR_AGENT_ONLY evita find_package(Qt6): el daemon no usa Qt y así no hay que
-      # instalar un Qt para MinGW solo para configurar.
-      - name: Compilar el agente
+      - name: Build
         run: |
-          set -euo pipefail
-          cmake -S resources -B builds/agents-only \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DZFSMGR_AGENT_ONLY=ON \
-            -DCMAKE_TOOLCHAIN_FILE="${PWD}/toolchains/windows-mingw64.cmake" \
-            -DOPENSSL_ROOT_DIR="${HOME}/opt/openssl-mingw64"
-          cmake --build builds/agents-only --target zfsmgr_agent -j"$(nproc)"
+          cmake -S resources -B builds/linux -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build builds/linux
 
-      # Sin esto, un cambio de toolchain o de opciones puede volver a producir un
-      # binario que necesita DLL que en la máquina de destino no existen, y solo se
-      # descubre al intentar instalar el daemon contra un Windows real.
-      - name: Comprobar que es autosuficiente
-        run: |
-          set -euo pipefail
-          bin=builds/agents-only/zfsmgr_agent.exe
-          test -f "$bin"
-          deps="$(x86_64-w64-mingw32-objdump -p "$bin" | sed -n 's/^\s*DLL Name: //p' | sort -u)"
-          echo "Dependencias:"; printf '  %s\n' $deps
-          bad="$(printf '%s\n' $deps | grep -iE '^(vcruntime|msvcp|libssl|libcrypto|libgcc|libstdc|libwinpthread)' || true)"
-          if [ -n "$bad" ]; then
-            echo "Error: el agente no es autosuficiente; necesita:" >&2
-            printf '  %s\n' $bad >&2
-            exit 1
-          fi
+      - name: Tests
+        run: ctest --test-dir builds/linux --output-on-failure
 
-      - name: Subir el agente
-        uses: actions/upload-artifact@v4
-        with:
-          name: agent-windows-x86_64
-          path: builds/agents-only/zfsmgr_agent.exe
-          if-no-files-found: error
-
-  agents-freebsd:
+  gui-java:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Compilar el agente (FreeBSD)
-        uses: vmactions/freebsd-vm@v1
+      - name: Java 21
+        uses: actions/setup-java@v4
         with:
-          usesh: true
-          prepare: |
-            pkg install -y bash cmake qt6-base qt6-tools openssl git
-          run: |
-            cmake -S resources -B builds/agents-only -DCMAKE_BUILD_TYPE=Release
-            cmake --build builds/agents-only --target zfsmgr_agent
-            test -f builds/agents-only/zfsmgr_agent
+          distribution: temurin
+          java-version: '21'
+          cache: maven
 
-      - name: Subir el agente
+      - name: Build and test
+        run: mvn -B -f gui-java/pom.xml package
+
+      - name: Upload the .jar
         uses: actions/upload-artifact@v4
         with:
-          name: agent-freebsd-x86_64
-          path: builds/agents-only/zfsmgr_agent
-          if-no-files-found: error
-
-  # ── Etapa 2: reunirlos en un solo artefacto ────────────────────────────────
-  agent-bundle:
-    runs-on: ubuntu-latest
-    needs: [agents, agents-windows, agents-freebsd]
-    steps:
-      - name: Descargar los agentes
-        uses: actions/download-artifact@v4
-        with:
-          pattern: agent-*
-          path: incoming
-
-      # El agente de macOS es universal, así que el mismo binario vale para
-      # macos-arm64 y macos-amd64, que son los nombres por los que pregunta
-      # findDeployableAgentBinaryPath según el host de destino.
-      - name: Componer el bundle
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p bundle/linux-x86_64 bundle/windows-x86_64 bundle/freebsd-x86_64 \
-                   bundle/macos-arm64 bundle/macos-amd64
-          cp incoming/agent-linux-x86_64/zfsmgr_agent       bundle/linux-x86_64/zfsmgr_agent
-          cp incoming/agent-windows-x86_64/zfsmgr_agent.exe bundle/windows-x86_64/zfsmgr_agent.exe
-          cp incoming/agent-freebsd-x86_64/zfsmgr_agent     bundle/freebsd-x86_64/zfsmgr_agent
-          cp incoming/agent-macos-universal/zfsmgr_agent    bundle/macos-arm64/zfsmgr_agent
-          cp incoming/agent-macos-universal/zfsmgr_agent    bundle/macos-amd64/zfsmgr_agent
-          chmod +x bundle/*/zfsmgr_agent*
-          echo "Bundle de agentes:"
-          find bundle -type f -exec ls -l {} +
-          # Cinco es el número exacto que espera la app; si cambia, alguien tocó
-          # esto sin actualizar el otro lado.
-          n="$(find bundle -type f -name 'zfsmgr_agent*' | wc -l | tr -d ' ')"
-          [ "${n}" -eq 5 ] || { echo "Error: se esperaban 5 agentes, hay ${n}" >&2; exit 1; }
-
-      - name: Subir el bundle
-        uses: actions/upload-artifact@v4
-        with:
-          name: zfsmgr-agents
-          path: bundle/
-          if-no-files-found: error
-
-  # ── Etapa 3: GUI y empaquetado ─────────────────────────────────────────────
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    needs: agent-bundle
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      # La versión sale de qt-version.txt para que CI y el aprovisionamiento local
-      # (scripts/provision-cross-targets.sh) no puedan divergir, como pasaba con el
-      # 6.6.3 fijado aquí frente al 6.8.3 que se usaba en local.
-      - name: Resolver versión de Qt
-        id: qtver
-        shell: bash
-        run: echo "version=$(tr -d '[:space:]' < qt-version.txt)" >> "$GITHUB_OUTPUT"
-
-      - name: Install Qt 6
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: ${{ steps.qtver.outputs.version }}
-          cache: true
-
-      - name: Descargar el bundle de agentes
-        uses: actions/download-artifact@v4
-        with:
-          name: zfsmgr-agents
-          path: builds/agent-bundle
-
-      - name: Build (Linux)
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          chmod +x ./scripts/build-linux.sh
-          ./scripts/build-linux.sh
-
-      - name: Build (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          ./scripts/build-windows.ps1
-
-      # Los scripts de build escriben en builds/<os>/, no en build-<os>/. Con las
-      # rutas antiguas y if-no-files-found: warn, el workflow subía artefactos
-      # vacíos y terminaba en verde. De ahí el error: si no hay ficheros, falla.
-      # Las rutas help/** e i18n/** que había aquí tampoco casaban nunca: ambos
-      # van compilados dentro del recurso Qt, no se copian al directorio de build.
-      - name: Upload Linux artifacts
-        if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v4
-        with:
-          name: zfsmgr-linux
-          path: |
-            builds/linux/zfsmgr-gui
-            builds/linux/zfsmgr_agent
-          if-no-files-found: error
-
-      - name: Upload Windows artifacts
-        if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
-        with:
-          name: zfsmgr-windows
-          path: |
-            builds/windows/Release/zfsmgr-gui.exe
-            builds/windows/Release/zfsmgr_agent.exe
-          if-no-files-found: error
-
-  build-freebsd:
-    runs-on: ubuntu-latest
-    needs: agent-bundle
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Descargar el bundle de agentes
-        uses: actions/download-artifact@v4
-        with:
-          name: zfsmgr-agents
-          path: builds/agent-bundle
-
-      - name: Build (FreeBSD)
-        uses: vmactions/freebsd-vm@v1
-        with:
-          usesh: true
-          prepare: |
-            # qt6-linguisttools no existe en el repo de FreeBSD (verificado contra
-            # packagesite.pkg) y pkg aborta el job entero al no encontrarlo. Tampoco
-            # hacía falta: el proyecto no usa LinguistTools — no está en el
-            # find_package de Qt6 ni hay lrelease/qt_add_translations en el CMake;
-            # la i18n la resuelve i18nmanager.cpp.
-            # bash va explícito: FreeBSD no lo trae de serie y build-freebsd.sh
-            # lleva shebang de bash (y 29 construcciones que no son POSIX sh), así
-            # que sin él el job muere con "env: bash: No such file or directory".
-            pkg install -y bash cmake qt6-base qt6-tools openssl git
-          run: |
-            chmod +x ./scripts/build-freebsd.sh
-            ./scripts/build-freebsd.sh
-
-      - name: Upload FreeBSD artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: zfsmgr-freebsd
-          path: |
-            builds/freebsd/zfsmgr-gui
-            builds/freebsd/zfsmgr_agent
-          if-no-files-found: error
-
-  # macos-15: GitHub retired macos-14 (2026-11, «The configuration
-  # 'macos-14-arm64-us-default' is not supported»). The «framework 'AGL' not found» that
-  # pinned it there is understood now and handled in resources/CMakeLists.txt: Qt's
-  # FindWrapOpenGL links AGL even when the SDK does not have it.
-  build-macos:
-    runs-on: macos-15
-    needs: agent-bundle
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Resolver versión de Qt
-        id: qtver
-        shell: bash
-        run: echo "version=$(tr -d '[:space:]' < qt-version.txt)" >> "$GITHUB_OUTPUT"
-
-      - name: Install Qt 6
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: ${{ steps.qtver.outputs.version }}
-          cache: true
-
-      - name: Descargar el bundle de agentes
-        uses: actions/download-artifact@v4
-        with:
-          name: zfsmgr-agents
-          path: builds/agent-bundle
-
-      # La caché la dejó caliente el job de agentes, así que aquí es un acierto.
-      - name: Caché de OpenSSL universal
-        id: ssl-cache
-        uses: actions/cache@v4
-        with:
-          path: builds/openssl-universal
-          key: openssl-universal-macos-${{ hashFiles('scripts/build-openssl-universal-macos.sh') }}
-
-      - name: Compilar OpenSSL universal
-        if: steps.ssl-cache.outputs.cache-hit != 'true'
-        shell: bash
-        run: |
-          chmod +x ./scripts/build-openssl-universal-macos.sh
-          ./scripts/build-openssl-universal-macos.sh
-
-      - name: Build (macOS)
-        shell: bash
-        run: |
-          chmod +x ./scripts/build-macos.sh
-          ZFSMGR_OPENSSL_PREFIX="${PWD}/builds/openssl-universal" \
-          ZFSMGR_AGENT_BUNDLE_DIR="${PWD}/builds/agent-bundle" \
-            ./scripts/build-macos.sh --universal
-
-      - name: Empaquetar bundle
-        shell: bash
-        run: |
-          cd builds/macos
-          app="$(ls -d *.app | head -n1)"
-          # No se usa uname -m: el runner es arm64 pero el bundle es universal, y
-          # etiquetarlo con la arquitectura de la máquina que lo compiló haría creer
-          # que no sirve en un Mac Intel.
-          bin="${app}/Contents/MacOS/$(ls "${app}/Contents/MacOS" | grep -v '\.dSYM$' | head -n1)"
-          echo "Arquitecturas del ejecutable: $(lipo -archs "${bin}")"
-          ditto -c -k --keepParent --sequesterRsrc "${app}" "ZFSMgr-universal.app.zip"
-
-      - name: Upload macOS artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: zfsmgr-macos-universal
-          path: builds/macos/*.app.zip
+          name: zfsmgr-gui
+          path: gui-java/target/zfsmgr-gui.jar
           if-no-files-found: error

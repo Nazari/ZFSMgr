@@ -44,9 +44,8 @@ Variables opcionales:
                con sufijo —2.0.0rc1— lo es siempre.
 
 Artefactos publicados (los genera scripts/empaqueta.sh, que llama buildall-cross.sh):
-  - zfsmgr-cli-<version>.zip    solo CLI, un instalador por sistema
-  - zfsmgr-<version>.zip        CLI + interfaz en Java (desde la 2.0.0; en la 1.x no se subía)
-  - y la suma SHA-256 de cada uno
+  - zfsmgr-<version>.zip        CLI, agentes e interfaz en Java, un instalador por sistema
+  - y su suma SHA-256
 
 Resolución de artefactos:
   Primero se buscan en ARTIFACTS_DIR y, si no están ahí, en builds/ locales.
@@ -102,14 +101,12 @@ TAG="v${VERSION}"
 BASE_VERSION="$(printf '%s' "${VERSION}" | sed -E 's/^([0-9]+\.[0-9]+\.[0-9]+).*/\1/')"
 # A candidate —anything after the three numbers— is never published as the latest one.
 [[ "${VERSION}" != "${BASE_VERSION}" ]] && PRERELEASE=1
-MAJOR="${BASE_VERSION%%.*}"
 [[ -n "${BASE_VERSION}" ]] || fail "No se pudo resolver la versión base desde ${VERSION}"
 LOG_DIR="${RELEASE_LOG_DIR:-${ARTIFACTS_ROOT}/logs/${VERSION}}"
 STATE_FILE="${ARTIFACTS_ROOT}/state/${VERSION}/release-state.json"
 ARTIFACTS_DIR="${OUTPUT_DIR:-${ARTIFACTS_ROOT}/${VERSION}}"
 BUILDALL_PLATFORM_LOG_DIR="${LOG_DIR}/buildall-platforms"
 ZIP_COMPLETO=""
-ZIP_CLI=""
 RELEASE_FILES=()
 
 if [[ "${ONLY_RELEASE}" -eq 1 ]]; then
@@ -181,20 +178,13 @@ join_by() {
 
 
 resolve_release_artifacts() {
-  # Dos zip y sus sumas, y nada más. Antes eran cinco artefactos sueltos —Setup, AppImage,
-  # .deb, .app.zip por arquitectura y .pkg de FreeBSD—; ahora todo va dentro de estos dos,
-  # con un instalador por sistema. Ver scripts/empaqueta.sh.
+  # Un zip y su suma, y nada más: dentro va todo, con un instalador por sistema. Ver
+  # scripts/empaqueta.sh.
   local artifacts_dir="$1"
   ZIP_COMPLETO="${artifacts_dir}/zfsmgr-${VERSION}.zip"
-  ZIP_CLI="${artifacts_dir}/zfsmgr-cli-${VERSION}.zip"
   RELEASE_FILES=()
   local f
-  # En la 1.x se publicaba SOLO el CLI: la interfaz gráfica no estaba probada. Desde la 2.0.0,
-  # con la interfaz en Java, también el completo.
-  local publish=("${ZIP_CLI}" "${ZIP_CLI}.sha256")
-  if [[ "${MAJOR}" -ge 2 ]]; then
-    publish+=("${ZIP_COMPLETO}" "${ZIP_COMPLETO}.sha256")
-  fi
+  local publish=("${ZIP_COMPLETO}" "${ZIP_COMPLETO}.sha256")
   for f in "${publish[@]}"; do
     # Con `if` y no con `[[ ]] &&`: si el último no existe —lo normal antes de compilar—, la
     # función devolvería 1 y la trampa de ERR abortaría la release sin decir nada.
@@ -230,8 +220,7 @@ write_state() {
   "artifacts_dir": "$(json_escape "${ARTIFACTS_DIR}")",
   "buildall_platform_log_dir": "$(json_escape "${BUILDALL_PLATFORM_LOG_DIR}")",
   "artifacts": {
-    "zip_completo": "$(json_escape "${ZIP_COMPLETO:-}")",
-    "zip_cli": "$(json_escape "${ZIP_CLI:-}")"
+    "zip_completo": "$(json_escape "${ZIP_COMPLETO:-}")"
   }
 }
 EOF
@@ -276,7 +265,7 @@ Dry run de release GitHub
   tag remoto existente: ${REMOTE_TAG_EXISTS}
   release existente: ${RELEASE_EXISTS}
   pre-release: ${PRERELEASE}
-  se publica: zfsmgr-cli-${VERSION}.zip$([[ "${MAJOR}" -ge 2 ]] && printf ' y zfsmgr-%s.zip' "${VERSION}") (+ .sha256)
+  se publica: zfsmgr-${VERSION}.zip (+ .sha256)
   notas: $([[ -f "${PROJECT_ROOT}/docs/notas/${VERSION}.md" ]] && echo "docs/notas/${VERSION}.md" || echo "NO HAY docs/notas/${VERSION}.md")
 
 Fases previstas:
@@ -303,7 +292,7 @@ if [[ "${RESUME}" -eq 1 ]]; then
   fi
 else
   log "Actualizando versión ${CURRENT_VERSION} -> ${VERSION}"
-  perl -0pi -e 's/project\(ZFSMgrQt VERSION\s+[^ )]+/project(ZFSMgrQt VERSION '"${BASE_VERSION}"'/; s/set\(ZFSMGR_APP_VERSION_STRING\s+"[^"]+"/set(ZFSMGR_APP_VERSION_STRING "'"${VERSION}"'"/' "${CMAKE_FILE}"
+  perl -0pi -e 's/project\(ZFSMgr VERSION\s+[^ )]+/project(ZFSMgr VERSION '"${BASE_VERSION}"'/; s/set\(ZFSMGR_APP_VERSION_STRING\s+"[^"]+"/set(ZFSMGR_APP_VERSION_STRING "'"${VERSION}"'"/' "${CMAKE_FILE}"
 fi
 write_state "version" "completed" "versión preparada"
 

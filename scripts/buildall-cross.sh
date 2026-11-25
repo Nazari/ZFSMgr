@@ -12,30 +12,23 @@ LOG_DIR="${BUILDALL_LOG_DIR:-${PROJECT_ROOT}/builds/logs/buildall-cross-${TS}}"
 PLATFORMS="${BUILD_PLATFORMS:-linux,windows,freebsd,macos}"
 JOBS="${JOBS:-$(nproc 2>/dev/null || echo 4)}"
 MACOS_ARCHES="${MACOS_ARCHES:-amd64,arm64}"
-WINDOWS_INSTALLER="${WINDOWS_INSTALLER:-1}"
-FREEBSD_PKG_OSMAJOR="${FREEBSD_PKG_OSMAJOR:-15}"
-FREEBSD_PKG_ABI="${FREEBSD_PKG_ABI:-FreeBSD:${FREEBSD_PKG_OSMAJOR}:amd64}"
-FREEBSD_PKG_ARCH="${FREEBSD_PKG_ARCH:-freebsd:${FREEBSD_PKG_OSMAJOR}:x86:64}"
 
 usage() {
   cat <<'EOF'
 Uso:
-  buildall-cross.sh [--platforms linux,windows,freebsd,macos] [--macos-arches amd64,arm64] [--windows-installer 0|1] [--output-dir <dir>] [--log-dir <dir>] [--jobs <n>]
+  buildall-cross.sh [--platforms linux,windows,freebsd,macos] [--macos-arches amd64,arm64] [--output-dir <dir>] [--log-dir <dir>] [--jobs <n>]
 
 Descripción:
   Compila las cinco plataformas en este equipo y deja en OUTPUT_DIR SOLO los paquetes de
   la versión (scripts/empaqueta.sh), cada uno con su .sha256:
-  - zfsmgr-cli-<ver>.zip   CLI y agentes de todas las plataformas: el que se publica
-  - zfsmgr-<ver>.zip       lo mismo más la interfaz de cada sistema
-  Las piezas intermedias —AppDir, .app, Setup de Windows, agentes en builds/agents/— se
-  quedan en sus directorios de compilación: ya van dentro de los zip.
+  - zfsmgr-<ver>.zip   CLI y agentes de todas las plataformas, la interfaz Java e instaladores
+  Los agentes quedan también en builds/agents/<plataforma>/, de donde los toma install-daemon.
 
 Variables opcionales:
   OUTPUT_DIR      Directorio de los paquetes (default: builds/artifacts/<timestamp>)
   BUILDALL_LOG_DIR Directorio de logs por plataforma
   BUILD_PLATFORMS Lista separada por comas
   MACOS_ARCHES    Lista separada por comas (default: amd64,arm64)
-  WINDOWS_INSTALLER  1=genera setup Inno por Wine, 0=solo exe (default: 1)
   JOBS            Paralelismo para build-cross
 EOF
 }
@@ -72,12 +65,6 @@ while [[ $# -gt 0 ]]; do
       JOBS="$1"
       shift
       ;;
-    --windows-installer)
-      shift
-      [[ $# -gt 0 ]] || { echo "Falta valor para --windows-installer" >&2; exit 1; }
-      WINDOWS_INSTALLER="$1"
-      shift
-      ;;
     -h|--help)
       usage
       exit 0
@@ -103,39 +90,6 @@ APP_VERSION="$(version_from_cmake)"
 
 log() {
   printf '[%s] %s\n' "$(date '+%H:%M:%S')" "$*"
-}
-
-# Un .app sin backend de OpenSSL compila en verde, arranca, y no habla con NINGÚN
-# daemon: Qt se queda con SecureTransport, que no presenta el certificado de cliente,
-# el daemon exige mTLS y corta con `SSLHandshake failed: -9831`. Después `--health`
-# cae a la rama de línea de comandos, que siempre imprime SERVER=0, y la aplicación
-# dice "el agente no está en marcha" con el daemon corriendo. Salió así en los .app
-# publicados de 0.90.6 y 0.90.7, y no lo detectó nada.
-verify_macos_bundle_tls() {
-  local app_path="$1"
-  local fw="${app_path}/Contents/Frameworks"
-  local plugin="${app_path}/Contents/PlugIns/tls/libqopensslbackend.dylib"
-  local missing=()
-  [[ -f "${fw}/libssl.3.dylib" ]]    || missing+=("Frameworks/libssl.3.dylib")
-  [[ -f "${fw}/libcrypto.3.dylib" ]] || missing+=("Frameworks/libcrypto.3.dylib")
-  [[ -f "${plugin}" ]]               || missing+=("PlugIns/tls/libqopensslbackend.dylib")
-  if [[ ${#missing[@]} -gt 0 ]]; then
-    echo "Error: el bundle de macOS no puede usar OpenSSL. Falta:" >&2
-    printf '  %s\n' "${missing[@]}" >&2
-    echo "Sin backend OpenSSL, Qt usa SecureTransport y ningún daemon conecta." >&2
-    exit 1
-  fi
-  # Y que libssl apunte a la libcrypto DEL BUNDLE, no a la del equipo que compila:
-  # allí existe, en el Mac del usuario no.
-  local otool_bin=""
-  otool_bin="$(command -v "${OSXCROSS_TARGET:-x86_64-apple-darwin25.2}-otool" 2>/dev/null || true)"
-  if [[ -n "${otool_bin}" ]]; then
-    if "${otool_bin}" -L "${fw}/libssl.3.dylib" | tail -n +2 | grep -q "${HOME}"; then
-      echo "Error: libssl.3.dylib del bundle apunta a una ruta del equipo de compilación:" >&2
-      "${otool_bin}" -L "${fw}/libssl.3.dylib" | tail -n +2 | grep "${HOME}" >&2
-      exit 1
-    fi
-  fi
 }
 
 run_phase() {
@@ -262,41 +216,7 @@ ensure_macos_openssl() {
   printf '%s\n' "${openssl_prefix}"
 }
 
-# El OpenSSL COMPARTIDO, que es otra cosa distinta del de arriba.
-#
-# El estático lo enlazan la interfaz y el agente. Estas .dylib no las enlaza nadie: las
-# carga en tiempo de ejecución el plugin `libqopensslbackend.dylib` de Qt, y sin ellas el
-# .app se queda con SecureTransport, que NO presenta el certificado de cliente. El síntoma
-# es que ningún daemon conecta —`SSLHandshake failed: -9831`— y la aplicación dice que el
-# agente no está en marcha aunque lo esté. Pasó con los .app publicados de 0.90.6 y 0.90.7.
-#
-# Estaba solo en `provision-cross-targets.sh --macos`, que necesita el SDK y por eso no
-# corre dentro de la imagen: el cruce compilaba la interfaz y moría al montar el bundle
-# pidiendo que se aprovisionara algo que allí no se puede aprovisionar.
-ensure_macos_openssl_shared() {
-  local arch="$1"
-  local osxcross_target="$2"
-  local sdk
-  sdk="$(ls -d /opt/osxcross/target/SDK/MacOSX*.sdk 2>/dev/null | sort -V | tail -n1 || true)"
-  [[ -n "${sdk}" ]] || { echo "No se encontró SDK de macOS en /opt/osxcross/target/SDK" >&2; return 1; }
-  local ossl_arch=""
-  local openssl_target=""
-  case "${arch}" in
-    amd64) ossl_arch="x86_64"; openssl_target="darwin64-x86_64-cc" ;;
-    arm64) ossl_arch="arm64";  openssl_target="darwin64-arm64-cc" ;;
-    *) return 1 ;;
-  esac
-  local prefix="${ZFSMGR_ENTORNO}/opt/openssl-macos-${ossl_arch}-shared"
-  if [[ -f "${prefix}/lib/libssl.3.dylib" && -f "${prefix}/lib/libcrypto.3.dylib" ]]; then
-    printf '%s\n' "${prefix}"
-    return 0
-  fi
-  compila_openssl_macos "${prefix}" "${openssl_target}" "${osxcross_target}" "${sdk}" \
-                        "shared" "${arch}-shared"
-  printf '%s\n' "${prefix}"
-}
-
-# Lo común a los dos. Todo lo que imprime va a stderr: quien llama devuelve el prefijo por
+# Builds OpenSSL for macOS. Todo lo que imprime va a stderr: quien llama devuelve el prefijo por
 # stdout y una línea suelta de make lo convertiría en una ruta imposible.
 compila_openssl_macos() {
   local prefix="$1" openssl_target="$2" osxcross_target="$3" sdk="$4" modo="$5" etiqueta="$6"
@@ -317,13 +237,12 @@ compila_openssl_macos() {
   ) >&2
 }
 
-AGENT_BUNDLE_DIR="${PROJECT_ROOT}/builds/agent-bundle"
 declare -A AGENT_BIN_PATHS=()
 
 # Registra el agente recién compilado Y LO CACHEA EN EL ACTO.
 #
-# Cachear aquí y no al empaquetar es el arreglo de un fallo real: la caché se rellenaba en
-# `build_agent_bundle_dir`, que corre al final, así que un cruce que abortara a mitad
+# Cachear aquí y no al empaquetar es el arreglo de un fallo real: la caché se rellenaba al
+# final, así que un cruce que abortara a mitad
 # —macOS sin poder enlazar, por ejemplo— dejaba en `builds/agents/` los binarios de la
 # compilación ANTERIOR. Desde el CLI se instalaban esos, y el daemon recién puesto salía
 # marcado como desactualizado sin que se entendiera por qué.
@@ -358,182 +277,18 @@ resolve_agent_source() {
   return 1
 }
 
-build_agent_bundle_dir() {
-  rm -rf "${AGENT_BUNDLE_DIR}"
-  mkdir -p "${AGENT_BUNDLE_DIR}"
-  local key src ext dst
+# Every platform's agent of this pass is in builds/agents/<platform>: say it when one is
+# reused from an earlier pass, and stop when one is missing.
+check_agents() {
+  local key src ext
   for key in linux-x86_64 windows-x86_64 freebsd-x86_64 macos-amd64 macos-arm64; do
     ext=""
     [[ "${key}" == windows-* ]] && ext=".exe"
     src="$(resolve_agent_source "${key}" "${ext}" || true)"
     [[ -n "${src}" ]] || { echo "No se pudo resolver agente ${key}" >&2; return 1; }
-    dst="${AGENT_BUNDLE_DIR}/${key}"
-    mkdir -p "${dst}"
-    cp -f "${src}" "${dst}/zfsmgr_agent${ext}"
-    chmod 0644 "${dst}/zfsmgr_agent${ext}" || true
-    # Podada la COPIA que va al AppDir y al Setup; el original de builds/agents se queda
-    # con sus símbolos para depurar. Sin esto los cinco ocupan 44 MB en vez de unos 23.
-    llvm-strip "${dst}/zfsmgr_agent${ext}" 2>/dev/null || true
     cache_agent_binary "${src}" "${key}" "${ext}"
   done
 }
-
-
-package_freebsd_with_agent_bundle() {
-  local out_pkg="$1"
-  local stage payload manifest compact
-  stage="$(mktemp -d "/tmp/zfsmgr-fbsd-pkg.XXXXXX")"
-  payload="${stage}/payload"
-  manifest="${stage}/+MANIFEST"
-  compact="${stage}/+COMPACT_MANIFEST"
-  mkdir -p "${payload}/usr/local/bin" "${payload}/usr/local/share/zfsmgr/agents" \
-           "${payload}/usr/local/share/zfsmgr/i18n"
-
-  cp -f "${PROJECT_ROOT}/builds/cross-freebsd/zfsmgr-gui" "${payload}/usr/local/bin/zfsmgr-gui"
-  cp -f "${PROJECT_ROOT}/builds/cross-freebsd/zfsmgr_agent" "${payload}/usr/local/bin/zfsmgr_agent"
-  # El intérprete va con los otros dos.
-  #
-  # Este paquete se arma A MANO y no con `cmake --install`, así que las reglas de
-  # instalación de CMake —que sí lo nombran— no llegan hasta aquí: había que decirlo
-  # también en este sitio. Lo mismo vale para los catálogos: el intérprete no enlaza Qt,
-  # así que los lee del disco, y `share/zfsmgr/i18n` es una de las rutas que ya busca a
-  # partir de su propio ejecutable.
-  cp -f "${PROJECT_ROOT}/builds/cross-freebsd/zfsmgr-cli" "${payload}/usr/local/bin/zfsmgr-cli"
-  chmod 0755 "${payload}/usr/local/bin/zfsmgr-gui" "${payload}/usr/local/bin/zfsmgr_agent" \
-             "${payload}/usr/local/bin/zfsmgr-cli" || true
-  cp -a "${AGENT_BUNDLE_DIR}/." "${payload}/usr/local/share/zfsmgr/agents/"
-  cp -f "${PROJECT_ROOT}"/i18n/*.json "${payload}/usr/local/share/zfsmgr/i18n/"
-
-  python3 - "${payload}" "${APP_VERSION}" "${manifest}" "${compact}" <<'PY'
-import hashlib
-import json
-import os
-import sys
-
-payload_root = os.path.abspath(sys.argv[1])
-version = sys.argv[2]
-manifest_path = sys.argv[3]
-compact_path = sys.argv[4]
-abi = os.environ.get("FREEBSD_PKG_ABI", "FreeBSD:15:amd64")
-arch = os.environ.get("FREEBSD_PKG_ARCH", "freebsd:15:x86:64")
-
-entries = {}
-flatsize = 0
-
-for root, _, files in os.walk(payload_root):
-    for name in files:
-        full = os.path.join(root, name)
-        rel = os.path.relpath(full, payload_root).replace(os.sep, '/')
-        pkg_path = '/' + rel
-        with open(full, 'rb') as fh:
-            data = fh.read()
-        flatsize += len(data)
-        digest = "1$" + hashlib.sha256(data).hexdigest()
-        entries[pkg_path] = digest
-
-common = {
-    "name": "zfsmgr",
-    "origin": "sysutils/zfsmgr",
-    "version": version,
-    "comment": "Cross-platform OpenZFS GUI manager",
-    "maintainer": "linarese@localdomain",
-    "www": "https://github.com/Nazari/ZFSMgr",
-    "abi": abi,
-    "arch": arch,
-    "prefix": "/usr/local",
-    "flatsize": flatsize,
-    "desc": "ZFSMgr is a cross-platform GUI manager for OpenZFS."
-}
-
-full_manifest = dict(common)
-full_manifest["files"] = dict(sorted(entries.items()))
-
-with open(manifest_path, "w", encoding="utf-8") as fh:
-    json.dump(full_manifest, fh, ensure_ascii=False, separators=(",", ":"))
-
-with open(compact_path, "w", encoding="utf-8") as fh:
-    json.dump(common, fh, ensure_ascii=False, separators=(",", ":"))
-PY
-
-  # Formato pkg: +MANIFEST/+COMPACT_MANIFEST en raíz y payload con rutas //usr/...
-  local file_list="${stage}/payload-files-abs.list"
-  find "${payload}/usr" \( -type f -o -type l \) | sort > "${file_list}"
-  tar -cJf "${out_pkg}" \
-    -C "${stage}" +COMPACT_MANIFEST +MANIFEST \
-    --transform "s#^${payload}#/#" \
-    -P -T "${file_list}"
-  rm -rf "${stage}"
-}
-
-# El build nativo de Linux no busca Qt en ninguna parte: da por hecho que lo tiene el
-# sistema. Aquí lo tiene, así que funciona; pero eso deja de ser cierto en cuanto la
-# distribución traiga uno anterior al 6.5 que el proyecto exige. Se resuelve igual que ya
-# se hace con Windows y FreeBSD: buscándolo también en <entorno>/Qt, que es donde lo deja
-# `provision-cross-targets.sh`.
-# Entorno propio de la fase Linux, aplicado con "env" en cada llamada y NO exportado.
-#
-# Exportarlo era el error: estas variables valen para UN objetivo. Un LD_LIBRARY_PATH
-# con el Qt de Linux se filtraba a la fase de FreeBSD, cuyo rcc es de otra versión, y
-# el cruce moría con "version Qt_6.11 not found". Es el mismo fallo de forma que fijar
-# QT_HOST_PATH a mano para todos los objetivos.
-# --- Qué versión de Qt usa cada objetivo.
-#
-# `qt-version.txt` es la ÚNICA versión que este proyecto decide, y la leen también el CI y
-# `provision-cross-targets.sh`. Sin fijarla aquí, el autodetect cogía «la más alta que
-# hubiera instalada» y el resultado dependía de la máquina: en un equipo con 6.8.3, 6.10.2
-# y 6.11.1 en <entorno>/Qt, el .app de macOS salía contra 6.10.2 mientras el CI lo publicaba
-# contra 6.8.3. Compilaba —el moc del anfitrión emparejaba con el destino— así que no
-# fallaba nada: simplemente se distribuían dos cosas distintas con el mismo número.
-#
-# Esto ya estaba resuelto para Linux y solo para Linux. Ahora es una función y la usan los
-# tres, que es como no tener que acordarse la próxima vez.
-#
-# **FreeBSD queda fuera a propósito**: su Qt no sale de <entorno>/Qt sino del sysroot, con la
-# versión que traiga el repositorio de paquetes de FreeBSD (hoy 6.11.1). Fijarla exigiría
-# compilar Qt para FreeBSD por nuestra cuenta.
-_qt_pin="$(tr -d '[:space:]' < "${PROJECT_ROOT}/qt-version.txt" 2>/dev/null || true)"
-
-# El prefijo de Qt para un objetivo: el de la versión fijada si está instalada; si no, el
-# más alto que haya, PERO diciéndolo.
-#
-# El aviso importa más que el respaldo. Caer en silencio a otra versión es exactamente lo
-# que hacía que el binario dependiera del equipo, y un build que avisa es preferible a uno
-# que se niega: quien solo quiere probar algo no debería tener que instalar un Qt entero.
-qt_prefijo_del_objetivo() {
-  local sub="$1"       # gcc_64 | mingw_64 | macos
-  local etiqueta="$2"  # para el aviso
-  # La orden que lo arregla. Va como parámetro y no deducida del objetivo porque NO hay
-  # correspondencia: `--windows` trae a la vez el `mingw_64` del destino y el `gcc_64` del
-  # anfitrión, y el de macOS lo trae `--macos-qt` —`--macos` es otra cosa, compila osxcross
-  # y exige el SDK de Xcode, que no hace ninguna falta para esto—.
-  local arreglo="$3"
-  if [[ -n "${_qt_pin}" && -d "${ZFSMGR_ENTORNO}/Qt/${_qt_pin}/${sub}" ]]; then
-    echo "${ZFSMGR_ENTORNO}/Qt/${_qt_pin}/${sub}"
-    return 0
-  fi
-  local alt
-  alt="$(autodetect_path_glob "${ZFSMGR_ENTORNO}/Qt/*/${sub}")"
-  if [[ -n "${alt}" && -n "${_qt_pin}" ]]; then
-    echo "AVISO: ${etiqueta} no tiene Qt ${_qt_pin} (el fijado en qt-version.txt);" >&2
-    echo "       se usa ${alt}, que NO es lo que publica el CI." >&2
-    echo "       Para alinearlo: scripts/provision-cross-targets.sh ${arreglo}" >&2
-  fi
-  echo "${alt}"
-}
-
-_linux_env=()
-if [[ -z "${CMAKE_PREFIX_PATH:-}" ]] && has_platform "linux"; then
-  _qt_linux="$(qt_prefijo_del_objetivo gcc_64 linux --windows)"
-  if [[ -n "${_qt_linux:-}" ]]; then
-    _linux_env+=("CMAKE_PREFIX_PATH=${_qt_linux}")
-    # linuxdeploy resuelve las dependencias por el enlazador, no por CMake, y su plugin
-    # qt busca qmake por PATH o por $QMAKE. Con un Qt fuera del sistema no encuentra
-    # ninguna de las dos cosas y el AppImage falla al empaquetar.
-    _linux_env+=("LD_LIBRARY_PATH=${_qt_linux}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}")
-    [[ -x "${_qt_linux}/bin/qmake" ]] && _linux_env+=("QMAKE=${_qt_linux}/bin/qmake")
-    echo "Qt para Linux: ${_qt_linux}"
-  fi
-fi
 
 # OPENSSL_ROOT_DIR también vale para un objetivo: la imagen de toolchain la exporta
 # apuntando al OpenSSL de MinGW, que es lo que necesita el cruce a Windows, y la
@@ -543,18 +298,13 @@ if [[ "${OPENSSL_ROOT_DIR:-}" == *mingw* || "${OPENSSL_ROOT_DIR:-}" == *macos* ]
   _linux_unset+=(-u OPENSSL_ROOT_DIR)
 fi
 
-# 1) Compilación base de todos los targets para obtener agentes.
+# Every target: its CLI and its agent.
 if has_platform "linux"; then
-  run_phase linux-local-pre env "${_linux_unset[@]}" "${_linux_env[@]}" "${SCRIPT_DIR}/build-linux.sh"
+  run_phase linux-local env "${_linux_unset[@]}" "${SCRIPT_DIR}/build-linux.sh"
   set_agent_path_if_exists "linux-x86_64" "${PROJECT_ROOT}/builds/linux/zfsmgr_agent"
 fi
 
 if has_platform "windows"; then
-  if [[ -z "${QT6_WINDOWS_PREFIX:-}" ]]; then
-    _qt_win_guess="$(qt_prefijo_del_objetivo mingw_64 windows --windows)"
-    [[ -n "${_qt_win_guess}" ]] && QT6_WINDOWS_PREFIX="${_qt_win_guess}" && export QT6_WINDOWS_PREFIX
-    [[ -n "${_qt_win_guess}" ]] && echo "Qt para Windows: ${_qt_win_guess}"
-  fi
   run_phase windows-local "${SCRIPT_DIR}/build-cross.sh" --target windows --jobs "${JOBS}"
   set_agent_path_if_exists "windows-x86_64" "${PROJECT_ROOT}/builds/cross-windows/zfsmgr_agent.exe"
 fi
@@ -564,48 +314,21 @@ if has_platform "freebsd"; then
   set_agent_path_if_exists "freebsd-x86_64" "${PROJECT_ROOT}/builds/cross-freebsd/zfsmgr_agent"
 fi
 
-# --- macOS, en DOS pasadas.
-#
-# El .app lleva dentro los agentes de las cinco plataformas, y se copian ANTES de firmarlo:
-# añadir ficheros a un bundle ya firmado rompe el sello de recursos. Antes se inyectaban
-# DESPUÉS, al empaquetar, y el .app salía con la firma rota.
-#
-# Para que estén todos a la hora de montar el bundle, la primera pasada compila solo los
-# agentes de macOS —en un directorio APARTE, para no alternar el mismo árbol entre «solo
-# agente» y «completo» y recompilarlo entero cada vez—. La interfaz va en la segunda, cuando
-# `builds/agents/` ya tiene las cinco plataformas de esta compilación.
 compila_macos() {
-  local arch="$1" modo="$2"
+  local arch="$1"
   local target openssl_prefix build_dir
   target="$(find_osxcross_target "${arch}" || true)"
   [[ -n "${target}" ]] || { echo "No se encontró OSXCROSS_TARGET para macOS/${arch}" >&2; exit 1; }
   openssl_prefix="$(ensure_macos_openssl "${arch}" "${target}")"
-  local args=(--target macos --jobs "${JOBS}")
-  if [[ "${modo}" == agente ]]; then
-    build_dir="${PROJECT_ROOT}/builds/cross-macos-${arch}-agente"
-    args+=(--build-dir "${build_dir}" --agent-only)
-  else
-    if [[ -z "${QT6_MACOS_PREFIX:-}" ]]; then
-      local guess
-      guess="$(qt_prefijo_del_objetivo macos macos --macos-qt)"
-      if [[ -n "${guess}" ]]; then
-        QT6_MACOS_PREFIX="${guess}"
-        export QT6_MACOS_PREFIX
-        echo "Qt para macOS: ${QT6_MACOS_PREFIX}"
-      fi
-    fi
-    [[ -n "${QT6_MACOS_PREFIX:-}" ]] || { echo "sin Qt para macOS: no se puede montar el .app" >&2; exit 1; }
-    ensure_macos_openssl_shared "${arch}" "${target}" >/dev/null
-    build_dir="${PROJECT_ROOT}/builds/cross-macos-${arch}"
-    args+=(--build-dir "${build_dir}")
-  fi
+  build_dir="${PROJECT_ROOT}/builds/cross-macos-${arch}"
+  local args=(--target macos --jobs "${JOBS}" --build-dir "${build_dir}")
   # OSXCROSS_TARGET explícito: sin él, el árbol de arm64 llegó a configurarse con el
   # OpenSSL de x86_64 y fallaba al enlazar.
-  run_phase "macos-${modo}-${arch}" env \
+  run_phase "macos-${arch}" env \
     OSXCROSS_TARGET="${target}" \
     OPENSSL_ROOT_DIR="${openssl_prefix}" \
     "${SCRIPT_DIR}/build-cross.sh" "${args[@]}"
-  [[ "${modo}" == agente ]] && set_agent_path_if_exists "macos-${arch}" "${build_dir}/zfsmgr_agent"
+  set_agent_path_if_exists "macos-${arch}" "${build_dir}/zfsmgr_agent"
   return 0
 }
 
@@ -614,80 +337,10 @@ if has_platform "macos"; then
   for _arch in "${_mac_arches[@]}"; do
     _arch="$(echo "${_arch}" | xargs)"
     [[ -n "${_arch}" ]] || continue
-    compila_macos "${_arch}" agente
+    compila_macos "${_arch}"
   done
 fi
-build_agent_bundle_dir
-if has_platform "macos"; then
-  for _arch in "${_mac_arches[@]}"; do
-    _arch="$(echo "${_arch}" | xargs)"
-    [[ -n "${_arch}" ]] || continue
-    compila_macos "${_arch}" interfaz
-  done
-fi
-
-# 3) Empaquetado final por plataforma incluyendo bundle de agentes.
-if has_platform "linux"; then
-  run_phase linux-local env "${_linux_unset[@]}" "${_linux_env[@]}" \
-    ZFSMGR_AGENT_BUNDLE_DIR="${AGENT_BUNDLE_DIR}" \
-    "${SCRIPT_DIR}/build-linux.sh" --appimage
-  linux_appimage="$(find "${PROJECT_ROOT}/builds/linux" -maxdepth 1 -type f -name "ZFSMgr-${APP_VERSION}-*.AppImage" | sort -V | tail -n1 || true)"
-  [[ -n "${linux_appimage}" ]] || { echo "No se encontró AppImage Linux" >&2; exit 1; }
-fi
-
-if has_platform "windows"; then
-  win_exe="${PROJECT_ROOT}/builds/cross-windows/zfsmgr-gui.exe"
-  [[ -f "${win_exe}" ]] || { echo "No se encontró zfsmgr-gui.exe de Windows cross" >&2; exit 1; }
-  if [[ "${WINDOWS_INSTALLER}" == "1" ]]; then
-    _inno_extra_args=()
-    [[ -n "${QT6_WINDOWS_PREFIX:-}" ]] && _inno_extra_args+=(--qt-prefix "${QT6_WINDOWS_PREFIX}")
-    run_phase windows-installer-local "${SCRIPT_DIR}/build-windows-inno-linux.sh" \
-      --input-dir "${PROJECT_ROOT}/builds/cross-windows" \
-      --output-dir "${PROJECT_ROOT}/builds/windows-installer" \
-      --version "${APP_VERSION}" \
-      --exe "zfsmgr-gui.exe" \
-      --agent-bundle-dir "${AGENT_BUNDLE_DIR}" \
-      "${_inno_extra_args[@]}"
-    win_setup="$(find "${PROJECT_ROOT}/builds/windows-installer" -maxdepth 1 -type f -name "ZFSMgr-Setup-${APP_VERSION}*.exe" | sort -V | tail -n1 || true)"
-    [[ -n "${win_setup}" ]] || { echo "No se encontró instalador Inno generado" >&2; exit 1; }
-  fi
-fi
-
-# FreeBSD no lleva paquete propio: va en el zip, EXPERIMENTAL y solo con CLI. El .pkg exigía
-# una interfaz de FreeBSD que nunca se ha compilado, así que esta fase fallaba siempre.
-
-if has_platform "macos"; then
-  IFS=',' read -r -a _mac_arches <<< "${MACOS_ARCHES}"
-  for _arch in "${_mac_arches[@]}"; do
-    _arch="$(echo "${_arch}" | xargs)"
-    [[ -n "${_arch}" ]] || continue
-    _build_dir="${PROJECT_ROOT}/builds/cross-macos-${_arch}"
-    # ZFSMgr.app primero. El bundle dejó de llevar la versión en el nombre para que al
-    # copiarlo reemplace al anterior, y este find se quedó con el patrón antiguo. Cuando
-    # quedaban bundles viejos en el directorio de compilación cogía el más alto por
-    # orden de versión —un 0.80.7— le inyectaba los agentes y lo empaquetaba como si
-    # fuera la versión que se publica. Al limpiarlos, ya no encontraba ninguno y
-    # abortaba. Las dos formas de fallar salían del mismo patrón obsoleto.
-    mac_app="${_build_dir}/ZFSMgr.app"
-    if [[ ! -d "${mac_app}" ]]; then
-      mac_app="$(find "${_build_dir}" -maxdepth 1 -type d -name "ZFSMgr-*.app" | sort -V | tail -n1 || true)"
-    fi
-    # Sin .app: si se compiló SOLO el agente —porque no hay Qt para macOS— eso es lo
-    # esperado y no un fallo; se salta el empaquetado de la interfaz y se sigue. Abortar
-    # aquí tiraba también el agente, que sí estaba compilado, y dejaba a macOS sin daemon.
-    if [[ -z "${mac_app}" ]]; then
-      if [[ ! -f "${_build_dir}/zfsmgr_agent" ]]; then
-        echo "No se encontró .app de macOS cross (${_arch}) ni el agente" >&2
-        exit 1
-      fi
-      echo "AVISO: macOS/${_arch} sin .app (se compiló solo el agente); no se empaqueta la interfaz." >&2
-      continue
-    fi
-    # Only checked here: empaqueta.sh puts it in the zip, and install-macos.sh lifts the
-    # quarantine that the old «first run» note explained by hand.
-    verify_macos_bundle_tls "${mac_app}"
-  done
-fi
+check_agents
 
 # Los dos zip de la versión. El empaquetador comprueba la huella de cada pieza y se niega
 # si alguna no es de esta compilación.

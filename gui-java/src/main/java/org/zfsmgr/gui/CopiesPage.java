@@ -23,7 +23,7 @@ import javax.swing.table.DefaultTableCellRenderer;
 
 /**
  * «Copias»: every dataset copied to another machine, sent by its origin or pulled by the machine
- * that keeps the copy, and what can be done with each. (src/gui/copiespage.cpp.)
+ * that keeps the copy, and what can be done with each.
  */
 public final class CopiesPage extends JPanel {
     private final StateStore store;

@@ -4,8 +4,11 @@
 #include <sys/xattr.h>
 #endif
 
-#include <QtTest/QtTest>
+#include "minitest.h"
 
+#include <random>
+
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -51,17 +54,16 @@ bool idaYVuelta(const AR::Operation& o, AR::Operation& vuelta, AR::HeaderLengths
 // La copia de árboles sustituye a rsync en operaciones que BORRAN el origen
 // (Desglosar, Ensamblar, Hacia Dir). El camino feliz importa menos que los casos
 // límite: por eso el grueso de este fichero son enlaces, exclusiones y verificación.
-class CopyTreeTest final : public QObject {
-    Q_OBJECT
+class CopyTreeTest final {
 
     fs::path root_;
     fs::path src_;
     fs::path dst_;
 
-private Q_SLOTS:
+public:
     void init() {
         root_ = fs::temp_directory_path()
-                / fs::path("zfsmgr-copytree-" + std::to_string(QRandomGenerator::global()->generate()));
+                / fs::path("zfsmgr-copytree-" + std::to_string(std::random_device{}()));
         src_ = root_ / "src";
         dst_ = root_ / "dst";
         fs::create_directories(src_);
@@ -101,13 +103,8 @@ private Q_SLOTS:
                  "un 'Tools' anidado NO debe excluirse");
     }
 
-    // **Las ranuras se declaran SIEMPRE y el salto va DENTRO.**
-    //
-    // Estaban tras un «#ifndef _WIN32», y moc no evalúa esa guarda: genera las
-    // referencias a las cuatro ranuras y el compilador, que sí la evalúa, no las tiene.
-    // El CI de Windows moría en el .moc con «preservesHardLinks: is not a member of
-    // CopyTreeTest», señalando un fichero generado. Con QSKIP la lista de pruebas es la
-    // misma en las tres plataformas y en Windows se lee «skipped», que es la verdad.
+    // The tests are declared on every system and skip inside: the list in main() is the same
+    // everywhere, and on Windows it reads «skipped», which is the truth.
 
     // La diferencia principal con robocopy, y la razón de implementarlo en vez de
     // llamarlo: dos rutas al mismo fichero deben seguir siéndolo en el destino, no
@@ -573,7 +570,7 @@ private Q_SLOTS:
         QVERIFY(porRuta["duro.txt"] == AR::EntryKind::HardLink);
         for (const auto& x : e) {
             if (x.path == "duro.txt") {
-                QCOMPARE(QString::fromStdString(x.target), QStringLiteral("a.txt"));
+                QCOMPARE(std::string(x.target), std::string("a.txt"));
             }
         }
     }
@@ -617,7 +614,7 @@ private Q_SLOTS:
         QVERIFY(AR::manifestNamesLength(linea, largo));
         QCOMPARE(largo, x.path.size() + x.owner.size() + x.group.size());
         // Tras saltar esos bytes, lo siguiente es la línea de cierre y nada más.
-        QCOMPARE(QString::fromStdString(m.substr(linea.size() + 1 + largo)), QStringLiteral("E\n"));
+        QCOMPARE(m.substr(linea.size() + 1 + largo), std::string("E\n"));
         // Y la huella de los atributos también es un «nombre»: sus bytes van detrás.
         x.meta.xattrs["user.a"] = "1";
         const std::string m2 = AR::serializeManifest({x});
@@ -635,7 +632,7 @@ private Q_SLOTS:
         AR::Entry x;
         std::string err;
         QVERIFY2(AR::walkSingleFile((src_ / "suelto.txt").string(), x, err), err.c_str());
-        QCOMPARE(QString::fromStdString(x.path), QStringLiteral("suelto.txt"));
+        QCOMPARE(std::string(x.path), std::string("suelto.txt"));
         QVERIFY(x.kind == AR::EntryKind::File);
         QCOMPARE(x.size, std::uint64_t(4));
         QVERIFY(x.mtime != 0);
@@ -687,7 +684,7 @@ private Q_SLOTS:
         QVERIFY2(AR::parseManifest(AR::serializeManifest(e), vuelta, err), err.c_str());
         QCOMPARE(vuelta.size(), e.size());
         for (size_t i = 0; i < e.size(); ++i) {
-            QCOMPARE(QString::fromStdString(vuelta[i].path), QString::fromStdString(e[i].path));
+            QCOMPARE(std::string(vuelta[i].path), std::string(e[i].path));
             QCOMPARE(vuelta[i].size, e[i].size);
             QCOMPARE(vuelta[i].mtime, e[i].mtime);
         }
@@ -715,7 +712,7 @@ private Q_SLOTS:
             std::ifstream i(destino);
             std::string leido;
             i >> leido;
-            QCOMPARE(QString::fromStdString(leido), QString("contenido"));
+            QCOMPARE(std::string(leido), std::string("contenido"));
         }
         // El modo viaja, como en el resto del motor. En Windows no hay modo POSIX que mirar.
 #ifndef _WIN32
@@ -775,8 +772,8 @@ private Q_SLOTS:
         QCOMPARE(vuelta.size(), size_t(1));
         QCOMPARE(vuelta[0].uid, e[0].uid);
         QCOMPARE(vuelta[0].gid, e[0].gid);
-        QCOMPARE(QString::fromStdString(vuelta[0].owner), QString::fromStdString(e[0].owner));
-        QCOMPARE(QString::fromStdString(vuelta[0].group), QString::fromStdString(e[0].group));
+        QCOMPARE(std::string(vuelta[0].owner), std::string(e[0].owner));
+        QCOMPARE(std::string(vuelta[0].group), std::string(e[0].group));
         QCOMPARE(vuelta[0].mode, e[0].mode);
     }
 
@@ -808,8 +805,8 @@ private Q_SLOTS:
         QVERIFY2(idaYVuelta(o, vuelta, l, err), err.c_str());
         QCOMPARE(vuelta.entry.uid, o.entry.uid);
         QCOMPARE(vuelta.entry.gid, o.entry.gid);
-        QCOMPARE(QString::fromStdString(vuelta.entry.owner), QStringLiteral("linarese"));
-        QCOMPARE(QString::fromStdString(vuelta.entry.group), QStringLiteral("users"));
+        QCOMPARE(std::string(vuelta.entry.owner), std::string("linarese"));
+        QCOMPARE(std::string(vuelta.entry.group), std::string("users"));
     }
 
     void unaCabeceraDeOperacionSinDuenoSeRechaza() {
@@ -857,7 +854,7 @@ private Q_SLOTS:
         std::string err;
         QVERIFY2(AR::parseManifest(AR::serializeManifest(e), vuelta, err), err.c_str());
         QCOMPARE(vuelta.size(), size_t(1));
-        QCOMPARE(QString::fromStdString(vuelta[0].path), QString::fromStdString(e[0].path));
+        QCOMPARE(std::string(vuelta[0].path), std::string(e[0].path));
     }
 
     void elPlanSaltaLoQueYaEstaIgual() {
@@ -900,9 +897,9 @@ private Q_SLOTS:
         d[1].path = "dir/dentro.txt";
         const AR::Plan p = AR::makePlan(o, d, true);
         QCOMPARE(p.operations.size(), size_t(2));
-        QCOMPARE(QString::fromStdString(p.operations[0].entry.path),
-                 QStringLiteral("dir/dentro.txt"));
-        QCOMPARE(QString::fromStdString(p.operations[1].entry.path), QStringLiteral("dir"));
+        QCOMPARE(std::string(p.operations[0].entry.path),
+                 std::string("dir/dentro.txt"));
+        QCOMPARE(std::string(p.operations[1].entry.path), std::string("dir"));
     }
 
     void unEnlaceQueCambiaDeDestinoSeRehace() {
@@ -935,7 +932,7 @@ private Q_SLOTS:
         QCOMPARE(vuelta.entry.size, uint64_t(12345));
         QCOMPARE(vuelta.entry.mtime, int64_t(1700000000));
         QCOMPARE(vuelta.entry.mtimeNsec, uint32_t(123456789));
-        QCOMPARE(QString::fromStdString(vuelta.entry.path), QStringLiteral("sub/a.txt"));
+        QCOMPARE(std::string(vuelta.entry.path), std::string("sub/a.txt"));
         QVERIFY(vuelta.entry.meta == o.entry.meta);
     }
 
@@ -993,8 +990,7 @@ private Q_SLOTS:
         QVERIFY(AR::delta((src_ / "r.bin").string(), fi, tb, ins, literales, err));
         QCOMPARE(literales, uint64_t(0));
         QVERIFY2(ins.size() <= 2,
-                 QStringLiteral("salieron %1 instrucciones").arg(ins.size())
-                     .toUtf8().constData());
+                 "salieron " + std::to_string(ins.size()) + " instrucciones");
     }
 
     void soloViajaLoQueCambio() {
@@ -1013,7 +1009,7 @@ private Q_SLOTS:
         // Un cambio de 10 bytes no puede costar 300 KB: como mucho el bloque que lo
         // contiene. Si esto crece, el delta ha dejado de servir para nada.
         QVERIFY2(literales <= 2 * tb,
-                 QStringLiteral("literales=%1").arg(literales).toUtf8().constData());
+                 "literales=" + std::to_string(literales));
         QVERIFY(literales > 0);
     }
 
@@ -1033,8 +1029,7 @@ private Q_SLOTS:
         uint64_t literales = 0;
         QVERIFY(AR::delta((src_ / "b.bin").string(), fi, tb, ins, literales, err));
         QVERIFY2(literales < 3 * tb,
-                 QStringLiteral("con un byte insertado viajaron %1").arg(literales)
-                     .toUtf8().constData());
+                 "con un byte insertado viajaron " + std::to_string(literales));
     }
 
     void elDeltaReconstruyeExactamenteElOriginal() {
@@ -1104,7 +1099,7 @@ private Q_SLOTS:
         QCOMPARE(int(rehecho.size()), int(cambiado.size()));
         QVERIFY2(rehecho == cambiado, "el delta trunco el fichero en el limite del buffer");
         QVERIFY2(literales <= 2 * tb,
-                 QStringLiteral("viajaron %1 bytes").arg(literales).toUtf8().constData());
+                 "viajaron " + std::to_string(literales) + " bytes");
     }
 
     void lasFirmasSobrevivenAlViajeDeIdaYVuelta() {
@@ -1181,7 +1176,7 @@ private Q_SLOTS:
         QVERIFY(con.refused.empty());
         QCOMPARE(con.operations.size(), size_t(1));
         QVERIFY(con.operations[0].change == AR::Change::Replaced);
-        QCOMPARE(QString::fromStdString(AR::describe(con.operations[0])), QStringLiteral("! x"));
+        QCOMPARE(std::string(AR::describe(con.operations[0])), std::string("! x"));
     }
 
     // Lo que cuelga de un directorio del origen que no se pudo leer no se borra: no se sabe
@@ -1201,7 +1196,7 @@ private Q_SLOTS:
             }
         }
         QCOMPARE(borrados.size(), size_t(1));
-        QCOMPARE(QString::fromStdString(borrados[0]), QStringLiteral("sobra.txt"));
+        QCOMPARE(std::string(borrados[0]), std::string("sobra.txt"));
     }
 
     // El receptor escribe dentro de un directorio y le cambia la fecha: se le devuelve con una
@@ -1215,7 +1210,7 @@ private Q_SLOTS:
         const AR::Plan p = AR::makePlan(o, d, false);
         QCOMPARE(p.operations.size(), size_t(2));
         QVERIFY(p.operations[1].silent);
-        QCOMPARE(QString::fromStdString(p.operations[1].entry.path), QStringLiteral("dir"));
+        QCOMPARE(std::string(p.operations[1].entry.path), std::string("dir"));
         QVERIFY(AR::describe(p.operations[1]).empty());
     }
 
@@ -1265,8 +1260,8 @@ private Q_SLOTS:
         QCOMPARE(vuelta[0].special, 'c');
         QCOMPARE(vuelta[0].devMinor, uint32_t(3));
         QCOMPARE(vuelta[0].mtimeNsec, uint32_t(987654321));
-        QCOMPARE(QString::fromStdString(vuelta[0].metaDigest),
-                 QString::fromStdString(zfsmgr::fsmeta::digestOf(x.meta)));
+        QCOMPARE(std::string(vuelta[0].metaDigest),
+                 std::string(zfsmgr::fsmeta::digestOf(x.meta)));
     }
 
     // Lo que cabe en cada sistema: una ACL POSIX de Linux no significa nada en FreeBSD, una
@@ -1356,7 +1351,7 @@ private Q_SLOTS:
         QCOMPARE(por["tubo"].special, 'p');
         QVERIFY(por["a_sim"].kind == AR::EntryKind::Symlink);
         QVERIFY(por["b_duro"].kind == AR::EntryKind::HardLink);
-        QCOMPARE(QString::fromStdString(por["b_duro"].target), QStringLiteral("a_sim"));
+        QCOMPARE(std::string(por["b_duro"].target), std::string("a_sim"));
 #endif
     }
 
@@ -1378,7 +1373,7 @@ private Q_SLOTS:
         fs::permissions(src_ / "cerrado", fs::perms::owner_all);
         QVERIFY(ok);
         QCOMPARE(ilegibles.size(), size_t(1));
-        QCOMPARE(QString::fromStdString(ilegibles[0]), QStringLiteral("cerrado"));
+        QCOMPARE(std::string(ilegibles[0]), std::string("cerrado"));
 #endif
     }
 
@@ -1392,5 +1387,74 @@ private:
 
 };
 
-QTEST_MAIN(CopyTreeTest)
-#include "copytree_test.moc"
+int main() {
+    return minitest::run<CopyTreeTest>({
+        {"copiesTreeAndContents", &CopyTreeTest::copiesTreeAndContents},
+        {"excludesOnlyAtTopLevel", &CopyTreeTest::excludesOnlyAtTopLevel},
+        {"preservesHardLinks", &CopyTreeTest::preservesHardLinks},
+        {"preservesSymlinksAsLinks", &CopyTreeTest::preservesSymlinksAsLinks},
+        {"preservesPermissions", &CopyTreeTest::preservesPermissions},
+        {"keepsSparseFilesSparse", &CopyTreeTest::keepsSparseFilesSparse},
+        {"preservesExtendedAttributes", &CopyTreeTest::preservesExtendedAttributes},
+        {"fullySparseFileAllocatesNothing", &CopyTreeTest::fullySparseFileAllocatesNothing},
+        {"skipsWhatIsAlreadyThere", &CopyTreeTest::skipsWhatIsAlreadyThere},
+        {"deleteExtraneousRemovesWhatIsNotInSource", &CopyTreeTest::deleteExtraneousRemovesWhatIsNotInSource},
+        {"deleteExtraneousSpareExcluded", &CopyTreeTest::deleteExtraneousSpareExcluded},
+        {"dryRunTouchesNothing", &CopyTreeTest::dryRunTouchesNothing},
+        {"unCambioDeTipoSeRehaceConBorrado", &CopyTreeTest::unCambioDeTipoSeRehaceConBorrado},
+        {"sinBorradoNoSeVaciaUnDirectorioYSeSigue", &CopyTreeTest::sinBorradoNoSeVaciaUnDirectorioYSeSigue},
+        {"laPasadaEnSecoDiceQueCambiaria", &CopyTreeTest::laPasadaEnSecoDiceQueCambiaria},
+        {"unCambioDeModoLlegaSinCambiarElContenido", &CopyTreeTest::unCambioDeModoLlegaSinCambiarElContenido},
+        {"elEnlaceSimbolicoConservaSuFecha", &CopyTreeTest::elEnlaceSimbolicoConservaSuFecha},
+        {"unaFifoSeRecrea", &CopyTreeTest::unaFifoSeRecrea},
+        {"reescribirNoArrastraAUnEnlaceDuroDelDestino", &CopyTreeTest::reescribirNoArrastraAUnEnlaceDuroDelDestino},
+        {"unDirectorioIlegibleNoVaciaSuCopia", &CopyTreeTest::unDirectorioIlegibleNoVaciaSuCopia},
+        {"unPocoDeDatosTrasUnHuecoNoMaterializaElBufer", &CopyTreeTest::unPocoDeDatosTrasUnHuecoNoMaterializaElBufer},
+        {"unAtributoQuitadoSeQuitaEnElDestino", &CopyTreeTest::unAtributoQuitadoSeQuitaEnElDestino},
+        {"countPendingReportsMissingFiles", &CopyTreeTest::countPendingReportsMissingFiles},
+        {"countPendingHonoursExcludes", &CopyTreeTest::countPendingHonoursExcludes},
+        {"countPendingReportsFailureAsMinusOne", &CopyTreeTest::countPendingReportsFailureAsMinusOne},
+        {"copyTreeRefusesNonDirectorySource", &CopyTreeTest::copyTreeRefusesNonDirectorySource},
+        {"recorreDistingueLosCuatroTipos", &CopyTreeTest::recorreDistingueLosCuatroTipos},
+        {"loDelVolumenNoEsDelArbol", &CopyTreeTest::loDelVolumenNoEsDelArbol},
+        {"elLargoDeNombresCuentaDuenoYGrupo", &CopyTreeTest::elLargoDeNombresCuentaDuenoYGrupo},
+        {"unFicheroSueltoEsUnArbolDeUnaEntrada", &CopyTreeTest::unFicheroSueltoEsUnArbolDeUnaEntrada},
+        {"elRecorridoLeeLosAtributosYSabeCualesCabenAlli", &CopyTreeTest::elRecorridoLeeLosAtributosYSabeCualesCabenAlli},
+        {"lasRutasVanSiempreConBarras", &CopyTreeTest::lasRutasVanSiempreConBarras},
+        {"elManifiestoSobreviveAlViajeDeIdaYVuelta", &CopyTreeTest::elManifiestoSobreviveAlViajeDeIdaYVuelta},
+        {"copiarUnFicheroSuelto", &CopyTreeTest::copiarUnFicheroSuelto},
+        {"unFicheroNoSeMeteDentroDeUnDirectorioHomonimo", &CopyTreeTest::unFicheroNoSeMeteDentroDeUnDirectorioHomonimo},
+        {"laPasadaEnSecoDeUnFicheroNoEscribe", &CopyTreeTest::laPasadaEnSecoDeUnFicheroNoEscribe},
+        {"elManifiestoLlevaDuenoYGrupo", &CopyTreeTest::elManifiestoLlevaDuenoYGrupo},
+        {"unManifiestoSinDuenoSeRechaza", &CopyTreeTest::unManifiestoSinDuenoSeRechaza},
+        {"laCabeceraDeOperacionTambienLosLleva", &CopyTreeTest::laCabeceraDeOperacionTambienLosLleva},
+        {"unaCabeceraDeOperacionSinDuenoSeRechaza", &CopyTreeTest::unaCabeceraDeOperacionSinDuenoSeRechaza},
+        {"elRecorridoAnotaElModoDeLosDirectorios", &CopyTreeTest::elRecorridoAnotaElModoDeLosDirectorios},
+        {"unNombreConSaltoDeLineaNoRompeElManifiesto", &CopyTreeTest::unNombreConSaltoDeLineaNoRompeElManifiesto},
+        {"elPlanSaltaLoQueYaEstaIgual", &CopyTreeTest::elPlanSaltaLoQueYaEstaIgual},
+        {"unaFechaDistintaLoVuelveACopiar", &CopyTreeTest::unaFechaDistintaLoVuelveACopiar},
+        {"sinBorradoNoSeBorraNada", &CopyTreeTest::sinBorradoNoSeBorraNada},
+        {"conBorradoSeVaDeDentroHaciaFuera", &CopyTreeTest::conBorradoSeVaDeDentroHaciaFuera},
+        {"unEnlaceQueCambiaDeDestinoSeRehace", &CopyTreeTest::unEnlaceQueCambiaDeDestinoSeRehace},
+        {"laCabeceraSobreviveAlViajeDeIdaYVuelta", &CopyTreeTest::laCabeceraSobreviveAlViajeDeIdaYVuelta},
+        {"laSumaRodanteCoincideConLaCalculadaDeCero", &CopyTreeTest::laSumaRodanteCoincideConLaCalculadaDeCero},
+        {"unFicheroIgualNoMandaNiUnByte", &CopyTreeTest::unFicheroIgualNoMandaNiUnByte},
+        {"unFicheroDeBloquesRepetidosNoExplotaEnInstrucciones", &CopyTreeTest::unFicheroDeBloquesRepetidosNoExplotaEnInstrucciones},
+        {"soloViajaLoQueCambio", &CopyTreeTest::soloViajaLoQueCambio},
+        {"unByteInsertadoAlPrincipioNoTiraElReconocimiento", &CopyTreeTest::unByteInsertadoAlPrincipioNoTiraElReconocimiento},
+        {"elDeltaReconstruyeExactamenteElOriginal", &CopyTreeTest::elDeltaReconstruyeExactamenteElOriginal},
+        {"unFicheroMayorQueElBufferNoSeTrunca", &CopyTreeTest::unFicheroMayorQueElBufferNoSeTrunca},
+        {"lasFirmasSobrevivenAlViajeDeIdaYVuelta", &CopyTreeTest::lasFirmasSobrevivenAlViajeDeIdaYVuelta},
+        {"laFechaSeComparaALaResolucionDelMasTosco", &CopyTreeTest::laFechaSeComparaALaResolucionDelMasTosco},
+        {"unCambioDeModoEsSoloDeMetadatos", &CopyTreeTest::unCambioDeModoEsSoloDeMetadatos},
+        {"unDirectorioConContenidoSoloSeSustituyeConBorrado", &CopyTreeTest::unDirectorioConContenidoSoloSeSustituyeConBorrado},
+        {"loDeUnDirectorioIlegibleNoSeBorra", &CopyTreeTest::loDeUnDirectorioIlegibleNoSeBorra},
+        {"elDirectorioDondeSeEscribeRecuperaSuFecha", &CopyTreeTest::elDirectorioDondeSeEscribeRecuperaSuFecha},
+        {"unNombreQueNoExisteAlliSeComparaPorNumero", &CopyTreeTest::unNombreQueNoExisteAlliSeComparaPorNumero},
+        {"elManifiestoLlevaNanosegundosEspecialesYHuella", &CopyTreeTest::elManifiestoLlevaNanosegundosEspecialesYHuella},
+        {"cadaSistemaGuardaLoSuyo", &CopyTreeTest::cadaSistemaGuardaLoSuyo},
+        {"losHuecosViajanComoLongitudYLleganComoHuecos", &CopyTreeTest::losHuecosViajanComoLongitudYLleganComoHuecos},
+        {"elRecorridoVeEspecialesYEnlacesDurosDeSimbolicos", &CopyTreeTest::elRecorridoVeEspecialesYEnlacesDurosDeSimbolicos},
+        {"unSubdirectorioIlegibleSeApunta", &CopyTreeTest::unSubdirectorioIlegibleSeApunta},
+    });
+}

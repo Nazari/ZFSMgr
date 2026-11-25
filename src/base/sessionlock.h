@@ -10,9 +10,6 @@
 // leaves nothing behind. Inside the file the owner writes who it is —what, which user, its PID
 // and since when— for the next one to say so.
 //
-// Only the standard library and the system's own calls: the interface, which links nothing
-// but Qt, compiles this file as it is (resources/CMakeLists.txt).
-//
 // ZFSMGR_SESSION_LOCK=<path> moves the file, for the tests: they must not collide with the
 // interface somebody has open on the same machine.
 

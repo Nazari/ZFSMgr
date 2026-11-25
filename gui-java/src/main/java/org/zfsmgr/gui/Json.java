@@ -9,7 +9,7 @@ import java.util.Map;
  * The little JSON the protocol needs, with no library: objects are {@code Map<String,Object>}
  * (in order), arrays {@code List<Object>}, numbers {@code Long} or {@code Double}, plus
  * {@code String}, {@code Boolean} and {@code null}. And typed reads that never throw: a missing or
- * different field gives the default, as Qt's QJsonValue did.
+ * different field gives the default.
  */
 public final class Json {
     private Json() {}

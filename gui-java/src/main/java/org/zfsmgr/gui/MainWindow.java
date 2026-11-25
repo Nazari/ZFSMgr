@@ -23,7 +23,6 @@ import javax.swing.Timer;
 
 /**
  * The window: the pages on the left, the chosen one on the right, a status line below.
- * (src/gui/mainwindow.cpp.)
  */
 public final class MainWindow extends JFrame {
     private final String cli;
@@ -72,7 +71,7 @@ public final class MainWindow extends JFrame {
 
         String[] pages = {L("Status", "Estado"), L("Copies", "Copias"), L("Machines", "Máquinas"),
                           L("Jobs", "Trabajos"), L("Administration", "Administración")};
-        // Administration only in advanced mode, as in the Qt window.
+        // Administration only in advanced mode.
         javax.swing.DefaultListModel<String> navModel = new javax.swing.DefaultListModel<>();
         for (String p : pages) {
             navModel.addElement(p);

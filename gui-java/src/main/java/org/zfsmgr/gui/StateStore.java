@@ -8,7 +8,7 @@ import java.util.function.Function;
  * What the interface knows about the machines right now: {@code ls zfsm://} and the
  * {@code overview} of each. Each machine is asked through its OWN service, in parallel: one that is
  * off costs its own wait, never the others'. Listeners run when each answer arrives. Everything
- * here runs on the Swing thread. (The Qt one: src/gui/statestore.cpp.)
+ * here runs on the Swing thread.
  */
 public final class StateStore {
     private final CliService general;

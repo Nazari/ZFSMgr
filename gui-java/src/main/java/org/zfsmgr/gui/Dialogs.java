@@ -52,7 +52,7 @@ public final class Dialogs {
 
     /**
      * The CLI's {@code confirm}, shown as it is written: what is lost, what is kept, the notes, and
-     * the word to type when it asks for one. The safe choice is the default. (src/gui/questiondialog.cpp.)
+     * the word to type when it asks for one. The safe choice is the default.
      */
     public static Answer question(Component parent, CliService.Question q) {
         JDialog d = new JDialog(javax.swing.SwingUtilities.getWindowAncestor(parent), q.title(),
@@ -152,7 +152,7 @@ public final class Dialogs {
 
     /**
      * The first run on this computer, or a configuration that never had a master password: it is
-     * chosen here, typed twice. Null if the person leaves. (main.cpp, welcome.)
+     * chosen here, typed twice. Null if the person leaves.
      */
     public static char[] welcome() {
         JPasswordField one = new JPasswordField(22);
@@ -197,7 +197,7 @@ public final class Dialogs {
     }
     /**
      * How many snapshots of each class to keep; {@code null} if cancelled, otherwise the
-     * {@code schedule} options («--hourly 0 --daily 7 …»). (uikit.cpp askKeep.)
+     * {@code schedule} options («--hourly 0 --daily 7 …»).
      */
     public static String askKeep(Component parent, String title, String note, java.util.Map<String, Object> keep) {
         String[][] classes = {{"hourly", L("Hourly", "Por hora")}, {"daily", L("Daily", "Diarias")},

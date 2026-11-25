@@ -9,7 +9,7 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.UIManager;
 
-/** The small kit the pages share: state colours and words, cards and text. (src/gui/uikit.cpp.) */
+/** The small kit the pages share: state colours and words, cards and text. */
 public final class Ui {
     private Ui() {}
 
@@ -93,7 +93,7 @@ public final class Ui {
     }
     /**
      * A value as one word of a CLI line: as it is when it has no spaces nor quotes; otherwise
-     * between double quotes. (addmachinedialog.cpp quoted.)
+     * between double quotes.
      */
     public static String quoted(String value) {
         if (!value.contains(" ") && !value.contains("\"") && !value.contains("'")) {

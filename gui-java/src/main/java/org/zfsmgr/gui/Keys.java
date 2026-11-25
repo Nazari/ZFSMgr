@@ -10,7 +10,7 @@ import java.util.function.BiConsumer;
 /**
  * Keys between machines, as the interface handles them: one kind only, the FULL keys, and every
  * machine holds those of every other. Adding a machine gives it the keys of all the others and
- * gives it to all of them; Administration can repeat that for everybody. (src/gui/keys.cpp.)
+ * gives it to all of them; Administration can repeat that for everybody.
  */
 public final class Keys {
     private Keys() {}
