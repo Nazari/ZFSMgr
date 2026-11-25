@@ -72,7 +72,7 @@ public final class JobsPage extends JPanel {
                 continue;
             }
             final String id = m.id;
-            store.forMachine(id).request("jobs --history zfsm://" + id, r -> {
+            store.forMachine(id).requestQuiet("jobs --history zfsm://" + id, r -> {
                 history.put(id, Json.objects(Json.firstObject(r.out()), "jobs"));
                 if (isShowing()) {
                     render();

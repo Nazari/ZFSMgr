@@ -220,7 +220,22 @@ public final class CliService {
      * the CLI is answered here. Never an irreversible one, nor one that asks to type a word.
      */
     public void request(String line, String format, boolean confirmed, Consumer<Result> done) {
-        queue.add(new Pending(nextId++, line, format, confirmed, done));
+        // The wait cursor until the answer —also the one a dead service gives to everything it
+        // had pending, so the cursor never stays—.
+        Busy.begin();
+        queue.add(new Pending(nextId++, line, format, confirmed, r -> {
+            try {
+                done.accept(r);
+            } finally {
+                Busy.end();
+            }
+        }));
+        sendNext();
+    }
+
+    /** Like {@link #request(String, Consumer)}, without the wait cursor: the periodic reads. */
+    public void requestQuiet(String line, Consumer<Result> done) {
+        queue.add(new Pending(nextId++, line, "json", false, done));
         sendNext();
     }
 

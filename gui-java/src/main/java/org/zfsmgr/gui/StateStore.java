@@ -68,7 +68,7 @@ public final class StateStore {
     public void refresh() {
         final int gen = ++generation;
         refreshing.forEach(Runnable::run);
-        general.request("ls zfsm://", r -> {
+        general.requestQuiet("ls zfsm://", r -> {
             if (gen != generation) {
                 return;
             }
@@ -111,7 +111,7 @@ public final class StateStore {
                     continue;
                 }
                 final String id = m.id;
-                forMachine.apply(id).request("overview zfsm://" + id, o -> {
+                forMachine.apply(id).requestQuiet("overview zfsm://" + id, o -> {
                     if (gen != generation) {
                         return;
                     }

@@ -98,6 +98,38 @@ class CliServiceTest {
         s.stop(2000);
     }
 
+    /** The wait cursor: on while a request waits, off with its answer; never for quiet reads. */
+    @Test
+    void aRequestShowsTheWaitCursorUntilItsAnswer() throws Exception {
+        Path cli = fake();
+        LinkedBlockingQueue<Runnable> q = new LinkedBlockingQueue<>();
+        boolean[] ready = {false};
+        CliService s = new CliService(cli.toString(), "en", q::add, new CliService.Listener() {
+            @Override
+            public void ready(java.util.Map<String, Object> ev) {
+                ready[0] = true;
+            }
+        });
+        s.start("master".toCharArray(), false);
+        pump(q, () -> ready[0]);
+        List<String> outs = new CopyOnWriteArrayList<>();
+        s.requestQuiet("quiet", r -> outs.add(r.out()));
+        javax.swing.SwingUtilities.invokeAndWait(() -> { });
+        assertTrue(!busy(), "a quiet read does not show it");
+        pump(q, () -> outs.size() == 1);
+        s.request("pwd", r -> outs.add(r.out()));
+        assertTrue(busy(), "on while it waits");
+        pump(q, () -> outs.size() == 2);
+        assertTrue(!busy(), "off with the answer");
+        s.stop(2000);
+    }
+
+    private static boolean busy() throws Exception {
+        boolean[] on = {false};
+        javax.swing.SwingUtilities.invokeAndWait(() -> on[0] = Busy.on());
+        return on[0];
+    }
+
     /** A fake that knows the session lock and the locked start (docs/protocolo_serve.md). */
     private Path fakeWithSession() throws Exception {
         Path f = dir.resolve("zfsmgr-cli-s");
