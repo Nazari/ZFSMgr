@@ -83,6 +83,10 @@ public final class MachinesPage extends JPanel {
     private final JScrollPane detail = new JScrollPane();
     private boolean advanced;
     private int datasetTab;
+    /** The chosen tab of a pool: «Pool», then its root dataset's tabs. */
+    private int poolTab;
+    /** Pools whose datasets were asked when choosing the pool, without opening it. */
+    private final Set<String> entriesAsked = new HashSet<>();
     private final Map<String, Map<String, Object>> probe = new HashMap<>();
     private final Map<String, Integer> stranded = new HashMap<>();
     private final Map<String, List<Map<String, Object>>> pools = new HashMap<>();
@@ -92,6 +96,12 @@ public final class MachinesPage extends JPanel {
     private final Map<String, List<Map<String, Object>>> files = new HashMap<>();
     private final Map<String, List<Map<String, Object>>> props = new HashMap<>();
     private final Set<String> propsAsked = new HashSet<>();
+    /**
+     * What has been asked and not answered yet. The detail is rebuilt with every answer that
+     * arrives —another machine's overview, say—, and without this each rebuild asked the same
+     * thing again while the first answer was on its way.
+     */
+    private final Set<String> inFlight = new HashSet<>();
     private final Map<String, List<Map<String, Object>>> breakdown = new HashMap<>();
     private String revealMachine = "";
     private String revealDataset = "";
@@ -123,9 +133,10 @@ public final class MachinesPage extends JPanel {
         split.setBorder(null);
         add(split, BorderLayout.CENTER);
 
-        // For captures without a screen: which dataset tab opens first.
+        // For captures without a screen: which dataset (and pool) tab opens first.
         try {
             datasetTab = Integer.parseInt(System.getenv().getOrDefault("ZFSMGR_GUI_TAB", "0"));
+            poolTab = datasetTab;
         } catch (NumberFormatException ignored) {
             datasetTab = 0;
         }
@@ -311,6 +322,15 @@ public final class MachinesPage extends JPanel {
         if (pi == null) {
             return;  // its pools are on their way
         }
+        if (!revealDataset.contains("/")) {
+            // The pool itself.
+            TreePath path = new TreePath(pi.getPath());
+            tree.setSelectionPath(path);
+            tree.scrollPathToVisible(path);
+            revealMachine = "";
+            revealDataset = "";
+            return;
+        }
         tree.expandPath(new TreePath(pi.getPath()));
         for (Enumeration<javax.swing.tree.TreeNode> en = pi.depthFirstEnumeration(); en.hasMoreElements();) {
             DefaultMutableTreeNode it = (DefaultMutableTreeNode) en.nextElement();
@@ -493,7 +513,8 @@ public final class MachinesPage extends JPanel {
         if (p == null) {
             w.add(left(Ui.muted(L("Checking the machine…", "Comprobando la máquina…"))));
             // Disconnected or not: checking is how one decides to connect it.
-            store.forMachine(id).request("probe " + url(id, ""), r -> {
+            if (inFlight.add("probe " + id)) store.forMachine(id).request("probe " + url(id, ""), r -> {
+                inFlight.remove("probe " + id);
                 probe.put(id, Json.firstObject(r.out()));
                 showDetail();
             });
@@ -566,7 +587,8 @@ public final class MachinesPage extends JPanel {
             // button only when there are some.
             Integer left = stranded.get(id);
             if (left == null) {
-                store.forMachine(id).request("repair-mounts --on " + url(id, ""), r -> {
+                if (inFlight.add("mounts " + id)) store.forMachine(id).request("repair-mounts --on " + url(id, ""), r -> {
+                    inFlight.remove("mounts " + id);
                     stranded.put(id, Json.objects(Json.firstObject(r.out()), "stranded").size());
                     showDetail();
                 });
@@ -685,7 +707,8 @@ public final class MachinesPage extends JPanel {
         Map<String, Object> st = status.get(key);
         if (st == null) {
             w.add(left(Ui.muted(L("Asking for its disks…", "Preguntando por sus discos…"))));
-            store.forMachine(machine).request("status " + url(machine, pool), r -> {
+            if (inFlight.add("status " + key)) store.forMachine(machine).request("status " + url(machine, pool), r -> {
+                inFlight.remove("status " + key);
                 status.put(key, Json.firstObject(r.out()));
                 showDetail();
             });
@@ -771,7 +794,23 @@ public final class MachinesPage extends JPanel {
                     L("What was done to %1", "Qué se le ha hecho a %1", pool))));
         }
         w.add(Ui.buttonGrid(actions, 3));
-        setDetail(w);
+
+        // A pool is also a dataset —its root—: after its own tab, the same tabs a dataset has.
+        // They need its datasets listed; asked here without opening the branch of the tree.
+        if (!entries.containsKey(key) && entriesAsked.add(key)) {
+            store.forMachine(machine).request("ls -r " + url(machine, pool), r -> {
+                entries.put(key, Json.objects(Json.firstObject(r.out()), "entries"));
+                showDetail();
+            });
+        }
+        JTabbedPane tabs = new JTabbedPane();
+        JPanel poolPage = new JPanel(new BorderLayout());
+        poolPage.add(w, BorderLayout.NORTH);
+        tabs.addTab(L("Pool", "Pool"), poolPage);
+        addDatasetTabs(tabs, machine, pool);
+        tabs.setSelectedIndex(Math.max(0, Math.min(poolTab, tabs.getTabCount() - 1)));
+        tabs.addChangeListener(e -> poolTab = tabs.getSelectedIndex());
+        setDetail(tabs);
     }
 
     // The machine's pools are listed again on next opening: one left or one arrived.
@@ -820,9 +859,16 @@ public final class MachinesPage extends JPanel {
     }
 
     private void showDataset(String machine, String dataset) {
-        // Tabs: the summary and the files for everyone; the rest in advanced mode. The chosen tab
-        // is kept: the detail is rebuilt every time an answer arrives.
+        // The chosen tab is kept: the detail is rebuilt every time an answer arrives.
         JTabbedPane tabs = new JTabbedPane();
+        addDatasetTabs(tabs, machine, dataset);
+        tabs.setSelectedIndex(Math.max(0, Math.min(datasetTab, tabs.getTabCount() - 1)));
+        tabs.addChangeListener(e -> datasetTab = tabs.getSelectedIndex());
+        setDetail(tabs);
+    }
+
+    /** A dataset's tabs: the summary and the files for everyone; the rest in advanced mode. */
+    private void addDatasetTabs(JTabbedPane tabs, String machine, String dataset) {
         // Each tab at the top of its space: a text area in a box layout takes all the height left.
         Function<JComponent, JComponent> top = c -> {
             JPanel p = new JPanel(new BorderLayout());
@@ -837,9 +883,6 @@ public final class MachinesPage extends JPanel {
             tabs.addTab(L("Send", "Enviar"), top.apply(sendTab(machine, dataset)));
             tabs.addTab(L("Organize", "Organizar"), top.apply(organizeTab(machine, dataset)));
         }
-        tabs.setSelectedIndex(Math.max(0, Math.min(datasetTab, tabs.getTabCount() - 1)));
-        tabs.addChangeListener(e -> datasetTab = tabs.getSelectedIndex());
-        setDetail(tabs);
     }
 
     private static String when(long t) {
@@ -865,15 +908,20 @@ public final class MachinesPage extends JPanel {
         JLabel title = Ui.heading(dataset.substring(dataset.lastIndexOf('/') + 1));
         title.setFont(title.getFont().deriveFont(title.getFont().getSize2D() * 1.2f));
         w.add(left(title));
-        w.add(Ui.row(
-                button(L("Snapshot now", "Snapshot ahora"), () -> {
-                    String name = "manual-" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
-                    act("create @" + name + " --on " + url(machine, dataset), L("Snapshot %1 taken.", "Hecho el snapshot %1.", name), true, null);
-                }),
-                button(L("Copy…", "Copiar…"), () -> host.newCopy(machine, dataset)),
-                // The CLI says what is lost and asks for the name: the dialog shows it.
-                button(L("Destroy…", "Destruir…"), () -> act("destroy -r " + url(machine, dataset), L("Destroyed.", "Destruido."), true, null)),
-                button(L("New dataset inside…", "Dataset nuevo dentro…"), () -> newDataset(machine, dataset))));
+        List<Component> summaryButtons = new ArrayList<>();
+        summaryButtons.add(button(L("Snapshot now", "Snapshot ahora"), () -> {
+            String name = "manual-" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
+            act("create @" + name + " --on " + url(machine, dataset), L("Snapshot %1 taken.", "Hecho el snapshot %1.", name), true, null);
+        }));
+        summaryButtons.add(button(L("Copy…", "Copiar…"), () -> host.newCopy(machine, dataset)));
+        // The CLI says what is lost and asks for the name: the dialog shows it. Not for a pool's
+        // root: that is destroying the pool, which its own tab offers as such.
+        if (dataset.contains("/")) {
+            summaryButtons.add(button(L("Destroy…", "Destruir…"),
+                    () -> act("destroy -r " + url(machine, dataset), L("Destroyed.", "Destruido."), true, null)));
+        }
+        summaryButtons.add(button(L("New dataset inside…", "Dataset nuevo dentro…"), () -> newDataset(machine, dataset)));
+        w.add(Ui.row(summaryButtons.toArray(new Component[0])));
 
         Ui.Form form = new Ui.Form();
         form.row(L("Uses", "Ocupa"), new JLabel(StatusModel.bytesText(Json.lng(ds, "used", 0))));
@@ -983,7 +1031,8 @@ public final class MachinesPage extends JPanel {
         List<Map<String, Object>> es = files.get(listKey);
         if (es == null) {
             w.add(left(Ui.muted(L("Reading the directory…", "Leyendo el directorio…"))));
-            store.forMachine(machine).request("ls " + url(machine, dataset) + "#content" + (rel.isEmpty() ? "" : "/" + rel), r -> {
+            if (inFlight.add("files " + listKey)) store.forMachine(machine).request("ls " + url(machine, dataset) + "#content" + (rel.isEmpty() ? "" : "/" + rel), r -> {
+                inFlight.remove("files " + listKey);
                 List<Map<String, Object>> got = new ArrayList<>(Json.objects(Json.firstObject(r.out()), "entries"));
                 if (!r.ok() && got.isEmpty()) {
                     got.add(Map.of("error", r.err().trim()));
@@ -1122,7 +1171,8 @@ public final class MachinesPage extends JPanel {
         List<Map<String, Object>> dirs = breakdown.get(key);
         if (dirs == null) {
             w.add(left(Ui.muted(L("Measuring its directories…", "Midiendo sus carpetas…"))));
-            store.forMachine(machine).request("breakdown --list" + on, r -> {
+            if (inFlight.add("breakdown " + key)) store.forMachine(machine).request("breakdown --list" + on, r -> {
+                inFlight.remove("breakdown " + key);
                 breakdown.put(key, Json.objects(Json.firstObject(r.out()), "directories"));
                 showDetail();
             });
