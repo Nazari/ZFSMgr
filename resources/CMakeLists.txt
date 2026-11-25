@@ -23,7 +23,7 @@ else()
     add_compile_options(-Werror=switch)
 endif()
 
-set(ZFSMGR_APP_VERSION_STRING "2.0.0rc1")
+set(ZFSMGR_APP_VERSION_STRING "2.0.0rc2")
 set(ZFSMGR_AGENT_SCHEMA_MARKER [=[linux-service:/etc/systemd/system/zfsmgr-agent.service
 linux-bin:/usr/local/libexec/zfsmgr-agent
 linux-config:/etc/zfsmgr/agent.toml
