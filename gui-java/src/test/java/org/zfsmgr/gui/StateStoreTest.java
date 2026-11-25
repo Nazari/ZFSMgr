@@ -9,14 +9,15 @@ class StateStoreTest {
     void readsTheStateOfAJobAnswer() {
         String out = "{\"job\":[{\"field\":\"bytes\",\"value\":\"16830000\"},"
                 + "{\"field\":\"error\",\"value\":null},{\"field\":\"state\",\"value\":\"done\"}]}";
-        assertEquals("done", StateStore.jobState(out));
-        assertEquals("running", StateStore.jobState("{\"job\":[{\"field\":\"state\",\"value\":\"running\"}]}"));
+        assertEquals("done", StateStore.jobField(out, "state"));
+        assertEquals("", StateStore.jobField(out, "error"));
+        assertEquals("running", StateStore.jobField("{\"job\":[{\"field\":\"state\",\"value\":\"running\"}]}", "state"));
     }
 
     @Test
     void anAnswerWithoutAStateGivesNothing() {
-        assertEquals("", StateStore.jobState(""));
-        assertEquals("", StateStore.jobState("error: no such job"));
-        assertEquals("", StateStore.jobState("{\"job\":[{\"field\":\"bytes\",\"value\":\"1\"}]}"));
+        assertEquals("", StateStore.jobField("", "state"));
+        assertEquals("", StateStore.jobField("error: no such job", "state"));
+        assertEquals("", StateStore.jobField("{\"job\":[{\"field\":\"bytes\",\"value\":\"1\"}]}", "state"));
     }
 }

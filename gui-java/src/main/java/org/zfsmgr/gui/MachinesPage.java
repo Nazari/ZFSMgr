@@ -154,7 +154,18 @@ public final class MachinesPage extends JPanel {
             rebuildMachines();
             continueReveal();
         });
-        store.onJobEnded(this::reloadOpenPools);
+        store.onJobEnded((machine, id, state, error) -> {
+            // Said here because whoever launched it may be long gone: the copy wizard is
+            // closed, and «Sending as a job» was all that was said.
+            switch (state) {
+                case "done" -> host.say(L("The job %1 on %2 finished.", "El trabajo %1 de %2 terminó.", id, machine));
+                case "failed" -> host.say(L("The job %1 on %2 failed: %3", "El trabajo %1 de %2 falló: %3", id, machine,
+                        error.isEmpty() ? "?" : error));
+                case "cancelled" -> host.say(L("The job %1 on %2 was stopped.", "El trabajo %1 de %2 se paró.", id, machine));
+                default -> { }
+            }
+            reloadOpenPools();
+        });
         rebuildMachines();
         showDetail();
     }

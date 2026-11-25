@@ -20,7 +20,7 @@ public final class StateStore {
     private List<StatusModel.MachineView> machines = new ArrayList<>();
     private final List<Runnable> listeners = new ArrayList<>();
     private final List<Runnable> refreshing = new ArrayList<>();
-    private final List<Runnable> jobEnded = new ArrayList<>();
+    private final List<JobListener> jobEnded = new ArrayList<>();
     private final Set<String> followed = new HashSet<>();
     private long updatedAt;
     private int generation;
@@ -46,8 +46,13 @@ public final class StateStore {
      * Runs when a job this interface launched ends, however it ends: what it copied is on its
      * destination now, and whatever shows that destination has to ask again.
      */
-    public void onJobEnded(Runnable r) {
-        jobEnded.add(r);
+    public void onJobEnded(JobListener l) {
+        jobEnded.add(l);
+    }
+
+    /** How a followed job ended: its state («done», «failed», «cancelled»…) and its error. */
+    public interface JobListener {
+        void ended(String machine, String id, String state, String error);
     }
 
     /** Milliseconds between two looks at a followed job: the daemon updates it at that pace. */
@@ -70,23 +75,24 @@ public final class StateStore {
         t.setRepeats(false);
         int[] failures = {0};
         t.addActionListener(e -> forMachine(machine).requestQuiet("job " + id + " --on zfsm://" + machine, r -> {
-            String state = jobState(r.out());
+            String state = jobField(r.out(), "state");
             boolean unknown = state.isEmpty();
             if (unknown && ++failures[0] < 5 || state.equals("running") || state.equals("queued")) {
                 t.restart();
                 return;
             }
             followed.remove(machine + "/" + id);
-            jobEnded.forEach(Runnable::run);
+            String error = jobField(r.out(), "error");
+            jobEnded.forEach(l -> l.ended(machine, id, state, error));
             refresh();
         }));
         t.start();
     }
 
-    /** The «state» of a {@code job <id>} answer: {"job": [{"field": …, "value": …}, …]}. */
-    static String jobState(String out) {
+    /** One field of a {@code job <id>} answer: {"job": [{"field": …, "value": …}, …]}. */
+    static String jobField(String out, String field) {
         for (Map<String, Object> f : Json.objects(Json.firstObject(out), "job")) {
-            if ("state".equals(Json.str(f, "field"))) {
+            if (field.equals(Json.str(f, "field"))) {
                 return Json.str(f, "value");
             }
         }
