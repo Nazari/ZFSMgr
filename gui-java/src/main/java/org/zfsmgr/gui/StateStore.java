@@ -22,6 +22,13 @@ public final class StateStore {
     private final List<Runnable> refreshing = new ArrayList<>();
     private final List<JobListener> jobEnded = new ArrayList<>();
     private final Set<String> followed = new HashSet<>();
+    /** The machines whose {@code overview} is on its way, and whether the list itself is. */
+    private final Set<String> reading = new HashSet<>();
+    private boolean listing;
+    /** The machines this interface just did something to, until an overview asked after it arrives. */
+    private final Set<String> changing = new HashSet<>();
+    /** Of those, the ones whose command has not answered yet: no overview clears them. */
+    private final Map<String, Integer> held = new java.util.HashMap<>();
     private long updatedAt;
     private int generation;
     private boolean listFailed;
@@ -128,16 +135,77 @@ public final class StateStore {
         return general;
     }
 
+    /**
+     * Whether what is shown of that machine may be about to change: its overview is being read
+     * again, or the list of machines is. Pages veil what comes from it meanwhile ({@link Veil}).
+     */
+    public boolean reading(String id) {
+        return listing || reading.contains(id) || changing.contains(id);
+    }
+
+    /** Whether any machine is being read: what sums them all (pools, jobs) is then veiled. */
+    public boolean readingAny() {
+        return listing || !reading.isEmpty() || !changing.isEmpty();
+    }
+
+    /**
+     * Whether this interface did something to that machine and waits to see it: what only
+     * changes from here —its copies, for one— is veiled only then.
+     */
+    public boolean changing(String id) {
+        return changing.contains(id);
+    }
+
+    /**
+     * Something was just done to these machines: what is shown of them is veiled until a fresh
+     * overview of each arrives. Refreshes.
+     */
+    /**
+     * A command for that machine starts: it is veiled now, and stays so until the command answers
+     * ({@link #done}) and a fresh overview of it arrives after that.
+     */
+    public void begin(String id) {
+        if (id == null || id.isEmpty()) {
+            return;
+        }
+        held.merge(id, 1, Integer::sum);
+        changing.add(id);
+        changed();
+    }
+
+    /** The command {@link #begin} announced answered: its machine is read again. */
+    public void done(String id) {
+        if (id == null || id.isEmpty()) {
+            return;
+        }
+        held.computeIfPresent(id, (k, n) -> n > 1 ? n - 1 : null);
+        expect(id);
+    }
+
+    public void expect(String... ids) {
+        for (String id : ids) {
+            if (id != null && !id.isEmpty()) {
+                changing.add(id);
+            }
+        }
+        refresh();
+    }
+
     public void refresh() {
         final int gen = ++generation;
+        listing = true;
         refreshing.forEach(Runnable::run);
+        changed();
         general.requestQuiet("ls zfsm://", r -> {
             if (gen != generation) {
                 return;
             }
+            listing = false;
             if (!r.ok() && !r.out().contains("{")) {
                 listFailed = true;
                 listError = r.err().trim();
+                reading.clear();
+                changing.retainAll(held.keySet());
                 changed();
                 return;
             }
@@ -168,6 +236,14 @@ public final class StateStore {
                 }
             }
             machines = fresh;
+            reading.clear();
+            for (StatusModel.MachineView m : machines) {
+                if (m.connected) {
+                    reading.add(m.id);
+                }
+            }
+            // A machine that is no longer there, or no longer connected, will not answer.
+            changing.removeIf(x -> !reading.contains(x) && !held.containsKey(x));
             changed();
             for (StatusModel.MachineView m : machines) {
                 if (!m.connected) {
@@ -177,6 +253,10 @@ public final class StateStore {
                 forMachine.apply(id).requestQuiet("overview zfsm://" + id, o -> {
                     if (gen != generation) {
                         return;
+                    }
+                    reading.remove(id);
+                    if (!held.containsKey(id)) {
+                        changing.remove(id);
                     }
                     for (StatusModel.MachineView mv : machines) {
                         if (!mv.id.equals(id)) {

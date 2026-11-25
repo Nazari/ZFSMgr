@@ -12,9 +12,11 @@ import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Consumer;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -51,6 +53,39 @@ public final class AdminPage extends JPanel {
     private List<Map<String, Object>> daemons = List.of();
     private final Map<String, String> probeText = new LinkedHashMap<>();
     private boolean loading;
+    /** A load asked for while one was on its way: it runs when that one ends. */
+    private boolean loadAgain;
+
+    /** The parts of the page, each read by its own command. */
+    enum Section { CONNECTIONS, PROGRAMS, MATRIX, KEYS }
+
+    /**
+     * The sections that may be about to change, and since when: each is greyed until a load that
+     * started after that moment answers for it. What can change outside ZFSMgr —the programs on
+     * each machine, whether they reach each other— is greyed whenever the page reads again; the
+     * connections and the keys only change from here, so only after doing something to them.
+     */
+    private final Map<Section, Long> stale = new java.util.EnumMap<>(Section.class);
+
+    private void markStale(Section... sections) {
+        long now = System.nanoTime();
+        for (Section x : sections) {
+            stale.put(x, now);
+        }
+        render();
+    }
+
+    /** Its answer, from the load that started at {@code started}, is painted: it may lose its grey. */
+    private void answered(Section x, long started) {
+        Long since = stale.get(x);
+        if (since != null && since <= started) {
+            stale.remove(x);
+        }
+    }
+
+    private JComponent veiled(JComponent box, Section x) {
+        return Veil.over(box, stale.containsKey(x));
+    }
 
     public AdminPage(StateStore store, Consumer<String> say, Runnable addMachine) {
         super(new BorderLayout(0, 8));
@@ -67,6 +102,7 @@ public final class AdminPage extends JPanel {
         addComponentListener(new ComponentAdapter() {
             @Override
             public void componentShown(ComponentEvent e) {
+                markStale(Section.PROGRAMS, Section.MATRIX);
                 load();
             }
         });
@@ -80,20 +116,29 @@ public final class AdminPage extends JPanel {
     /** Everything asked again: the connections, each machine's checks, the keys, the programs. */
     public void load() {
         if (loading) {
+            loadAgain = true;
             return;
         }
         loading = true;
+        final long started = System.nanoTime();
         store.general().request("ls zfsm://", r -> {
             connections = Json.objects(Json.firstObject(r.out()), "connections");
+            answered(Section.CONNECTIONS, started);
             render();
+            final Set<String> checking = new HashSet<>();
             for (Map<String, Object> c : connections) {
                 if (!Json.bool(c, "connected", true)) {
                     continue;
                 }
                 String id = Json.str(c, "id");
+                checking.add(id);
                 // From each machine, to every other it holds a key of: on its own service, so a
                 // machine that takes long only delays its own row.
                 store.forMachine(id).request("peers --check --on " + url(id), p -> {
+                    checking.remove(id);
+                    if (checking.isEmpty()) {
+                        answered(Section.MATRIX, started);
+                    }
                     if (p.ok()) {
                         checks.put(id, Json.objects(Json.firstObject(p.out()), "checks"));
                         checkError.remove(id);
@@ -104,19 +149,29 @@ public final class AdminPage extends JPanel {
                     render();
                 });
             }
+            if (checking.isEmpty()) {
+                answered(Section.MATRIX, started);
+            }
             store.general().request("master-key", k -> {
                 keys = Json.objects(Json.firstObject(k.out()), "keys");
+                answered(Section.KEYS, started);
                 render();
             });
             store.general().request("install-daemon -a --check", d -> {
                 daemons = Json.objects(Json.firstObject(d.out()), "items");
+                answered(Section.PROGRAMS, started);
                 loading = false;
                 render();
+                if (loadAgain) {
+                    loadAgain = false;
+                    load();
+                }
             });
         });
     }
 
-    private void act(String line, String done, int delayMs) {
+    private void act(String line, String done, int delayMs, Section... touched) {
+        markStale(touched);
         store.general().request(line, r -> {
             say.accept(r.ok() ? done : r.err().trim());
             store.refresh();
@@ -236,7 +291,7 @@ public final class AdminPage extends JPanel {
                 cell(box, p, 0, row++, 6, 1);
             }
         }
-        body.add(box);
+        body.add(veiled(box, Section.CONNECTIONS));
         body.add(note(L("«Test» checks that SSH gets there, which system there is and whether the sudo password works. The CLI does it; this only shows the answer.",
                 "«Probar» comprueba que se llega por SSH, qué sistema hay y si la contraseña de sudo vale. Lo hace el CLI; la ventana solo enseña el resultado.")));
     }
@@ -265,7 +320,7 @@ public final class AdminPage extends JPanel {
                 what.add(clis + " zfsmgr-cli");
             }
             all = small(L("Update %1", "Actualizar %1", String.join(L(" and ", " y "), what)),
-                    () -> act("install-daemon -a", L("Updated.", "Actualizado."), 3000));
+                    () -> act("install-daemon -a", L("Updated.", "Actualizado."), 3000, Section.PROGRAMS, Section.MATRIX));
         }
         body.add(head(L("Programs", "Programas"), all));
         String cli = store.general().version();
@@ -292,12 +347,12 @@ public final class AdminPage extends JPanel {
             String a = Json.str(d, "code");
             if (a.equals("update") || a.equals("install")) {
                 cell(box, small(L("Update its zfsmgr-agent", "Actualizar su zfsmgr-agent"),
-                        () -> act("install-daemon --on " + url(id), L("Daemon of %1 updated.", "Daemon de %1 actualizado.", id), 3000)),
+                        () -> act("install-daemon --on " + url(id), L("Daemon of %1 updated.", "Daemon de %1 actualizado.", id), 3000, Section.PROGRAMS, Section.MATRIX)),
                         5, row, 1, 0);
             }
             row++;
         }
-        body.add(box);
+        body.add(veiled(box, Section.PROGRAMS));
         body.add(note(L("zfsmgr-agent is the daemon that does the work on each machine; updating it restarts it, and it is checked first that it is not copying anything. zfsmgr-cli is the command line program; updating it restarts nothing. zfsmgr-gui, this window, is only on this computer.",
                 "zfsmgr-agent es el daemon que hace el trabajo en cada máquina; actualizarlo lo reinicia, y antes se comprueba que no esté copiando nada. zfsmgr-cli es el programa de línea de órdenes; actualizarlo no reinicia nada. zfsmgr-gui, esta ventana, solo está en este ordenador.")));
     }
@@ -347,25 +402,24 @@ public final class AdminPage extends JPanel {
                 }
             }
         }
-        body.add(box);
+        body.add(veiled(box, Section.MATRIX));
         JButton all = new JButton(L("Give all the keys", "Dar todas las llaves"));
         all.setToolTipText(L("Every machine gets the full keys of all the others.", "Cada máquina recibe las llaves completas de todas las demás."));
         all.addActionListener(e -> {
             all.setEnabled(false);
+            markStale(Section.MATRIX);
             Keys.giveAll(store.general(), (given, failed) -> {
                 say.accept(failed.isEmpty() ? L("Keys given to %1.", "Llaves entregadas a %1.", String.join(", ", given))
                         : L("Keys given to %1. Failed: %2", "Llaves entregadas a %1. Fallaron: %2",
                                 given.isEmpty() ? "-" : String.join(", ", given), String.join("; ", failed)));
                 checks.clear();
                 checkError.clear();
-                render();
+                markStale(Section.MATRIX);
                 load();
             });
         });
         body.add(Ui.row(small(L("Check again", "Comprobar de nuevo"), () -> {
-            checks.clear();
-            checkError.clear();
-            render();
+            markStale(Section.MATRIX);
             load();
         }), all));
     }
@@ -449,7 +503,7 @@ public final class AdminPage extends JPanel {
                 }
             }
         }
-        Runnable giveKeys = () -> act("peers --push --role full --on " + url(from), L("Keys given.", "Llaves entregadas."), 0);
+        Runnable giveKeys = () -> act("peers --push --role full --on " + url(from), L("Keys given.", "Llaves entregadas."), 0, Section.MATRIX);
         if (state.equals("unreachable") && stale) {
             t.setText(L("✕ looks for it at %1", "✕ la busca en %1", lookedAt));
             t.setToolTipText("<html>" + Ui.escape(L("%1 still has the address it was given with the keys (%2); it is %3 now. Giving it keys again gives it the new one.",
@@ -464,7 +518,7 @@ public final class AdminPage extends JPanel {
         } else if (state.equals("unreachable")) {
             // Nobody gets there: most likely the one on top answers only on itself.
             JButton b = small(L("Open %1 to the network", "Abrir %1 a la red", names.get(to)),
-                    () -> act("peers --listen 0.0.0.0 --on " + url(to), L("It listens on the network now.", "Ya escucha en la red."), 8000));
+                    () -> act("peers --listen 0.0.0.0 --on " + url(to), L("It listens on the network now.", "Ya escucha en la red."), 8000, Section.MATRIX));
             b.setToolTipText(L("Its daemon restarts.", "Su daemon se reinicia."));
             cell.add(left(b));
         } else if (pullOnly) {
@@ -497,14 +551,14 @@ public final class AdminPage extends JPanel {
             if (!password) {
                 String slot = Json.text(k, "slot");
                 JButton remove = small(L("Remove…", "Quitar…"),
-                        () -> act("master-key remove " + slot, L("Key %1 removed.", "Llave %1 quitada.", name), 0));
+                        () -> act("master-key remove " + slot, L("Key %1 removed.", "Llave %1 quitada.", name), 0, Section.KEYS));
                 remove.setToolTipText(L("It will no longer open ZFSMgr. Nothing is deleted on the key.",
                         "Dejará de abrir ZFSMgr. En la llave no se borra nada."));
                 cell(box, remove, 2, row, 1, 0);
             }
             row++;
         }
-        body.add(box);
+        body.add(veiled(box, Section.KEYS));
     }
 
     // Registering asks for two touches —one to create the credential, one to read its secret— and
@@ -526,6 +580,7 @@ public final class AdminPage extends JPanel {
         note.setModal(false);
         note.setVisible(true);
         String line = "master-key add" + (name.toString().trim().isEmpty() ? "" : " --label " + Ui.quoted(name.toString().trim()));
+        markStale(Section.KEYS);
         store.general().request(line, r -> {
             note.dispose();
             say.accept(r.ok() ? L("Key added: from now on it opens ZFSMgr.", "Llave añadida: desde ahora abre ZFSMgr.") : r.err().trim());
@@ -613,6 +668,6 @@ public final class AdminPage extends JPanel {
         if (sudo.isSelected() != Json.bool(c, "sudo", false)) {
             line.append(sudo.isSelected() ? " --sudo" : " --no-sudo");
         }
-        act(line.toString(), L("%1 changed.", "%1 cambiada.", id), 0);
+        act(line.toString(), L("%1 changed.", "%1 cambiada.", id), 0, Section.CONNECTIONS, Section.MATRIX);
     }
 }

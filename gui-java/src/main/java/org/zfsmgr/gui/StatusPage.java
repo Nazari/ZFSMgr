@@ -22,6 +22,7 @@ public final class StatusPage extends JPanel {
     private final StateStore store;
     private final JLabel ago = Ui.muted(" ");
     private final JScrollPane scroll = new JScrollPane();
+    private final JButton refresh = new JButton(L("Refresh", "Actualizar"));
 
     public StatusPage(StateStore store) {
         super(new BorderLayout(0, 8));
@@ -35,7 +36,6 @@ public final class StatusPage extends JPanel {
         top.add(Box.createHorizontalGlue());
         top.add(ago);
         top.add(Box.createHorizontalStrut(10));
-        JButton refresh = new JButton(L("Refresh", "Actualizar"));
         refresh.addActionListener(e -> store.refresh());
         top.add(refresh);
         add(top, BorderLayout.NORTH);
@@ -114,6 +114,11 @@ public final class StatusPage extends JPanel {
         JPanel body = new JPanel();
         body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
         updateAgo();
+        // Pressed again while it reads, it would only start the same reading over.
+        refresh.setEnabled(!store.readingAny());
+        if (store.readingAny()) {
+            ago.setText(L("Updating…", "Actualizando…"));
+        }
         List<StatusModel.MachineView> machines = store.machines();
         if (store.listFailed()) {
             body.add(left(Ui.wrapped(L("Could not list the machines: %1",
@@ -131,21 +136,25 @@ public final class StatusPage extends JPanel {
 
     private void fill(JPanel body, List<StatusModel.MachineView> machines) {
         StatusModel.Summary s = StatusModel.summarize(machines);
+        // What comes from reading the machines is veiled while they are read again: it can
+        // change outside ZFSMgr (a machine that starts, a pool that degrades, a copy that runs).
+        // How many machines there are and which copies are scheduled only change from here.
+        boolean reading = store.readingAny();
         JPanel tiles = new JPanel(new GridLayout(1, 4, 10, 0));
         tiles.add(tile(L("Machines", "Máquinas"), s.answering() + " / " + s.machines(),
                 L("answer", "responden"), s.answering() == s.machines() ? "ok" : "error"));
-        tiles.add(tile(L("Pools", "Pools"),
+        tiles.add(Veil.over(tile(L("Pools", "Pools"),
                 String.valueOf(s.poolsWithProblems() == 0 ? s.pools() : s.poolsWithProblems()),
                 s.poolsWithProblems() == 0 ? L("all fine", "todos bien")
                                            : L("need a look", "necesitan atención"),
-                s.poolsWithProblems() == 0 ? "ok" : "warning"));
+                s.poolsWithProblems() == 0 ? "ok" : "warning"), reading));
         tiles.add(tile(L("Copies", "Copias"), s.copiesOk() + " / " + s.copies(),
                 s.copiesFailing() > 0 ? L("up to date · %1 failing", "al día · %1 fallan", s.copiesFailing())
                 : s.copiesPending() > 0 ? L("up to date · %1 pending", "al día · %1 pendientes", s.copiesPending())
                 : L("up to date", "al día"),
                 s.copiesFailing() > 0 ? "error" : s.copiesPending() > 0 ? "pending" : "ok"));
-        tiles.add(tile(L("Jobs", "Trabajos"), String.valueOf(s.jobsRunning()),
-                L("copying now", "copiando ahora"), "ok"));
+        tiles.add(Veil.over(tile(L("Jobs", "Trabajos"), String.valueOf(s.jobsRunning()),
+                L("copying now", "copiando ahora"), "ok"), reading));
         tiles.setMaximumSize(new Dimension(Integer.MAX_VALUE, tiles.getPreferredSize().height));
         body.add(left(tiles));
         body.add(Box.createVerticalStrut(10));
@@ -162,7 +171,7 @@ public final class StatusPage extends JPanel {
                 l.setForeground(Ui.colourOf(a.error() ? "error" : "warning"));
                 box.add(left(l));
             }
-            body.add(left(box));
+            body.add(left(Veil.over(box, reading)));
             body.add(Box.createVerticalStrut(10));
         }
 
@@ -197,7 +206,8 @@ public final class StatusPage extends JPanel {
                     c.add(left(line));
                 }
             }
-            grid.add(c);
+            // Each machine on its own: one that answers late keeps only its own card grey.
+            grid.add(Veil.over(c, store.reading(m.id)));
         }
         body.add(left(grid));
 
@@ -221,7 +231,8 @@ public final class StatusPage extends JPanel {
                         + StatusModel.ago(r.lastLevel(), now)));
                 line.add(Box.createHorizontalGlue());
                 line.add(Ui.stateLabel(r.state()));
-                box.add(left(line));
+                // Only when it was changed from here and that change has not come back yet.
+                box.add(left(Veil.over(line, store.changing(r.machineId()))));
             }
             body.add(left(box));
         }

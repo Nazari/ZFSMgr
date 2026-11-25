@@ -81,6 +81,11 @@ public final class MachinesPage extends JPanel {
     private final DefaultTreeModel model = new DefaultTreeModel(root);
     private final JTree tree = new JTree(model);
     private final JScrollPane detail = new JScrollPane();
+    private final Veil detailVeil = new Veil();
+    /** Pools («machine/pool») whose datasets are being read again: greyed in the tree meanwhile. */
+    private final Set<String> reloading = new HashSet<>();
+    /** Commands started from this page that have not answered yet. */
+    private int acting;
     private boolean advanced;
     private int datasetTab;
     /** The chosen tab of a pool: «Pool», then its root dataset's tabs. */
@@ -128,7 +133,27 @@ public final class MachinesPage extends JPanel {
         treeScroll.setMinimumSize(new Dimension(220, 100));
         detail.setBorder(null);
         detail.getVerticalScrollBar().setUnitIncrement(16);
-        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, treeScroll, detail);
+        tree.setCellRenderer(new javax.swing.tree.DefaultTreeCellRenderer() {
+            @Override
+            public Component getTreeCellRendererComponent(JTree t, Object value, boolean sel, boolean expanded,
+                    boolean leaf, int row, boolean focus) {
+                Component c = super.getTreeCellRendererComponent(t, value, sel, expanded, leaf, row, focus);
+                if (isReloading(nodeOf((DefaultMutableTreeNode) value))) {
+                    c.setForeground(Ui.colourOf("muted"));
+                }
+                return c;
+            }
+        });
+        tree.addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
+            @Override
+            public void mouseMoved(java.awt.event.MouseEvent e) {
+                TreePath p = tree.getPathForLocation(e.getX(), e.getY());
+                boolean wait = p != null && isReloading(nodeOf((DefaultMutableTreeNode) p.getLastPathComponent()));
+                tree.setCursor(wait ? java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.WAIT_CURSOR)
+                                    : java.awt.Cursor.getDefaultCursor());
+            }
+        });
+        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, treeScroll, detailVeil.wrap(detail));
         split.setDividerLocation(280);
         split.setBorder(null);
         add(split, BorderLayout.CENTER);
@@ -149,10 +174,14 @@ public final class MachinesPage extends JPanel {
             @Override
             public void treeWillCollapse(TreeExpansionEvent e) {}
         });
-        tree.addTreeSelectionListener(e -> showDetail());
+        tree.addTreeSelectionListener(e -> {
+            showDetail();
+            updateVeil();
+        });
         store.onChanged(() -> {
             rebuildMachines();
             continueReveal();
+            updateVeil();
         });
         store.onJobEnded((machine, id, state, error) -> {
             // Said here because whoever launched it may be long gone: the copy wizard is
@@ -250,11 +279,38 @@ public final class MachinesPage extends JPanel {
         }
     }
 
+    /** Whether that node is a pool, or inside one, whose datasets are being read again. */
+    private boolean isReloading(Node n) {
+        return n != null && (n.kind() == Kind.POOL || n.kind() == Kind.DATASET)
+                && reloading.contains(n.machine() + "/" + poolOf(n.name()));
+    }
+
+    /**
+     * The detail greyed while what it shows may be changing: a command from this page has not
+     * answered, the pool of what is chosen is being read again, or —for a machine— its state is.
+     * When the veil goes, the detail is painted again with what came.
+     */
+    private void updateVeil() {
+        Node n = selected();
+        boolean on = acting > 0 || isReloading(n)
+                || (n != null && n.kind() == Kind.MACHINE && store.changing(n.machine()));
+        boolean was = detailVeil.on();
+        detailVeil.set(on);
+        if (was && !on && n != null && n.kind() == Kind.MACHINE) {
+            showDetail();
+        }
+        tree.repaint();
+    }
+
     private void loadPool(DefaultMutableTreeNode poolItem) {
         Node n = nodeOf(poolItem);
         String machine = n.machine();
         String pool = n.name();
+        reloading.add(machine + "/" + pool);
+        updateVeil();
         store.forMachine(machine).request("ls -r " + url(machine, pool), r -> {
+            reloading.remove(machine + "/" + pool);
+            updateVeil();
             List<Map<String, Object>> es = Json.objects(Json.firstObject(r.out()), "entries");
             entries.put(machine + "/" + pool, es);
             DefaultMutableTreeNode pi = findItem(machine, pool);
@@ -1719,7 +1775,14 @@ public final class MachinesPage extends JPanel {
      * what to do once it has finished —for instance, check the machine again—.
      */
     private void act(String line, String done, boolean reloadTree, Runnable then) {
+        // The machine the line acts on: its first URL («send» names the destination first).
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("zfsm://([^/\\s]+)").matcher(line);
+        String machine = m.find() ? m.group(1) : "";
+        acting++;
+        store.begin(machine);
+        updateVeil();
         store.general().request(line, r -> {
+            acting--;
             host.say(r.ok() ? done : r.err().trim());
             if (then != null) {
                 then.run();
@@ -1731,7 +1794,8 @@ public final class MachinesPage extends JPanel {
                 // A command that left a job behind changes its destination when the job ends.
                 store.followIfJob(r.out());
             }
-            store.refresh();
+            store.done(machine);
+            updateVeil();
         });
     }
 

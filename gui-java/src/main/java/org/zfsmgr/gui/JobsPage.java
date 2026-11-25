@@ -36,6 +36,8 @@ public final class JobsPage extends JPanel {
     private final Consumer<String> say;
     private final Map<String, List<Map<String, Object>>> history = new HashMap<>();
     private final Set<String> asked = new HashSet<>();
+    /** The machines whose history is on its way: «Finished» is greyed until they all answer. */
+    private final Set<String> historyAsked = new HashSet<>();
     private final JScrollPane scroll = new JScrollPane();
 
     public JobsPage(StateStore store, Consumer<String> say) {
@@ -72,7 +74,9 @@ public final class JobsPage extends JPanel {
                 continue;
             }
             final String id = m.id;
+            historyAsked.add(id);
             store.forMachine(id).requestQuiet("jobs --history zfsm://" + id, r -> {
+                historyAsked.remove(id);
                 history.put(id, Json.objects(Json.firstObject(r.out()), "jobs"));
                 if (isShowing()) {
                     render();
@@ -83,9 +87,10 @@ public final class JobsPage extends JPanel {
 
     private void stop(String machineId, String jobId) {
         // The CLI asks first (the question arrives as a dialog) and says what happened.
+        store.begin(machineId);
         store.forMachine(machineId).request("job cancel " + jobId + " --on zfsm://" + machineId, r -> {
             say.accept(r.ok() ? L("Job stopped.", "Trabajo parado.") : r.err().trim());
-            store.refresh();
+            store.done(machineId);
         });
     }
 
@@ -120,10 +125,12 @@ public final class JobsPage extends JPanel {
 
         body.add(left(Ui.heading(L("In progress", "En curso"))));
         body.add(Box.createVerticalStrut(4));
+        // What runs comes from reading the machines: greyed while they are read again.
+        boolean reading = store.readingAny();
         List<StatusModel.JobRow> jobs = StatusModel.jobRows(store.machines());
         if (jobs.isEmpty()) {
-            body.add(left(Ui.wrapped(L("Nothing is running. Scheduled copies start on their own at the next pass, every five minutes.",
-                    "No hay nada en curso. Las copias programadas arrancan solas en la siguiente pasada, cada cinco minutos."))));
+            body.add(left(Veil.over(Ui.wrapped(L("Nothing is running. Scheduled copies start on their own at the next pass, every five minutes.",
+                    "No hay nada en curso. Las copias programadas arrancan solas en la siguiente pasada, cada cinco minutos.")), reading)));
         } else {
             JPanel box = Ui.card();
             box.setLayout(new BoxLayout(box, BoxLayout.Y_AXIS));
@@ -144,7 +151,7 @@ public final class JobsPage extends JPanel {
                 row.add(bh, BorderLayout.EAST);
                 box.add(left(row));
             }
-            body.add(left(box));
+            body.add(left(Veil.over(box, reading)));
         }
         body.add(Box.createVerticalStrut(12));
 
@@ -162,8 +169,9 @@ public final class JobsPage extends JPanel {
         done.sort((a, b) -> Json.str(b.job(), "finished").compareTo(Json.str(a.job(), "finished")));
         body.add(left(Ui.heading(L("Finished", "Terminados"))));
         body.add(Box.createVerticalStrut(4));
+        boolean asking = !historyAsked.isEmpty();
         if (done.isEmpty()) {
-            body.add(left(Ui.muted(L("Nothing yet.", "Nada todavía."))));
+            body.add(left(Veil.over(Ui.muted(asking ? L("Asking…", "Preguntando…") : L("Nothing yet.", "Nada todavía.")), asking)));
         } else {
             JPanel box = Ui.card();
             box.setLayout(new GridBagLayout());
@@ -220,7 +228,7 @@ public final class JobsPage extends JPanel {
                     c.gridwidth = 1;
                 }
             }
-            body.add(left(box));
+            body.add(left(Veil.over(box, asking)));
         }
         JPanel holder = new StatusPage.WidthTracking(new BorderLayout());
         holder.add(body, BorderLayout.NORTH);

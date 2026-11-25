@@ -37,6 +37,7 @@ public final class CopiesPage extends JPanel {
     private final JPanel detailCard = Ui.card();
     /** The detail's lines, at the top of its card: a text area in a box layout takes all the height. */
     private final JPanel detail = new JPanel();
+    private final Veil detailVeil = new Veil();
 
     /** The two ends of a copy: «zfsm://unib/ppal/user/srvs» split, whichever holds the schedule. */
     record Ends(String originMachine, String originDataset, String copyMachine, String copyDataset) {}
@@ -116,15 +117,30 @@ public final class CopiesPage extends JPanel {
 
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         table.setFillsViewportHeight(true);
-        table.getColumnModel().getColumn(5).setCellRenderer(new DefaultTableCellRenderer() {
+        // A copy changed from here is greyed, with the wait cursor over its row, until its
+        // machine's state comes back: the table must not go on saying what it was.
+        DefaultTableCellRenderer plain = new DefaultTableCellRenderer() {
             @Override
             public Component getTableCellRendererComponent(JTable t, Object v, boolean sel, boolean focus, int r, int c) {
-                String state = String.valueOf(v);
-                Component comp = super.getTableCellRendererComponent(t, Ui.stateWord(state), sel, focus, r, c);
-                if (!sel) {
-                    comp.setForeground(Ui.colourOf(state));
+                Component comp = super.getTableCellRendererComponent(t, c == 5 ? Ui.stateWord(String.valueOf(v)) : v,
+                        sel, focus, r, c);
+                if (changing(r)) {
+                    comp.setForeground(Ui.colourOf("muted"));
+                } else if (!sel) {
+                    comp.setForeground(c == 5 ? Ui.colourOf(String.valueOf(v)) : t.getForeground());
                 }
                 return comp;
+            }
+        };
+        for (int c = 0; c < model.getColumnCount(); c++) {
+            table.getColumnModel().getColumn(c).setCellRenderer(plain);
+        }
+        table.addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
+            @Override
+            public void mouseMoved(java.awt.event.MouseEvent e) {
+                table.setCursor(changing(table.rowAtPoint(e.getPoint()))
+                        ? java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.WAIT_CURSOR)
+                        : java.awt.Cursor.getDefaultCursor());
             }
         });
         table.getSelectionModel().addListSelectionListener(e -> {
@@ -140,7 +156,7 @@ public final class CopiesPage extends JPanel {
         JScrollPane tableScroll = new JScrollPane(table);
         detailCard.setLayout(new BorderLayout());
         detailCard.add(detail, BorderLayout.NORTH);
-        JScrollPane detailScroll = new JScrollPane(detailCard);
+        JScrollPane detailScroll = new JScrollPane(detailVeil.wrap(detailCard));
         detailScroll.setBorder(null);
         JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT, tableScroll, detailScroll);
         // The table as tall as its rows need, up to half; the detail, with its buttons, the rest.
@@ -155,6 +171,10 @@ public final class CopiesPage extends JPanel {
 
         store.onChanged(this::render);
         render();
+    }
+
+    private boolean changing(int row) {
+        return row >= 0 && row < rows.size() && store.changing(rows.get(row).machineId());
     }
 
     private void render() {
@@ -196,6 +216,7 @@ public final class CopiesPage extends JPanel {
         detail.setLayout(new BoxLayout(detail, BoxLayout.Y_AXIS));
         int i = table.getSelectedRow();
         if (i < 0 || i >= rows.size()) {
+            detailVeil.set(false);
             detail.add(left(Ui.muted(rows.isEmpty()
                     ? L("No copies yet. «New copy» sets one up.", "Todavía no hay copias. «Nueva copia» prepara una.")
                     : L("Choose a copy.", "Elige una copia."))));
@@ -204,6 +225,7 @@ public final class CopiesPage extends JPanel {
             return;
         }
         StatusModel.ScheduleRow r = rows.get(i);
+        detailVeil.set(store.changing(r.machineId()));
         Ends e = endsOf(r);
         JPanel head = new JPanel();
         head.setLayout(new BoxLayout(head, BoxLayout.X_AXIS));
@@ -237,17 +259,17 @@ public final class CopiesPage extends JPanel {
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 6));
         JButton now = new JButton(L("Copy now", "Copiar ahora"));
         now.setEnabled(!paused && r.job().isEmpty());
-        now.addActionListener(ev -> act("schedule run --on " + on,
+        now.addActionListener(ev -> act(r.machineId(), "schedule run --on " + on,
                 L("Copying: follow it in Jobs.", "Copiando: síguelo en Trabajos.")));
         JButton pause = new JButton(paused ? L("Resume", "Reanudar") : L("Pause", "Pausar"));
         pause.addActionListener(ev -> {
             if (!paused) {
-                act("schedule --off --on " + on, L("Paused: nothing is copied until it is resumed.",
+                act(r.machineId(), "schedule --off --on " + on, L("Paused: nothing is copied until it is resumed.",
                         "En pausa: no se copia nada hasta reanudarla."));
                 return;
             }
             // Setting any value switches it on again (see `help schedule`): its own daily one.
-            act("schedule --daily " + Json.num(r.keep(), "daily", 0) + " --on " + on, L("Resumed.", "Reanudada."));
+            act(r.machineId(), "schedule --daily " + Json.num(r.keep(), "daily", 0) + " --on " + on, L("Resumed.", "Reanudada."));
         });
         JButton change = new JButton(L("Change…", "Cambiar…"));
         change.addActionListener(ev -> {
@@ -257,13 +279,13 @@ public final class CopiesPage extends JPanel {
                             "La envía el origen: son también los snapshots que guarda el origen.") : "",
                     r.keep());
             if (flags != null) {
-                act("schedule " + flags + " --on " + on, L("Changed.", "Cambiado."));
+                act(r.machineId(), "schedule " + flags + " --on " + on, L("Changed.", "Cambiado."));
             }
         });
         JButton stopIt = new JButton(L("Stop copying…", "Dejar de copiar…"));
         // Pulled: the copier's schedule goes (the CLI asks first); what was copied stays.
         // Pushed: only the levelling goes; the origin keeps taking its snapshots.
-        stopIt.addActionListener(ev -> act(r.kind().equals("pull") ? "schedule --clear --on " + on
+        stopIt.addActionListener(ev -> act(r.machineId(), r.kind().equals("pull") ? "schedule --clear --on " + on
                                                                    : "schedule --no-level --no-to --on " + on,
                 L("It is no longer copied. What was copied stays where it is.",
                   "Ya no se copia. Lo copiado se queda donde está.")));
@@ -276,10 +298,12 @@ public final class CopiesPage extends JPanel {
         detail.repaint();
     }
 
-    private void act(String line, String done) {
+    /** Runs it on the machine that holds the schedule, greyed until that machine's state is back. */
+    private void act(String machine, String line, String done) {
+        store.begin(machine);
         store.general().request(line, res -> {
             say.accept(res.ok() ? done : res.err().trim());
-            store.refresh();
+            store.done(machine);
         });
     }
 }
