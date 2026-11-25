@@ -893,6 +893,15 @@ const std::map<std::string, std::vector<Ejemplo>> kEjemplos = {
       {"install-daemon --on zfsm://server --force",
        {"t_ej_install_daemon_6", "aunque tenga trabajos en curso, que se cortan"}},
      }},
+    {"install-package",
+     {
+      {"install-package --package /tmp/zfsmgr-2.0.0 --on zfsm://nas",
+       {"t_ej_install_package_1", "instala el paquete en otra máquina, con su daemon"}},
+      {"install-package --package /tmp/zfsmgr-2.0.0 --on zfsm://laptop --no-daemon",
+       {"t_ej_install_package_2", "solo el CLI y la interfaz"}},
+      {"install-package --package /tmp/zfsmgr-2.0.0 --on zfsm://server --cli-only --force",
+       {"t_ej_install_package_3", "un servidor: sin interfaz, y el daemon aunque tenga trabajos"}},
+     }},
     {"format",
      {
       {"format",
@@ -1702,6 +1711,23 @@ const std::vector<Orden> kOrdenes = {
       "/usr/local/libexec/zfsmgr-agent. Sin eso el agente arranca y contesta STATUS=OK, "
       "pero no ve los discos: no encuentra ningún pool que importar y todo parece bien "
       "menos el resultado."}},
+     Objetivo::Conexion, {}},
+
+    {"install-package", {"t_daemon_48e665", "Daemon"},
+     {"t_install_package_uso", "--package <dir> [--on <url>] [--no-daemon] [--cli-only] [--force]"},
+     {"t_install_package_res", "Instala un paquete de ZFSMgr en esa máquina con su propio instalador: CLI, interfaz y daemon."},
+     {{{"t_install_package_dir", "--package <dir>"},
+       {"t_install_package_dir_q", "El paquete descomprimido: el directorio zfsmgr-<versión>, o el .jar del instalador descomprimido."}},
+      {{"t_install_package_nod", "--no-daemon"},
+       {"t_install_package_nod_q", "No toca el daemon de esa máquina."}},
+      {{"t_install_package_clio", "--cli-only"},
+       {"t_install_package_clio_q", "Sin la interfaz gráfica."}},
+      {{"t_install_package_force", "--force"},
+       {"t_install_package_force_q", "Actualiza el daemon aunque tenga trabajos en curso, que se cortan."}}},
+     {{"t_install_package_det", "El paquete entero viaja por SSH y en la otra máquina se ejecuta SU instalador "
+       "—install-linux.sh, install-macos.sh, install-freebsd.sh o install-windows.ps1—, así que queda igual "
+       "que instalada a mano: la entrada del menú, el .app o el acceso directo de Windows. El daemon solo se "
+       "instala donde hay OpenZFS, y no se actualiza si tiene trabajos en curso salvo con --force."}},
      Objetivo::Conexion, {}},
 
     // --- Del intérprete

@@ -661,4 +661,46 @@ bool zpoolGeneric(Estado& e, const ZfsmUrl& destino, const std::vector<std::stri
     return true;
 }
 
+// `install-package --package <dir>`: the whole package on that machine, by its own installer
+// (daemoninstall::installPackage). What the installer .jar runs for every machine of the network.
+bool cmdInstalarPaquete(Estado& e, const LineaAnalizada& linea) {
+    namespace DI = B::daemoninstall;
+    Peticion pet;
+    if (!prepara(e, linea, pet)) {
+        return false;
+    }
+    const std::string dir = pet.valor("package");
+    if (dir.empty()) {
+        std::fputs(TC("t_install_package_falta", "falta --package <dir>: el paquete descomprimido\n"),
+                   stderr);
+        return false;
+    }
+    std::string error;
+    const auto* p = perfilVivoDe(e, pet.objetivo, error);
+    if (!p) {
+        std::fprintf(stderr, "%s\n", error.c_str());
+        return false;
+    }
+    const std::string quien = p->name.empty() ? p->id : p->name;
+    DI::PackageOptions o;
+    o.daemon = !pet.tiene("no-daemon");
+    o.cliOnly = pet.tiene("cli-only");
+    o.force = pet.tiene("force");
+    o.lang = B::i18n::language();
+    std::fprintf(stderr, TC("t_install_package_en", "instalando el paquete en %s...\n"),
+                 quien.c_str());
+    const DI::Result r = DI::installPackage(
+        e.ses->transporte, conSudo(e, *p), dir, o,
+        [](const std::string& l) { std::fprintf(stderr, "  %s\n", l.c_str()); }, e.ses->verboso);
+    // The daemon may have been restarted or replaced: what was known of it is stale.
+    olvidaEstadoDeConexion(e, *p);
+    if (!r.ok()) {
+        std::fprintf(stderr, TC("t_install_package_fallo", "no se pudo instalar en %s: %s (%s)\n"),
+                     quien.c_str(), DI::labelOf(r.fallo).c_str(), r.detail.c_str());
+        return false;
+    }
+    std::fprintf(stderr, TC("t_install_package_hecho", "%s: instalado\n"), quien.c_str());
+    return true;
+}
+
 }  // namespace zfsmgr::cli::detail

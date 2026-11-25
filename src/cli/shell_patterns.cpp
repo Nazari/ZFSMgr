@@ -436,6 +436,7 @@ const std::map<std::string, ReglaPatron>& reglasDePatron() {
         {"release", {Politica::VariosModifica, {Pieza::Instantanea}}},
         {"scrub", {Politica::VariosModifica, {Pieza::Pool}}},
         {"install-daemon", {Politica::VariosModifica, {Pieza::Conexion}}},
+        {"install-package", {Politica::VariosModifica, {Pieza::Conexion}}},
     };
     return r;
 }

@@ -96,6 +96,33 @@ Result installLocal(const std::string& platform, const std::string& binaryPath, 
 
 // Lo contrario: para el servicio y quita lo que `installScript` puso. Junto a él para que
 // las rutas no puedan divergir. La configuración del CLIENTE no se toca.
+// --- The whole package on another machine.
+//
+// What `install-package` does: the package's tree (the zfsmgr-<v> directory, or the unpacked
+// installer .jar) goes over as a tar and ITS installer for that system runs there —
+// install-linux.sh, install-macos.sh, install-freebsd.sh or install-windows.ps1—, so the machine
+// ends exactly as if somebody had installed it by hand: CLI, GUI with its menu entry, .app or
+// Start menu shortcut, and the daemon. Over SSH with sudo, like the agent.
+struct PackageOptions {
+    bool daemon{true};     // install or update the daemon (only where OpenZFS is)
+    bool cliOnly{false};   // no GUI
+    bool force{false};     // update the daemon even with jobs in progress
+    std::string lang;      // «es» or «en»: the installer's messages
+};
+
+// The package's files, as (name in the tar, local path). Empty and `error` filled when the
+// directory is not a package: it must hold MANIFIESTO.sha256 and the installers.
+std::vector<std::pair<std::string, std::string>> packageEntries(const std::string& packageDir,
+                                                                std::string& error);
+// The commands that unpack it and run its installer, public to be tested without a machine.
+std::string packageInstallScript(const std::string& platform, const PackageOptions& o);
+std::string packageInstallScriptWindows(const std::string& upload, const PackageOptions& o);
+
+Result installPackage(TransportSession& ses, const ConnectionProfile& profile,
+                      const std::string& packageDir, const PackageOptions& options,
+                      const std::function<void(const std::string&)>& trace = {},
+                      bool verbose = false);
+
 std::string uninstallScript(const std::string& platform);
 Result uninstallLocal(const std::string& platform, bool simulate,
                       const std::function<void(const std::string&)>& trace);
@@ -125,6 +152,18 @@ CliProbe probeRemoteCli(TransportSession& ses, const ConnectionProfile& profile,
 std::string cliProbeCommand();
 std::string cliProbeCommandWindows();
 CliProbe readCliProbe(const std::string& output);
+
+// --- The GUI of the other machine: whether its .jar is where the installers put it, and
+// whether its launcher finds a Java to run it (Unix; on Windows `java` stays empty).
+struct GuiProbe {
+    bool found{false};
+    std::string path;
+    std::string java;   // «ok», «missing», or empty when it could not be asked
+};
+GuiProbe probeRemoteGui(TransportSession& ses, const ConnectionProfile& profile, bool verbose);
+std::string guiProbeCommand();
+std::string guiProbeCommandWindows();
+GuiProbe readGuiProbe(const std::string& output);
 
 // Un tar (ustar) en memoria con esos ficheros: (nombre dentro del tar, ruta local). Vacío y
 // `error` relleno si alguno no se puede leer o su nombre no cabe.

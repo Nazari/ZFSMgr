@@ -317,6 +317,17 @@ bool cmdProbe(Estado& e, const LineaAnalizada& linea) {
         }
         doc.set("daemon_version", J::Value(version));
         doc.set("daemon", J::Value(daemon));
+        // The CLI and the GUI installed there: what the installer compares with its package.
+        {
+            namespace DI = B::daemoninstall;
+            const DI::CliProbe cli = DI::probeRemoteCli(e.ses->transporte, real, e.ses->verboso);
+            doc.set("cli_version", J::Value(cli.found ? (cli.fullVersion.empty() ? std::string("?")
+                                                                                 : cli.fullVersion)
+                                                      : std::string()));
+            const DI::GuiProbe gui = DI::probeRemoteGui(e.ses->transporte, real, e.ses->verboso);
+            doc.set("gui", J::Value(gui.found));
+            doc.set("gui_java", J::Value(gui.java));
+        }
         // With sudo failing, that is the reason and it was said just above; a second warning
         // about the daemon told it again and suggested installing one that may be there.
         const bool sudoFalla =

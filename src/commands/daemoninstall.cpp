@@ -489,6 +489,44 @@ CliProbe probeRemoteCli(TransportSession& ses, const ConnectionProfile& p, bool 
     return readCliProbe(out);
 }
 
+std::string guiProbeCommand() {
+    // Where install-linux/freebsd/macos.sh put it (<prefix>/lib/zfsmgr), with the usual
+    // prefixes; and its launcher's own answer about Java. Without sudo: only looking.
+    return "for j in /usr/local/lib/zfsmgr/zfsmgr-gui.jar /usr/lib/zfsmgr/zfsmgr-gui.jar; do "
+           "if [ -f \"$j\" ]; then echo \"ZFSMGR_GUI=$j\"; "
+           "g=\"$(dirname \"$(dirname \"$(dirname \"$j\")\")\")/bin/zfsmgr-gui\"; "
+           "if [ -x \"$g\" ]; then if \"$g\" --check >/dev/null 2>&1; then echo ZFSMGR_JAVA=ok; "
+           "else echo ZFSMGR_JAVA=missing; fi; fi; break; fi; done; true";
+}
+
+std::string guiProbeCommandWindows() {
+    return "$j=Join-Path $env:ProgramFiles 'ZFSMgr\\gui\\zfsmgr-gui.jar'; "
+           "if (Test-Path -LiteralPath $j) { Write-Output ('ZFSMGR_GUI=' + $j) }";
+}
+
+GuiProbe readGuiProbe(const std::string& salida) {
+    GuiProbe r;
+    for (const std::string& linea : split(salida, "\n", true)) {
+        const std::string l = trim(linea);
+        if (startsWith(l, "ZFSMGR_GUI=")) {
+            r.found = true;
+            r.path = l.substr(11);
+        } else if (startsWith(l, "ZFSMGR_JAVA=")) {
+            r.java = l.substr(12);
+        }
+    }
+    return r;
+}
+
+GuiProbe probeRemoteGui(TransportSession& ses, const ConnectionProfile& p, bool verboso) {
+    std::string out;
+    std::string err;
+    int rc = -1;
+    T::runSsh(ses, p, T::isWindowsConnection(p) ? guiProbeCommandWindows() : guiProbeCommand(),
+              20000, out, err, rc, {}, {}, {}, {}, false, verboso);
+    return readGuiProbe(out);
+}
+
 std::string tarArchive(const std::vector<std::pair<std::string, std::string>>& entradas,
                        std::string& error) {
     error.clear();
@@ -594,6 +632,47 @@ std::string cliInstallScript(const std::string& binPath) {
            "\"$bin\" version";
 }
 
+namespace {
+
+// Puts `tar` at `subida` on a Windows machine: by scp, or copied when the machine is this one.
+// False with `r` filled when it could not.
+bool subeAWindows(const ConnectionProfile& perfil, const std::string& tar,
+                  const std::string& subida, Result& r) {
+    std::error_code ec2;
+    const std::filesystem::path local =
+        std::filesystem::temp_directory_path(ec2)
+        / ("zfsmgr-kit-" + std::to_string(std::random_device{}()) + ".tar");
+    {
+        std::ofstream f(local, std::ios::binary | std::ios::trunc);
+        f.write(tar.data(), static_cast<std::streamsize>(tar.size()));
+        if (!f) {
+            r.fallo = Failure::UploadFailed;
+            r.detail = local.string();
+            return false;
+        }
+    }
+    ExecResult sr;
+    if (T::isLocalConnection(perfil)) {
+        std::filesystem::remove(subida, ec2);
+        std::filesystem::copy_file(local, subida, ec2);
+        sr.rc = ec2 ? 1 : 0;
+        sr.err = ec2 ? subida + ": " + ec2.message() : std::string();
+    } else {
+        const H::ScpInvocation inv = H::scpUpload(perfil, local.string(), subida, false);
+        sr = runExecStream(inv.program, inv.args, std::string(), 300000, StreamCallbacks{});
+    }
+    std::filesystem::remove(local, ec2);
+    if (sr.rc != 0) {
+        r.fallo = Failure::UploadFailed;
+        r.rc = sr.rc;
+        r.detail = trim(sr.err);
+        return false;
+    }
+    return true;
+}
+
+}  // namespace
+
 Result installCli(TransportSession& ses, const ConnectionProfile& perfil,
                   const std::string& cliBinary, const std::string& i18nDir,
                   const std::string& agentsDir,
@@ -642,34 +721,7 @@ Result installCli(TransportSession& ses, const ConnectionProfile& perfil,
         // By scp, as the Windows agent: PowerShell does not come back from reading megabytes
         // on its standard input.
         const std::string subida = "C:/Users/Public/zfsmgr-cli.upload.tar";
-        std::error_code ec2;
-        const std::filesystem::path local =
-            std::filesystem::temp_directory_path(ec2)
-            / ("zfsmgr-cli-kit-" + std::to_string(std::random_device{}()) + ".tar");
-        {
-            std::ofstream f(local, std::ios::binary | std::ios::trunc);
-            f.write(tar.data(), static_cast<std::streamsize>(tar.size()));
-            if (!f) {
-                r.fallo = Failure::UploadFailed;
-                r.detail = local.string();
-                return r;
-            }
-        }
-        ExecResult sr;
-        if (T::isLocalConnection(perfil)) {
-            std::filesystem::remove(subida, ec2);
-            std::filesystem::copy_file(local, subida, ec2);
-            sr.rc = ec2 ? 1 : 0;
-            sr.err = ec2 ? subida + ": " + ec2.message() : std::string();
-        } else {
-            const H::ScpInvocation inv = H::scpUpload(perfil, local.string(), subida, false);
-            sr = runExecStream(inv.program, inv.args, std::string(), 300000, StreamCallbacks{});
-        }
-        std::filesystem::remove(local, ec2);
-        if (sr.rc != 0) {
-            r.fallo = Failure::UploadFailed;
-            r.rc = sr.rc;
-            r.detail = trim(sr.err);
+        if (!subeAWindows(perfil, tar, subida, r)) {
             return r;
         }
         if (!T::runSsh(ses, perfil, cliInstallScriptWindows(binPath, subida), 300000, out, errSsh,
@@ -688,6 +740,123 @@ Result installCli(TransportSession& ses, const ConnectionProfile& perfil,
         r.rc = rc;
         r.detail = trim(errSsh.empty() ? out : errSsh);
         return r;
+    }
+    return r;
+}
+
+std::vector<std::pair<std::string, std::string>> packageEntries(const std::string& dir,
+                                                                std::string& error) {
+    error.clear();
+    std::vector<std::pair<std::string, std::string>> out;
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    for (const char* f : {"MANIFIESTO.sha256", "install-linux.sh", "install-windows.ps1"}) {
+        if (!fs::is_regular_file(fs::path(dir) / f, ec)) {
+            error = dir + ": not a ZFSMgr package (no " + f + ")";
+            return {};
+        }
+    }
+    for (auto it = fs::recursive_directory_iterator(dir, ec); !ec && it != fs::end(it);
+         it.increment(ec)) {
+        if (it->is_regular_file(ec)) {
+            out.emplace_back(fs::relative(it->path(), dir, ec).generic_string(),
+                             it->path().string());
+        }
+    }
+    if (ec) {
+        error = dir + ": " + ec.message();
+        return {};
+    }
+    return out;
+}
+
+std::string packageInstallScript(const std::string& plataforma, const PackageOptions& o) {
+    std::string opts = o.daemon ? " --with-daemon" : " --no-daemon";
+    if (o.cliOnly) {
+        opts += " --cli-only";
+    }
+    if (o.force) {
+        opts += " --force";
+    }
+    // Choosing to install it from another machine is the confirmation FreeBSD asks for.
+    if (plataforma == "freebsd") {
+        opts += " --accept-experimental";
+    }
+    // The installer reads nothing: its questions only come with a terminal, and every answer
+    // goes as an option. Its language follows LC_MESSAGES (lib/common.sh).
+    return std::string("set -e; d=$(mktemp -d /tmp/zfsmgr-pkg.XXXXXX); trap 'rm -rf \"$d\"' EXIT; ")
+           + "tar -xf - -C \"$d\"; LC_ALL=; LC_MESSAGES=" + (o.lang == "es" ? "es" : "en")
+           + "; export LC_ALL LC_MESSAGES; sh \"$d/install-" + plataforma + ".sh\"" + opts
+           + " </dev/null";
+}
+
+std::string packageInstallScriptWindows(const std::string& upload, const PackageOptions& o) {
+    std::string opts = o.daemon ? " -WithDaemon" : " -NoDaemon";
+    if (o.cliOnly) {
+        opts += " -CliOnly";
+    }
+    if (o.force) {
+        opts += " -Force";
+    }
+    // -Quiet: no questions and no windows of the installer, nobody is there to see them.
+    return "$ErrorActionPreference='Stop'; $up='" + upload
+           + "'; $d=Join-Path $env:TEMP ('zfsmgr-pkg-' + [guid]::NewGuid()); "
+             "New-Item -ItemType Directory -Force -Path $d | Out-Null; $rc=1; "
+             "try { "
+             "& tar.exe -xf $up -C $d; "
+             "if ($LASTEXITCODE -ne 0) { throw 'tar could not unpack the package' }; "
+             "& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $d "
+             "'install-windows.ps1') -Quiet"
+           + opts
+           + "; $rc=$LASTEXITCODE "
+             "} finally { "
+             "Remove-Item -Recurse -Force -LiteralPath $d -ErrorAction SilentlyContinue; "
+             "Remove-Item -Force -LiteralPath $up -ErrorAction SilentlyContinue } "
+             "exit $rc";
+}
+
+Result installPackage(TransportSession& ses, const ConnectionProfile& perfil,
+                      const std::string& packageDir, const PackageOptions& o,
+                      const std::function<void(const std::string&)>& traza, bool verboso) {
+    Result r;
+    std::string err;
+    const auto entradas = packageEntries(packageDir, err);
+    if (entradas.empty()) {
+        r.fallo = Failure::UnreadableBinary;
+        r.detail = err;
+        return r;
+    }
+    const std::string tar = tarArchive(entradas, err);
+    if (tar.empty()) {
+        r.fallo = Failure::UnreadableBinary;
+        r.detail = err;
+        return r;
+    }
+    const std::string plataforma = platformOf(perfil);
+    r.isMac = plataforma == "macos";
+    std::string out;
+    std::string errSsh;
+    int rc = -1;
+    if (plataforma == "windows") {
+        const std::string subida = "C:/Users/Public/zfsmgr-pkg.upload.tar";
+        if (!subeAWindows(perfil, tar, subida, r)) {
+            return r;
+        }
+        if (!T::runSsh(ses, perfil, packageInstallScriptWindows(subida, o), 900000, out, errSsh,
+                       rc, traza, traza, {}, {}, false, verboso)
+            || rc != 0) {
+            r.fallo = Failure::InstallFailed;
+            r.rc = rc;
+            r.detail = trim(errSsh.empty() ? out : errSsh);
+        }
+        return r;
+    }
+    if (!T::runSsh(ses, perfil, H::withSudoCommand(perfil, packageInstallScript(plataforma, o)),
+                   900000, out, errSsh, rc, traza, traza, {}, tar, false, verboso)
+        || rc != 0) {
+        r.fallo = Failure::InstallFailed;
+        r.rc = rc;
+        r.detail = trim(errSsh.empty() ? out : errSsh);
     }
     return r;
 }

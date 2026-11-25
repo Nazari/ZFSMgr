@@ -546,6 +546,7 @@ const std::map<std::string, Manejador>& ordenesDelInterprete() {
         {"jobs", cmdJobs},
         {"job", cmdJob},
         {"install-daemon", cmdInstalarDaemon},
+        {"install-package", cmdInstalarPaquete},
         {"send", cmdSend},
         {"history", cmdHistory},
         {"allow", [](Estado& s, const LineaAnalizada& l) { return cmdPermisos(s, l, true); }},
