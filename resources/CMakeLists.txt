@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.21)
 # Sin declararlo, CMake compilaba esos ficheros como C++ y sus símbolos no casaban con las
 # declaraciones `extern "C"` del lado C++ —el enlazado fallaba con «referencia sin definir»
 # sobre funciones que estaban ahí mismo—.
-project(ZFSMgr VERSION 1.2.0 LANGUAGES C CXX)
+project(ZFSMgr VERSION 2.0.0 LANGUAGES C CXX)
 include(CTest)
 
 # Un `switch` sobre un enum al que le falte un caso es un ERROR, no un aviso.
@@ -23,7 +23,7 @@ else()
     add_compile_options(-Werror=switch)
 endif()
 
-set(ZFSMGR_APP_VERSION_STRING "1.4.3")
+set(ZFSMGR_APP_VERSION_STRING "2.0.0rc1")
 set(ZFSMGR_AGENT_SCHEMA_MARKER [=[linux-service:/etc/systemd/system/zfsmgr-agent.service
 linux-bin:/usr/local/libexec/zfsmgr-agent
 linux-config:/etc/zfsmgr/agent.toml
