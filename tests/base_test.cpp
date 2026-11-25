@@ -5458,9 +5458,8 @@ void caso57() {
     const PL::CopiedOptions o =
         PL::optionsToCopy(pool, raiz, [](const std::string& p) { return p != "acltype"; });
     using KV = std::vector<std::pair<std::string, std::string>>;
-    comprobar(
-        o.pool == KV{{"ashift", "12"}, {"autotrim", "on"}, {"compatibility", "openzfs-2.4-linux"}},
-        "opts-as: the pool's local properties, without features or import-time ones");
+    comprobar(o.pool == KV{{"ashift", "12"}, {"autotrim", "on"}, {"compatibility", "openzfs-2.4"}},
+              "opts-as: the pool's local properties, without features or import-time ones");
     // xattr=sa stays: its default differs by platform, so it is never assumed.
     comprobar(o.rootFs == KV{{"compression", "zstd-19"}, {"comment", "two words"}, {"xattr", "sa"}},
               "opts-as: root properties, without mountpoint, encryption, user ones or unsupported");
@@ -5472,9 +5471,22 @@ void caso57() {
     const std::string nueva = PL::rewriteWithOptions(linea, o, {{"-o", "ashift=9"}});
     igual(nueva,
           std::string("create tank2 mirror sda \"sdb x\" -o ashift=9 -o autotrim=on "
-                      "-o compatibility=openzfs-2.4-linux -O compression=zstd-19 "
+                      "-o compatibility=openzfs-2.4 -O compression=zstd-19 "
                       "-O \"comment=two words\" -O xattr=sa"),
           "opts-as: the line drops --opts-as, keeps what was typed and adds the rest");
+
+    // compatibility: the platform's name of a 2.2+ file is the generic one —Windows has only
+    // that—; older ones and lists keep the rest as they are.
+    const auto compat = [](const std::string& v) {
+        const PL::CopiedOptions c = PL::optionsToCopy({{"compatibility", v, "local"}}, {}, {});
+        return c.pool.empty() ? std::string() : c.pool.front().second;
+    };
+    igual(compat("openzfs-2.4-linux"), std::string("openzfs-2.4"), "compatibility: 2.4-linux");
+    igual(compat("openzfs-2.2-freebsd"), std::string("openzfs-2.2"), "compatibility: 2.2-freebsd");
+    igual(compat("openzfs-2.1-linux"), std::string("openzfs-2.1-linux"),
+          "compatibility: before 2.2 the files differ, and it stays");
+    igual(compat("openzfs-2.3-linux,grub2"), std::string("openzfs-2.3,grub2"),
+          "compatibility: each name of a list");
 }
 
 // GSA: the target prune after a recursive receive, which already removed what the source

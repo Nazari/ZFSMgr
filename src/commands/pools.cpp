@@ -2,6 +2,7 @@
 
 #include <cctype>
 #include <map>
+#include <regex>
 #include <set>
 
 #include "strutil.h"
@@ -168,6 +169,31 @@ std::string quoted(const std::string& v) {
     return out + "\"";
 }
 
+// `compatibility` as every platform reads it. Since OpenZFS 2.2 «openzfs-2.N-linux» and
+// «openzfs-2.N-freebsd» are links to «openzfs-2.N» —the same features—, and OpenZFS on Windows
+// only ships the latter: copied from a Linux pool, `-o compatibility=openzfs-2.4-linux` made
+// `zpool create` fail on a1278 (2026-11-25). Earlier versions really differ, and stay.
+std::string portableCompatibility(const std::string& value) {
+    static const std::regex kPlatform("^openzfs-2\\.([0-9]+)-(linux|freebsd)$");
+    std::string out;
+    std::size_t from = 0;
+    while (from <= value.size()) {
+        const std::size_t comma = value.find(',', from);
+        std::string item =
+            value.substr(from, comma == std::string::npos ? std::string::npos : comma - from);
+        std::smatch m;
+        if (std::regex_match(item, m, kPlatform) && std::stoi(m[1].str()) >= 2) {
+            item = "openzfs-2." + m[1].str();
+        }
+        out += (out.empty() && from == 0 ? "" : ",") + item;
+        if (comma == std::string::npos) {
+            break;
+        }
+        from = comma + 1;
+    }
+    return out;
+}
+
 }  // namespace
 
 CopiedOptions optionsToCopy(const std::vector<SourcedProperty>& poolProps,
@@ -243,7 +269,8 @@ CopiedOptions optionsToCopy(const std::vector<SourcedProperty>& poolProps,
             continue;
         }
         if (!esPorDefecto(kPoolDefaults, p)) {
-            out.pool.emplace_back(p.name, p.value);
+            out.pool.emplace_back(
+                p.name, p.name == "compatibility" ? portableCompatibility(p.value) : p.value);
         }
     }
     for (const SourcedProperty& p : rootProps) {
