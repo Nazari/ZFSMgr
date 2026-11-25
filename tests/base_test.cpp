@@ -1336,13 +1336,21 @@ void caso32() {
         comprobar(TR::makePlan(snapOk, dsOk, true).routes.size() == 1,
                   "transferencia: con trabajos en los dos, si");
 
-        // EL ORDEN de los noes. Windows corta TODO, no solo un camino: los dos primeros
-        // necesitan tuberia y el tercero es un guion POSIX que alli no se ejecuta.
+        // A Windows end moves data only through its agent: with daemons and jobs it gets the
+        // agent's routes, never the SSH pipeline, whose stdio stops at 132 KiB there.
         const TR::Endpoint win = ext("oldlau", "wp/d", true, true, true);
-        comprobar(TR::makePlan(snapOk, win, false).failure == TR::Failure::WindowsEndpoint,
-                  "transferencia: Windows corta aunque tenga daemon y trabajos");
-        comprobar(TR::makePlan(snapOk, win, false).routes.empty(),
-                  "transferencia: y no deja ningun camino que probar");
+        const TR::Plan conWin = TR::makePlan(snapOk, win, false);
+        comprobar(conWin.failure == TR::Failure::None_ && conWin.routes.size() == 2
+                      && conWin.routes.at(0) == TR::Route::AsyncJob
+                      && conWin.routes.at(1) == TR::Route::DaemonToDaemon,
+                  "transfer: a Windows end with its agent gets the agent's routes only");
+        TR::Endpoint winSinAgente = win;
+        winSinAgente.hasDaemon = false;
+        winSinAgente.supportsJobs = false;
+        comprobar(TR::makePlan(snapOk, winSinAgente, false).failure == TR::Failure::WindowsEndpoint,
+                  "transfer: without its agent a Windows end has no route");
+        comprobar(TR::makePlan(snapOk, winSinAgente, false).routes.empty(),
+                  "transfer: and the SSH pipeline is not offered");
         // Y lo que no depende del camino corta antes que Windows.
         comprobar(TR::makePlan(ext("local", "p/d", false, true, true), win, false).failure
                       == TR::Failure::SourceIsNotSnapshot,

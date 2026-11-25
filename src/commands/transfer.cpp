@@ -57,8 +57,9 @@ std::string labelOf(Failure f) {
         case Failure::TargetIsNotDataset:
             return i18n::tr("t_cmd_transfer_destino_tiene_ser_dataset", "el destino tiene que ser un dataset, no un snapshot");
         case Failure::WindowsEndpoint:
-            return i18n::tr("t_cmd_transfer_esta_disponible_cuando_algun", "no está disponible cuando algún extremo es Windows: hace falta "
-                   "transmitir por una tubería, y el agente de Windows todavía no lo hace");
+            return i18n::tr("t_cmd_transfer_windows_sin_agente",
+                            "un extremo Windows necesita su agente en marcha: por SSH el flujo "
+                            "se corta a los 132 KiB");
         case Failure::NoJobSupport:
             return i18n::tr("t_cmd_transfer_hace_falta_dos_daemons", "hace falta que los dos daemons admitan trabajos en segundo plano, "
                    "porque quien lo pide no puede esperar a que termine");
@@ -152,18 +153,6 @@ Plan makePlan(const Endpoint& origen, const Endpoint& destino, bool exigeAsincro
         return p;
     }
 
-    // Windows corta TODO, no solo un camino.
-    //
-    // Los dos que quedan necesitan transmitir por una tubería, y el agente de Windows no lo
-    // hace; el tercero es un guion de shell POSIX que allí no puede ejecutarse desde que se
-    // retiró MSYS2. Encolarlo igualmente hacía que PowerShell devolviera su objeto de error
-    // en XML y el usuario viera un «<Objs Version="1.1.0.1">…» que no guarda ninguna
-    // relación aparente con la copia que había pedido.
-    if (origen.isWindows || destino.isWindows) {
-        p.failure = Failure::WindowsEndpoint;
-        return p;
-    }
-
     const bool hayLosDosDaemons = origen.hasDaemon && destino.hasDaemon;
     const bool hayTrabajos = hayLosDosDaemons && origen.supportsJobs && destino.supportsJobs;
 
@@ -181,8 +170,15 @@ Plan makePlan(const Endpoint& origen, const Endpoint& destino, bool exigeAsincro
     if (hayLosDosDaemons) {
         p.routes.push_back(Route::DaemonToDaemon);
     }
-    // La tubería SSH no necesita daemon en ningún extremo: manda `zfs send` y `zfs recv`
-    // por SSH. Es lo que queda cuando no hay daemon, y por eso siempre entra en la lista.
+    // The SSH pipeline needs no daemon at either end: it runs `zfs send` and `zfs recv` over
+    // SSH. Not with a Windows end, though: the stdio of a command run by sshd stops at
+    // 132 KiB there, in both directions. A Windows end moves data only through its agent.
+    if (origen.isWindows || destino.isWindows) {
+        if (p.routes.empty()) {
+            p.failure = Failure::WindowsEndpoint;
+        }
+        return p;
+    }
     p.routes.push_back(Route::SshPipeline);
     return p;
 }

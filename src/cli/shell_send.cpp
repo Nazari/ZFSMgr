@@ -209,18 +209,9 @@ bool cmdSend(Estado& e, const LineaAnalizada& linea) {
         std::fprintf(stderr, "%s\n", error.c_str());
         return false;
     }
-    // El extremo de ZFS no puede ser Windows: el flujo por socket no está portado allí.
-    // Decirlo AQUÍ evita un fallo a mitad de transfer que no se entiende. Un FICHERO en
-    // Windows sí vale: guardarlo o leerlo no pasa por `zfs`.
-    if ((ficheroOrigen.empty() && T::isWindowsConnection(*pOrigen))
-        || (ficheroDestino.empty() && T::isWindowsConnection(*pDestino))) {
-        std::fputs(TC("t_la_transfe_6f9799",
-                      "la transferencia por socket no está disponible en Windows.\n"
-                      "Para llevar datos a o desde una máquina Windows, use «todir» y "
-                      "«fromdir».\n"),
-                   stderr);
-        return false;
-    }
+    // A Windows end is fine: its agent pumps the socket into an anonymous pipe for
+    // `zfs recv` and reads `zfs send` from one, the only input and output OpenZFS on Windows
+    // takes whole (a socket, sshd's included, stops it at 132 KiB).
     const bool mismaMaquina =
         B::toLowerAscii(origen.connection) == B::toLowerAscii(destino.connection);
 
