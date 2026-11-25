@@ -1,8 +1,12 @@
 package org.zfsmgr.gui;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
+import javax.swing.Timer;
 
 /**
  * What the interface knows about the machines right now: {@code ls zfsm://} and the
@@ -16,6 +20,8 @@ public final class StateStore {
     private List<StatusModel.MachineView> machines = new ArrayList<>();
     private final List<Runnable> listeners = new ArrayList<>();
     private final List<Runnable> refreshing = new ArrayList<>();
+    private final List<Runnable> jobEnded = new ArrayList<>();
+    private final Set<String> followed = new HashSet<>();
     private long updatedAt;
     private int generation;
     private boolean listFailed;
@@ -34,6 +40,57 @@ public final class StateStore {
 
     public void onRefreshing(Runnable r) {
         refreshing.add(r);
+    }
+
+    /**
+     * Runs when a job this interface launched ends, however it ends: what it copied is on its
+     * destination now, and whatever shows that destination has to ask again.
+     */
+    public void onJobEnded(Runnable r) {
+        jobEnded.add(r);
+    }
+
+    /** Milliseconds between two looks at a followed job: the daemon updates it at that pace. */
+    static final int JOB_POLL_MS = 2000;
+
+    /**
+     * If {@code out} is the answer of a command that started a job ({@code {"job_id", "connection"}},
+     * as {@code send} gives it), follows that job until it ends; then the listeners of
+     * {@link #onJobEnded} run and everything is refreshed. Without this, a copy that ended a
+     * minute after the command returned stayed invisible until the interface was opened again.
+     */
+    public void followIfJob(String out) {
+        Map<String, Object> o = Json.firstObject(out);
+        String id = Json.str(o, "job_id");
+        String machine = Json.str(o, "connection");
+        if (id.isEmpty() || machine.isEmpty() || !followed.add(machine + "/" + id)) {
+            return;
+        }
+        Timer t = new Timer(JOB_POLL_MS, null);
+        t.setRepeats(false);
+        int[] failures = {0};
+        t.addActionListener(e -> forMachine(machine).requestQuiet("job " + id + " --on zfsm://" + machine, r -> {
+            String state = jobState(r.out());
+            boolean unknown = state.isEmpty();
+            if (unknown && ++failures[0] < 5 || state.equals("running") || state.equals("queued")) {
+                t.restart();
+                return;
+            }
+            followed.remove(machine + "/" + id);
+            jobEnded.forEach(Runnable::run);
+            refresh();
+        }));
+        t.start();
+    }
+
+    /** The «state» of a {@code job <id>} answer: {"job": [{"field": …, "value": …}, …]}. */
+    static String jobState(String out) {
+        for (Map<String, Object> f : Json.objects(Json.firstObject(out), "job")) {
+            if ("state".equals(Json.str(f, "field"))) {
+                return Json.str(f, "value");
+            }
+        }
+        return "";
     }
 
     public void onFirstComplete(Runnable r) {

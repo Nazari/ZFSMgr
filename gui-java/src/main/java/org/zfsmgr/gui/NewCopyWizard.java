@@ -519,6 +519,7 @@ public final class NewCopyWizard extends JDialog {
         store.general().request(toRun.get(i), r -> {
             if (r.ok()) {
                 progressModel.set(i, "✓  " + toRun.get(i));
+                store.followIfJob(r.out());
                 runNext();
                 return;
             }

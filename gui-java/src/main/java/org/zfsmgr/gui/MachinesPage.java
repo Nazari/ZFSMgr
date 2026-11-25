@@ -154,6 +154,7 @@ public final class MachinesPage extends JPanel {
             rebuildMachines();
             continueReveal();
         });
+        store.onJobEnded(this::reloadOpenPools);
         rebuildMachines();
         showDetail();
     }
@@ -1713,20 +1714,28 @@ public final class MachinesPage extends JPanel {
                 then.run();
             }
             if (reloadTree) {
-                // The open pools are asked again: what changed is in one of them.
-                for (int i = 0; i < root.getChildCount(); i++) {
-                    DefaultMutableTreeNode mi = (DefaultMutableTreeNode) root.getChildAt(i);
-                    for (int j = 0; j < mi.getChildCount(); j++) {
-                        DefaultMutableTreeNode pi = (DefaultMutableTreeNode) mi.getChildAt(j);
-                        Node pn = nodeOf(pi);
-                        if (pn != null && pn.kind() == Kind.POOL && !unloaded(pi) && pi.getChildCount() >= 0
-                                && entries.containsKey(pn.machine() + "/" + pn.name())) {
-                            loadPool(pi);
-                        }
-                    }
-                }
+                reloadOpenPools();
+            }
+            if (r.ok()) {
+                // A command that left a job behind changes its destination when the job ends.
+                store.followIfJob(r.out());
             }
             store.refresh();
         });
+    }
+
+    /** The open pools are asked again: what changed is in one of them. */
+    private void reloadOpenPools() {
+        for (int i = 0; i < root.getChildCount(); i++) {
+            DefaultMutableTreeNode mi = (DefaultMutableTreeNode) root.getChildAt(i);
+            for (int j = 0; j < mi.getChildCount(); j++) {
+                DefaultMutableTreeNode pi = (DefaultMutableTreeNode) mi.getChildAt(j);
+                Node pn = nodeOf(pi);
+                if (pn != null && pn.kind() == Kind.POOL && !unloaded(pi)
+                        && entries.containsKey(pn.machine() + "/" + pn.name())) {
+                    loadPool(pi);
+                }
+            }
+        }
     }
 }
